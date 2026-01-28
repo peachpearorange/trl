@@ -48,4 +48,24 @@ mod tests {
         });
         app.update();
     }
+
+    #[test]
+    fn test_spawn_inserts_component() {
+        use std::sync::{Arc, Mutex};
+
+        let mut app = App::new();
+        let entity_id = Arc::new(Mutex::new(Entity::PLACEHOLDER));
+        let entity_id_clone = entity_id.clone();
+
+        app.add_systems(Startup, move |mut commands: Commands| {
+            let id = Spawnable::TestRoot { val: 42.0 }.spawn(&mut commands);
+            *entity_id_clone.lock().unwrap() = id;
+        });
+        app.update();
+
+        let id = *entity_id.lock().unwrap();
+        let world = app.world();
+        let comp = world.get::<TestComponent>(id).expect("TestComponent not found");
+        assert_eq!(comp.0, 42.0);
+    }
 }
