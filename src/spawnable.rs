@@ -8,3 +8,17 @@ macro_rules! spawnable {
         }
     };
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    spawnable! {
+        (Root { x: f32, y: f32 }, ((),)),
+    }
+
+    #[test]
+    fn test_root_variant_exists() {
+        let _root = Spawnable::Root { x: 1.0, y: 2.0 };
+    }
+}
