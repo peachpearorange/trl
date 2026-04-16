@@ -51,7 +51,7 @@ impl PixelArt {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum EntityFaction {
+pub enum Faction {
   Player,
   Friendly,
   Hostile,
@@ -67,13 +67,13 @@ pub struct Sprite {
 impl Sprite {
   pub fn new(art: PixelArt, char: char) -> Self { Sprite { art, char } }
 
-  pub fn get_color(&self, faction: EntityFaction, ch: char) -> Color {
+  pub fn get_color(&self, faction: Faction, ch: char) -> Color {
     match (faction, ch) {
-      (EntityFaction::Player, '@') => Color::White,
-      (EntityFaction::Player, _) => Color::Cyan,
-      (EntityFaction::Friendly, _) => Color::Green,
-      (EntityFaction::Hostile, _) => Color::Red,
-      (EntityFaction::Neutral, _) => Color::Yellow
+      (Faction::Player, '@') => Color::White,
+      (Faction::Player, _) => Color::Cyan,
+      (Faction::Friendly, _) => Color::Green,
+      (Faction::Hostile, _) => Color::Red,
+      (Faction::Neutral, _) => Color::Yellow
     }
   }
 

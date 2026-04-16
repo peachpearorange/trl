@@ -1,4 +1,4 @@
-use {crate::tile_loader::EntityFaction,
+use {crate::tile_loader::Faction,
      serde::{Deserialize, Serialize}};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,7 +40,7 @@ pub struct Entity {
   pub hp: i32,
   pub max_hp: i32,
   pub sprite_name: String,
-  pub faction: EntityFaction
+  pub faction: Faction
 }
 
 impl Entity {
@@ -49,7 +49,7 @@ impl Entity {
     char: char,
     name: &str,
     sprite_name: &str,
-    faction: EntityFaction,
+    faction: Faction,
     blocks: bool
   ) -> Self {
     Entity {
@@ -81,7 +81,7 @@ impl GameState {
         '@',
         "Player",
         "player",
-        EntityFaction::Player,
+        Faction::Player,
         true
       ),
       entities: Vec::new()
