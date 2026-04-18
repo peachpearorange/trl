@@ -3,7 +3,7 @@ mod combat;
 
 use {
   bevy::prelude::*,
-  combat::{TileEntityIndex, maintain_tile_index},
+  combat::{TileEntityIndex, enemy_ai, maintain_tile_index},
   level::{FovGrid, Tile, World, build_test_world, compute_fov},
   trl::entities::{Enemy, Glyph, Location, Named, Spawnable, Stats, Wearing},
 };
@@ -235,6 +235,7 @@ fn main() {
         advance_realtime,
         handle_menus,
         player_input,
+        enemy_ai,
         camera_follow,
         update_fov_visuals,
         mouse_hover_tile,

@@ -1,7 +1,7 @@
 use {
   bevy::prelude::*,
   std::collections::HashMap,
-  trl::entities::{Armor, Location, Stats, Wearing},
+  trl::entities::{Armor, Enemy, Location, Stats, TimeSinceAction, Wearing},
 };
 
 // ---------------------------------------------------------------------------
@@ -49,6 +49,60 @@ pub fn resolve_damage(attack: i32, wearing: Option<&Wearing>) -> i32 {
     .map(|armor| armor.dr())
     .unwrap_or(0);
   (attack - dr).max(0)
+}
+
+// ---------------------------------------------------------------------------
+// Enemy AI
+// ---------------------------------------------------------------------------
+
+fn step_toward(ex: i32, ey: i32, px: i32, py: i32) -> (i32, i32) {
+  ((px - ex).signum(), (py - ey).signum())
+}
+
+pub fn enemy_ai(
+  time: Res<Time>,
+  index: Res<TileEntityIndex>,
+  cz: Res<crate::CurrentZ>,
+  gw: Res<crate::GameWorld>,
+  mut player_q: Query<(&crate::PlayerPos, &mut Stats), With<crate::Player>>,
+  mut enemy_q: Query<
+    (&mut Location, &mut TimeSinceAction, &Stats, Option<&Wearing>),
+    With<Enemy>,
+  >,
+) {
+  let Ok((player_pos, mut player_stats)) = player_q.single_mut() else { return };
+  let (px, py) = (player_pos.x, player_pos.y);
+  let level = gw.0.level(cz.0);
+  let dt = time.delta_secs();
+
+  for (mut location, mut timer, enemy_stats, enemy_wearing) in enemy_q.iter_mut() {
+    timer.0 += dt;
+
+    let Location::Coords { x: ex, y: ey } = *location else { continue };
+    let dist = (px - ex).abs().max((py - ey).abs());
+
+    // Attack if adjacent
+    if dist == 1 && timer.0 >= 1.0 / enemy_stats.attack_speed {
+      let dmg = resolve_damage(enemy_stats.attack, enemy_wearing);
+      player_stats.hp = (player_stats.hp - dmg).max(0);
+      if player_stats.hp == 0 {
+        bevy::log::info!("You died.");
+      }
+      timer.0 = 0.0;
+      continue;
+    }
+
+    // Move toward player
+    if timer.0 >= 1.0 / enemy_stats.move_speed {
+      let (dx, dy) = step_toward(ex, ey, px, py);
+      let (nx, ny) = (ex + dx, ey + dy);
+      // Only move if tile is walkable and not already occupied
+      if level.walkable(nx, ny) && !index.0.contains_key(&(nx, ny)) {
+        *location = Location::Coords { x: nx, y: ny };
+      }
+      timer.0 = 0.0;
+    }
+  }
 }
 
 #[cfg(test)]
