@@ -24,7 +24,26 @@ pub enum Item {
   Sword,
   Coin,
   Potion,
-  Key
+  Key,
+  Spear
+}
+
+/// Armor types that can be worn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Armor {
+  Leather,
+  Chain,
+  Plate,
+}
+
+impl Armor {
+  pub fn dr(self) -> i32 {
+    match self {
+      Armor::Leather => 1,
+      Armor::Chain => 2,
+      Armor::Plate => 3,
+    }
+  }
 }
 
 /// Materials for construction.
@@ -82,6 +101,42 @@ pub struct Enemy;
 /// A tree entity.
 #[derive(Component)]
 pub struct Tree;
+
+/// ASCII glyph visual: char + RGB color for Text2d rendering.
+#[derive(Component, Clone)]
+pub struct Glyph {
+  pub ch: char,
+  pub color: [f32; 3],
+}
+
+/// Identity and SS13-style flavor text shown on hover.
+#[derive(Component)]
+pub struct Named {
+  pub name:   &'static str,
+  pub flavor: &'static str,
+}
+
+/// Flat combat stats.
+#[derive(Component)]
+pub struct Stats {
+  pub hp:           i32,
+  pub max_hp:       i32,
+  pub attack:       i32,
+  pub move_speed:   f32,
+  pub attack_speed: f32,
+}
+
+/// What an entity is holding. None = unarmed (has hands, holds nothing).
+#[derive(Component)]
+pub struct Wielding(pub Option<Item>);
+
+/// Armor being worn. None = unarmored.
+#[derive(Component)]
+pub struct Wearing(pub Option<Armor>);
+
+/// Tracks time since the entity last acted (seconds). Used by enemy AI.
+#[derive(Component)]
+pub struct TimeSinceAction(pub f32);
 
 // ============ SPAWNABLE ============
 
