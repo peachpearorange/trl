@@ -1,7 +1,7 @@
 use {
   bevy::prelude::*,
   std::collections::HashMap,
-  trl::entities::{Armor, Location, Wearing},
+  trl::entities::{Armor, Location, Stats, Wearing},
 };
 
 // ---------------------------------------------------------------------------
@@ -29,6 +29,18 @@ pub fn maintain_tile_index(
 // ---------------------------------------------------------------------------
 // Damage calculation
 // ---------------------------------------------------------------------------
+
+/// Apply player attack to an enemy. Returns true if the enemy died.
+/// Caller is responsible for despawning dead entities.
+pub fn bump_attack(
+  attacker_attack: i32,
+  target_stats: &mut Stats,
+  target_wearing: Option<&Wearing>,
+) -> bool {
+  let dmg = resolve_damage(attacker_attack, target_wearing);
+  target_stats.hp -= dmg;
+  target_stats.hp <= 0
+}
 
 /// Compute damage dealt to a target, accounting for armor DR.
 pub fn resolve_damage(attack: i32, wearing: Option<&Wearing>) -> i32 {

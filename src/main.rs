@@ -901,14 +901,19 @@ fn player_input(
   mut cooldown: ResMut<MoveCooldown>,
   mut fov: ResMut<Fov>,
   cz: Res<CurrentZ>,
+  index: Res<TileEntityIndex>,
   mut commands: Commands,
-  mut player_query: Query<(&mut PlayerPos, &mut Transform), With<Player>>
+  mut player_query: Query<(&mut PlayerPos, &mut Transform, &Stats), With<Player>>,
+  mut enemy_query: Query<(&mut Stats, Option<&Wearing>), (With<Enemy>, Without<Player>)>,
 ) {
   if *pause != PauseMenu::Closed || matches!(*menu, InteractMenu::Open { .. }) {
     return;
   }
 
-  let Ok((mut pos, mut transform)) = player_query.single_mut() else { return };
+  // Read player attack before mutable borrow of pos
+  let player_attack = player_query.single().ok().map(|(_, _, s)| s.attack).unwrap_or(5);
+
+  let Ok((mut pos, mut transform, _)) = player_query.single_mut() else { return };
 
   if cooldown.0 > 0.0 {
     cooldown.0 = (cooldown.0 - time.delta_secs()).max(0.0);
@@ -939,6 +944,29 @@ fn player_input(
 
   let level = gw.0.level(cz.0);
   let (dx, dy) = resolve_move(level, pos.x, pos.y, dir.0, dir.1);
+
+  // Bump attack: if target tile has a hostile entity, attack instead of moving
+  let target_x = pos.x + dx;
+  let target_y = pos.y + dy;
+  if dx != 0 || dy != 0 {
+    let hostile_entity = index
+      .0
+      .get(&(target_x, target_y))
+      .and_then(|entities| entities.iter().find(|&&e| enemy_query.get(e).is_ok()))
+      .copied();
+
+    if let Some(enemy_entity) = hostile_entity
+      && let Ok((mut enemy_stats, enemy_wearing)) = enemy_query.get_mut(enemy_entity)
+    {
+      let died = combat::bump_attack(player_attack, &mut enemy_stats, enemy_wearing);
+      if died {
+        commands.entity(enemy_entity).despawn();
+      }
+      clock.advance(PlayerAction::Move { dx, dy }.time_cost());
+      cooldown.0 = MOVE_COOLDOWN;
+      return;
+    }
+  }
 
   if (dx, dy) != (0, 0) {
     let action = PlayerAction::Move { dx, dy };
