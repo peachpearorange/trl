@@ -1,7 +1,12 @@
 mod level;
+mod combat;
 
-use {bevy::prelude::*,
-     level::{FovGrid, Tile, World, build_test_world, compute_fov}};
+use {
+  bevy::prelude::*,
+  combat::{TileEntityIndex, maintain_tile_index},
+  level::{FovGrid, Tile, World, build_test_world, compute_fov},
+  trl::entities::{Enemy, Glyph, Location, Named, Spawnable, Stats, Wearing},
+};
 
 const TILE_SIZE: f32 = 16.0;
 const MOVE_COOLDOWN: f32 = 0.12;
@@ -129,6 +134,12 @@ struct TileGlyph {
 }
 
 #[derive(Component)]
+struct ItemGlyph {
+  x: usize,
+  y: usize
+}
+
+#[derive(Component)]
 struct InteractOverlay;
 
 #[derive(Component)]
@@ -172,13 +183,14 @@ fn main() {
     .insert_resource(InteractMenu::default())
     .insert_resource(PauseMenu::default())
     .insert_resource(Fov(fov))
+    .insert_resource(TileEntityIndex::default())
     .add_systems(Startup, setup)
     .add_systems(
       Update,
       (
+        maintain_tile_index,
         advance_realtime,
-        handle_pause_menu,
-        handle_interact_menu,
+        handle_menus,
         player_input,
         camera_follow,
         update_fov_visuals,
@@ -310,6 +322,19 @@ fn spawn_level_tiles(commands: &mut Commands, world: &World, z: usize) {
         Transform::from_translation(tile_screen_pos(x, y, world.width, world.height)),
         TileGlyph { x, y }
       ));
+
+      if let Some(item) = level.items[y][x] {
+        let [r, g, b] = item.color();
+        commands.spawn((
+          Text2d::new(item.glyph()),
+          TextFont { font_size: TILE_SIZE, ..default() },
+          TextColor(Color::srgba(r, g, b, 0.0)),
+          Transform::from_translation(
+            tile_screen_pos(x, y, world.width, world.height) + Vec3::new(0.0, 0.0, 1.0)
+          ),
+          ItemGlyph { x, y }
+        ));
+      }
     }
   }
 }
@@ -519,22 +544,54 @@ fn resolve_move(level: &level::Level, px: i32, py: i32, dx: i32, dy: i32) -> (i3
 // Pause / Esc menu
 // ---------------------------------------------------------------------------
 
-fn handle_pause_menu(
+fn handle_menus(
   keys: Res<ButtonInput<KeyCode>>,
   mut pause: ResMut<PauseMenu>,
-  interact: Res<InteractMenu>,
+  mut interact: ResMut<InteractMenu>,
   mut commands: Commands,
-  overlay_q: Query<Entity, With<PauseOverlay>>,
+  pause_overlay_q: Query<Entity, With<PauseOverlay>>,
+  interact_overlay_q: Query<Entity, With<InteractOverlay>>,
+  mut gw: ResMut<GameWorld>,
+  mut cz: ResMut<CurrentZ>,
+  mut clock: ResMut<GameClock>,
+  mut fov: ResMut<Fov>,
+  tile_query: Query<Entity, With<TileGlyph>>,
+  mut player_query: Query<(&mut PlayerPos, &mut Transform), With<Player>>,
   mut exit: MessageWriter<AppExit>
 ) {
-  // don't handle esc if interact menu is open (it handles its own esc)
-  if matches!(*interact, InteractMenu::Open { .. }) {
+  // 1. Interact menu takes priority
+  if let InteractMenu::Open { options } = &*interact {
+    if keys.just_pressed(KeyCode::Escape) {
+      *interact = InteractMenu::Closed;
+      despawn_interact_overlays(&mut commands, &interact_overlay_q);
+      return;
+    }
+
+    let selection = [
+      KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3,
+      KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6,
+      KeyCode::Digit7, KeyCode::Digit8, KeyCode::Digit9
+    ]
+    .iter()
+    .position(|k| keys.just_pressed(*k));
+
+    if let Some(idx) = selection
+      && idx < options.len()
+    {
+      let option = options[idx].clone();
+      *interact = InteractMenu::Closed;
+      despawn_interact_overlays(&mut commands, &interact_overlay_q);
+      execute_interaction(
+        &option.action, &mut gw, &mut cz, &mut clock, &mut fov,
+        &mut commands, &tile_query, &mut player_query
+      );
+    }
     return;
   }
 
+  // 2. Pause menu
   match *pause {
     PauseMenu::Closed => {
-      // Esc or ? opens menu
       let open = keys.just_pressed(KeyCode::Escape)
         || (keys.just_pressed(KeyCode::Slash)
           && (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight)));
@@ -549,13 +606,11 @@ fn handle_pause_menu(
       }
     }
     PauseMenu::Main => {
-      if keys.just_pressed(KeyCode::Escape) {
-        close_pause(&mut pause, &mut commands, &overlay_q);
-      } else if keys.just_pressed(KeyCode::Digit1) {
-        close_pause(&mut pause, &mut commands, &overlay_q);
+      if keys.just_pressed(KeyCode::Escape) || keys.just_pressed(KeyCode::Digit1) {
+        *pause = PauseMenu::Closed;
+        despawn_overlays(&mut commands, &pause_overlay_q);
       } else if keys.just_pressed(KeyCode::Digit2) {
-        // controls
-        close_pause_overlay(&mut commands, &overlay_q);
+        despawn_overlays(&mut commands, &pause_overlay_q);
         *pause = PauseMenu::Controls;
         spawn_pause_overlay(&mut commands, &pause);
       } else if keys.just_pressed(KeyCode::Digit3) {
@@ -564,7 +619,7 @@ fn handle_pause_menu(
     }
     PauseMenu::Controls => {
       if keys.just_pressed(KeyCode::Escape) {
-        close_pause_overlay(&mut commands, &overlay_q);
+        despawn_overlays(&mut commands, &pause_overlay_q);
         *pause = PauseMenu::Main;
         spawn_pause_overlay(&mut commands, &pause);
       }
@@ -606,20 +661,14 @@ fn spawn_pause_overlay(commands: &mut Commands, state: &PauseMenu) {
   ));
 }
 
-fn close_pause(
-  pause: &mut ResMut<PauseMenu>,
-  commands: &mut Commands,
-  overlay_q: &Query<Entity, With<PauseOverlay>>
-) {
-  **pause = PauseMenu::Closed;
-  close_pause_overlay(commands, overlay_q);
+fn despawn_overlays(commands: &mut Commands, query: &Query<Entity, With<PauseOverlay>>) {
+  for entity in query.iter() {
+    commands.entity(entity).despawn();
+  }
 }
 
-fn close_pause_overlay(
-  commands: &mut Commands,
-  overlay_q: &Query<Entity, With<PauseOverlay>>
-) {
-  for entity in overlay_q.iter() {
+fn despawn_interact_overlays(commands: &mut Commands, query: &Query<Entity, With<InteractOverlay>>) {
+  for entity in query.iter() {
     commands.entity(entity).despawn();
   }
 }
@@ -684,76 +733,6 @@ fn direction_name(dx: i32, dy: i32) -> String {
     _ => "?"
   }
   .to_string()
-}
-
-fn handle_interact_menu(
-  keys: Res<ButtonInput<KeyCode>>,
-  mut menu: ResMut<InteractMenu>,
-  pause: Res<PauseMenu>,
-  mut commands: Commands,
-  overlay_q: Query<Entity, With<InteractOverlay>>,
-  mut gw: ResMut<GameWorld>,
-  mut cz: ResMut<CurrentZ>,
-  mut clock: ResMut<GameClock>,
-  mut fov: ResMut<Fov>,
-  tile_query: Query<Entity, With<TileGlyph>>,
-  mut player_query: Query<(&mut PlayerPos, &mut Transform), With<Player>>
-) {
-  if *pause != PauseMenu::Closed {
-    return;
-  }
-
-  match &*menu {
-    InteractMenu::Closed => return,
-    InteractMenu::Open { options } => {
-      if keys.just_pressed(KeyCode::Escape) {
-        close_interact(&mut menu, &mut commands, &overlay_q);
-        return;
-      }
-
-      let selection = [
-        KeyCode::Digit1,
-        KeyCode::Digit2,
-        KeyCode::Digit3,
-        KeyCode::Digit4,
-        KeyCode::Digit5,
-        KeyCode::Digit6,
-        KeyCode::Digit7,
-        KeyCode::Digit8,
-        KeyCode::Digit9
-      ]
-      .iter()
-      .position(|k| keys.just_pressed(*k));
-
-      if let Some(idx) = selection
-        && idx < options.len()
-      {
-        let option = options[idx].clone();
-        close_interact(&mut menu, &mut commands, &overlay_q);
-        execute_interaction(
-          &option.action,
-          &mut gw,
-          &mut cz,
-          &mut clock,
-          &mut fov,
-          &mut commands,
-          &tile_query,
-          &mut player_query
-        );
-      }
-    }
-  }
-}
-
-fn close_interact(
-  menu: &mut ResMut<InteractMenu>,
-  commands: &mut Commands,
-  overlay_q: &Query<Entity, With<InteractOverlay>>
-) {
-  **menu = InteractMenu::Closed;
-  for entity in overlay_q.iter() {
-    commands.entity(entity).despawn();
-  }
 }
 
 fn show_interact_menu(
@@ -836,7 +815,6 @@ fn player_input(
   time: Res<Time>,
   gw: Res<GameWorld>,
   pause: Res<PauseMenu>,
-  interact: Res<InteractMenu>,
   mut menu: ResMut<InteractMenu>,
   mut clock: ResMut<GameClock>,
   mut cooldown: ResMut<MoveCooldown>,
@@ -845,7 +823,7 @@ fn player_input(
   mut commands: Commands,
   mut player_query: Query<(&mut PlayerPos, &mut Transform), With<Player>>
 ) {
-  if *pause != PauseMenu::Closed || matches!(*interact, InteractMenu::Open { .. }) {
+  if *pause != PauseMenu::Closed || matches!(*menu, InteractMenu::Open { .. }) {
     return;
   }
 
