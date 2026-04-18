@@ -187,7 +187,7 @@ impl Spawnable {
   pub fn physical(blocks: bool) -> Self      { Self::new(Collidable(blocks)) }
   pub fn character(faction: Faction) -> Self  { Self::physical(true).add((Character, FactionComp(faction))) }
   pub fn player() -> Self                     { Self::character(Faction::Player).add(Player) }
-  pub fn enemy() -> Self                      { Self::character(Faction::Hostile).add(Enemy) }
+  pub fn enemy() -> Self                      { Self::character(Faction::Hostile).add((Enemy, TimeSinceAction(0.0))) }
   pub fn structure(blocks: bool) -> Self      { Self::physical(blocks) }
   pub fn wall(material: Material) -> Self     { Self::structure(true).add(WallComp { material }) }
   pub fn tree() -> Self                       { Self::structure(true).add(Tree) }
@@ -206,7 +206,6 @@ impl Spawnable {
         Wielding(Some(Item::Spear)),
         Wearing(None),
         Glyph { ch: 'r', color: Color::srgb(0.9, 0.6, 0.4) },
-        TimeSinceAction(0.0),
       ))
   }
 
@@ -214,14 +213,13 @@ impl Spawnable {
     Self::enemy()
       .add((
         Named {
-          name: "Rat Soldier",
-          flavor: "A wiry rat-person clutching a crude spear. Smells like wet fur and old iron.",
+          name: "Armored Rat Soldier",
+          flavor: "A rat-person in battered leather armor, gripping a crude spear. The hide smells worse than the iron.",
         },
         Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 3.0, attack_speed: 1.0 },
         Wielding(Some(Item::Spear)),
         Wearing(Some(Armor::Leather)),
         Glyph { ch: 'r', color: Color::srgb(0.7, 0.5, 0.3) },
-        TimeSinceAction(0.0),
       ))
   }
 

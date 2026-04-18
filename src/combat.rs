@@ -1,6 +1,6 @@
 use {
   bevy::prelude::*,
-  std::collections::HashMap,
+  std::collections::{HashMap, HashSet},
   trl::entities::{Enemy, Location, Stats, TimeSinceAction, Wearing},
 };
 
@@ -75,6 +75,8 @@ pub fn enemy_ai(
   let level = gw.0.level(cz.0);
   let dt = time.delta_secs();
 
+  let mut claimed: HashSet<(i32, i32)> = HashSet::new();
+
   for (mut location, mut timer, enemy_stats, enemy_wearing) in enemy_q.iter_mut() {
     timer.0 += dt;
 
@@ -97,8 +99,12 @@ pub fn enemy_ai(
       let (dx, dy) = step_toward(ex, ey, px, py);
       let (nx, ny) = (ex + dx, ey + dy);
       // Only move if tile is walkable and not already occupied
-      if level.walkable(nx, ny) && !index.0.contains_key(&(nx, ny)) {
+      if level.walkable(nx, ny)
+        && !index.0.contains_key(&(nx, ny))
+        && !claimed.contains(&(nx, ny))
+      {
         *location = Location::Coords { x: nx, y: ny };
+        claimed.insert((nx, ny));
         timer.0 = 0.0;
       }
     }

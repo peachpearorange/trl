@@ -235,6 +235,7 @@ fn main() {
         advance_realtime,
         handle_menus,
         player_input,
+        ApplyDeferred,
         enemy_ai,
         camera_follow,
         update_fov_visuals,
