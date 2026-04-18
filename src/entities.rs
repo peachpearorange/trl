@@ -103,21 +103,21 @@ pub struct Enemy;
 pub struct Tree;
 
 /// ASCII glyph visual: char + RGB color for Text2d rendering.
-#[derive(Component, Clone)]
+#[derive(Component, Clone, Debug)]
 pub struct Glyph {
   pub ch: char,
-  pub color: [f32; 3],
+  pub color: Color,
 }
 
 /// Identity and SS13-style flavor text shown on hover.
-#[derive(Component)]
+#[derive(Component, Debug)]
 pub struct Named {
   pub name:   &'static str,
   pub flavor: &'static str,
 }
 
 /// Flat combat stats.
-#[derive(Component)]
+#[derive(Component, Debug)]
 pub struct Stats {
   pub hp:           i32,
   pub max_hp:       i32,
@@ -127,15 +127,15 @@ pub struct Stats {
 }
 
 /// What an entity is holding. None = unarmed (has hands, holds nothing).
-#[derive(Component)]
+#[derive(Component, Debug)]
 pub struct Wielding(pub Option<Item>);
 
 /// Armor being worn. None = unarmored.
-#[derive(Component)]
+#[derive(Component, Debug)]
 pub struct Wearing(pub Option<Armor>);
 
 /// Tracks time since the entity last acted (seconds). Used by enemy AI.
-#[derive(Component)]
+#[derive(Component, Debug, Default)]
 pub struct TimeSinceAction(pub f32);
 
 // ============ SPAWNABLE ============
