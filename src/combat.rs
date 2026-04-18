@@ -64,10 +64,10 @@ pub fn enemy_ai(
   index: Res<TileEntityIndex>,
   cz: Res<crate::CurrentZ>,
   gw: Res<crate::GameWorld>,
-  mut player_q: Query<(&crate::PlayerPos, &mut Stats), With<crate::Player>>,
+  mut player_q: Query<(&crate::PlayerPos, &mut Stats), (With<crate::Player>, Without<Enemy>)>,
   mut enemy_q: Query<
     (&mut Location, &mut TimeSinceAction, &Stats, Option<&Wearing>),
-    With<Enemy>,
+    (With<Enemy>, Without<crate::Player>),
   >,
 ) {
   let Ok((player_pos, mut player_stats)) = player_q.single_mut() else { return };
