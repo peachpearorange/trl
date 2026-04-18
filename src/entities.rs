@@ -165,7 +165,7 @@ impl Spawnable {
 
   /// NPC base: Neutral faction, non-blocking.
   pub fn npc() -> Self {
-    Self::new((Character, FactionComp(Faction::Neutral)))
+    Self::new((Collidable(false), Character, FactionComp(Faction::Neutral)))
   }
 
   /// Spawn this entity at tile coordinates, inserting Location::Coords.
