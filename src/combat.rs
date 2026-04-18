@@ -1,7 +1,7 @@
 use {
   bevy::prelude::*,
   std::collections::HashMap,
-  trl::entities::{Armor, Enemy, Location, Stats, TimeSinceAction, Wearing},
+  trl::entities::{Enemy, Location, Stats, TimeSinceAction, Wearing},
 };
 
 // ---------------------------------------------------------------------------
