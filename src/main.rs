@@ -516,7 +516,7 @@ fn mouse_hover_tile(
       .and_then(|&e| named_q.get(e).ok())
       .map(|(named, stats)| {
         let hp_bar = stats.map(|s| {
-          let filled = ((s.hp as f32 / s.max_hp as f32) * 10.0).round() as usize;
+          let filled = (((s.hp as f32 / s.max_hp as f32) * 10.0).round() as usize).min(10);
           let empty = 10usize.saturating_sub(filled);
           format!("\n[{}{}] {}/{}", "█".repeat(filled), "░".repeat(empty), s.hp, s.max_hp)
         });
