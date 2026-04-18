@@ -99,8 +99,8 @@ pub fn enemy_ai(
       // Only move if tile is walkable and not already occupied
       if level.walkable(nx, ny) && !index.0.contains_key(&(nx, ny)) {
         *location = Location::Coords { x: nx, y: ny };
+        timer.0 = 0.0;
       }
-      timer.0 = 0.0;
     }
   }
 }

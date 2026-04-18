@@ -236,7 +236,6 @@ impl Spawnable {
         Wielding(None),
         Wearing(None),
         Glyph { ch: 'c', color: Color::srgb(0.9, 0.7, 0.9) },
-        TimeSinceAction(0.0),
       ))
   }
 }
