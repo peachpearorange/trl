@@ -462,7 +462,9 @@ fn mouse_hover_tile(
   gw: Res<GameWorld>,
   cz: Res<CurrentZ>,
   fov: Res<Fov>,
-  mut info_q: Query<&mut Text2d, With<TileInfoDisplay>>
+  index: Res<TileEntityIndex>,
+  named_q: Query<(&Named, Option<&Stats>)>,
+  mut info_q: Query<&mut Text2d, With<TileInfoDisplay>>,
 ) {
   let Ok(mut info_text) = info_q.single_mut() else { return };
   let Ok(window) = windows.single() else { return };
@@ -472,7 +474,6 @@ fn mouse_hover_tile(
     *info_text = Text2d::new("");
     return;
   };
-
   let Ok(world_pos) = camera.viewport_to_world_2d(cam_transform, cursor_pos) else {
     *info_text = Text2d::new("");
     return;
@@ -481,25 +482,52 @@ fn mouse_hover_tile(
   let (tx, ty) = screen_to_tile(world_pos, gw.0.width, gw.0.height);
   let level = gw.0.level(cz.0);
 
-  if tx >= 0
+  let in_bounds = tx >= 0
     && ty >= 0
     && (tx as usize) < level.width
-    && (ty as usize) < level.height
-    && fov.0.is_visible(tx as usize, ty as usize)
-  {
-    let tile = level.tiles[ty as usize][tx as usize];
-    *info_text = Text2d::new(format!("({tx}, {ty})\n{}", tile.name()));
-  } else if tx >= 0
-    && ty >= 0
-    && (tx as usize) < level.width
-    && (ty as usize) < level.height
-    && fov.0.is_revealed(tx as usize, ty as usize)
-  {
-    let tile = level.tiles[ty as usize][tx as usize];
-    *info_text = Text2d::new(format!("({tx}, {ty})\n{} (remembered)", tile.name()));
-  } else {
+    && (ty as usize) < level.height;
+
+  if !in_bounds {
     *info_text = Text2d::new("");
+    return;
   }
+
+  let visible = fov.0.is_visible(tx as usize, ty as usize);
+  let revealed = fov.0.is_revealed(tx as usize, ty as usize);
+
+  if !visible && !revealed {
+    *info_text = Text2d::new("");
+    return;
+  }
+
+  let tile = level.tiles[ty as usize][tx as usize];
+  let tile_line = if revealed && !visible {
+    format!("({tx}, {ty})\n{} (remembered)", tile.name())
+  } else {
+    format!("({tx}, {ty})\n{}", tile.name())
+  };
+
+  // Entity info — only show for currently visible tiles
+  let entity_lines = if visible {
+    index
+      .0
+      .get(&(tx, ty))
+      .and_then(|entities| entities.first())
+      .and_then(|&e| named_q.get(e).ok())
+      .map(|(named, stats)| {
+        let hp_bar = stats.map(|s| {
+          let filled = ((s.hp as f32 / s.max_hp as f32) * 10.0).round() as usize;
+          let empty = 10usize.saturating_sub(filled);
+          format!("\n[{}{}] {}/{}", "█".repeat(filled), "░".repeat(empty), s.hp, s.max_hp)
+        });
+        format!("\n\n{}{}\n{}", named.name, hp_bar.unwrap_or_default(), named.flavor)
+      })
+      .unwrap_or_default()
+  } else {
+    String::new()
+  };
+
+  *info_text = Text2d::new(format!("{tile_line}{entity_lines}"));
 }
 
 // ---------------------------------------------------------------------------
