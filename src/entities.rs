@@ -163,6 +163,19 @@ impl Spawnable {
     e.id()
   }
 
+  /// NPC base: Neutral faction, non-blocking.
+  pub fn npc() -> Self {
+    Self::new((Character, FactionComp(Faction::Neutral)))
+  }
+
+  /// Spawn this entity at tile coordinates, inserting Location::Coords.
+  pub fn spawn_at(self, commands: &mut Commands, x: i32, y: i32) -> Entity {
+    let mut e = commands.spawn_empty();
+    (self.0)(&mut e);
+    e.insert(Location::Coords { x, y });
+    e.id()
+  }
+
   // ---- constructor hierarchy ----
   //
   //  physical ── character ─┬─ player
@@ -181,4 +194,49 @@ impl Spawnable {
   pub fn door(open: bool) -> Self             { Self::structure(!open).add(Door { open }) }
   pub fn ground_item(item: Item) -> Self      { Self::new(GroundItem(item)) }
   pub fn torch(radius: u32) -> Self           { Self::new(LightSource { radius }) }
+
+  pub fn rat_soldier() -> Self {
+    Self::enemy()
+      .add((
+        Named {
+          name: "Rat Soldier",
+          flavor: "A wiry rat-person clutching a crude spear. Smells like wet fur and old iron.",
+        },
+        Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 3.0, attack_speed: 1.0 },
+        Wielding(Some(Item::Spear)),
+        Wearing(None),
+        Glyph { ch: 'r', color: Color::srgb(0.9, 0.6, 0.4) },
+        TimeSinceAction(0.0),
+      ))
+  }
+
+  pub fn armored_rat_soldier() -> Self {
+    Self::enemy()
+      .add((
+        Named {
+          name: "Rat Soldier",
+          flavor: "A wiry rat-person clutching a crude spear. Smells like wet fur and old iron.",
+        },
+        Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 3.0, attack_speed: 1.0 },
+        Wielding(Some(Item::Spear)),
+        Wearing(Some(Armor::Leather)),
+        Glyph { ch: 'r', color: Color::srgb(0.7, 0.5, 0.3) },
+        TimeSinceAction(0.0),
+      ))
+  }
+
+  pub fn catgirl() -> Self {
+    Self::npc()
+      .add((
+        Named {
+          name: "Catgirl",
+          flavor: "She eyes you warily, ears flat against her head.",
+        },
+        Stats { hp: 8, max_hp: 8, attack: 2, move_speed: 4.0, attack_speed: 1.2 },
+        Wielding(None),
+        Wearing(None),
+        Glyph { ch: 'c', color: Color::srgb(0.9, 0.7, 0.9) },
+        TimeSinceAction(0.0),
+      ))
+  }
 }
