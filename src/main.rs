@@ -157,6 +157,47 @@ struct LevelDisplay;
 #[derive(Component)]
 struct TileInfoDisplay;
 
+/// Marker for entities that have had their Text2d visual set up.
+#[derive(Component)]
+struct GlyphVisual;
+
+// ---------------------------------------------------------------------------
+// Glyph rendering systems
+// ---------------------------------------------------------------------------
+
+fn setup_glyph_visuals(
+  mut commands: Commands,
+  gw: Res<GameWorld>,
+  query: Query<(Entity, &Glyph, &Location), (Added<Glyph>, Without<GlyphVisual>)>,
+) {
+  for (entity, glyph, location) in query.iter() {
+    if let Location::Coords { x, y } = location {
+      let pos = tile_screen_pos(*x as usize, *y as usize, gw.0.width, gw.0.height)
+        + Vec3::new(0.0, 0.0, 2.0);
+      commands.entity(entity).insert((
+        Text2d::new(glyph.ch.to_string()),
+        TextFont { font_size: TILE_SIZE, ..default() },
+        TextColor(glyph.color),
+        Transform::from_translation(pos),
+        GlyphVisual,
+      ));
+    }
+  }
+}
+
+fn sync_entity_positions(
+  gw: Res<GameWorld>,
+  mut query: Query<(&Location, &mut Transform), (With<GlyphVisual>, Changed<Location>)>,
+) {
+  for (location, mut transform) in query.iter_mut() {
+    if let Location::Coords { x, y } = location {
+      transform.translation =
+        tile_screen_pos(*x as usize, *y as usize, gw.0.width, gw.0.height)
+          + Vec3::new(0.0, 0.0, 2.0);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // App
 // ---------------------------------------------------------------------------
@@ -189,13 +230,15 @@ fn main() {
       Update,
       (
         maintain_tile_index,
+        setup_glyph_visuals,
+        sync_entity_positions,
         advance_realtime,
         handle_menus,
         player_input,
         camera_follow,
         update_fov_visuals,
         mouse_hover_tile,
-        update_hud
+        update_hud,
       )
         .chain()
     )
@@ -246,8 +289,18 @@ fn setup(
       tile_screen_pos(px as usize, py as usize, gw.0.width, gw.0.height) + Vec3::Z
     ),
     Player,
-    PlayerPos { x: px, y: py }
+    PlayerPos { x: px, y: py },
+    Stats { hp: 20, max_hp: 20, attack: 5, move_speed: 3.0, attack_speed: 1.0 },
   ));
+
+  // Spawn enemies and NPCs
+  let (ex1, ey1) = find_walkable(level, px + 5, py);
+  let (ex2, ey2) = find_walkable(level, px + 3, py + 4);
+  let (cx1, cy1) = find_walkable(level, px - 4, py + 2);
+
+  Spawnable::rat_soldier().spawn_at(&mut commands, ex1, ey1);
+  Spawnable::armored_rat_soldier().spawn_at(&mut commands, ex2, ey2);
+  Spawnable::catgirl().spawn_at(&mut commands, cx1, cy1);
 
   // HUD — children of camera so they stay fixed on screen
   let time_id = commands
