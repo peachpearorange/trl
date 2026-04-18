@@ -19,6 +19,7 @@ pub fn maintain_tile_index(
 ) {
   index.0.clear();
   for (entity, location) in query.iter() {
+    // Only index entities at specific tile coordinates; other Location variants are intentionally skipped.
     if let Location::Coords { x, y } = location {
       index.0.entry((*x, *y)).or_default().push(entity);
     }
@@ -32,9 +33,8 @@ pub fn maintain_tile_index(
 /// Compute damage dealt to a target, accounting for armor DR.
 pub fn resolve_damage(attack: i32, wearing: Option<&Wearing>) -> i32 {
   let dr = wearing
-    .map(|w| w.0)
-    .flatten()
-    .map(|armor: Armor| armor.dr())
+    .and_then(|w| w.0)
+    .map(|armor| armor.dr())
     .unwrap_or(0);
   (attack - dr).max(0)
 }
@@ -65,5 +65,11 @@ mod tests {
   fn chain_armor_dr() {
     let wearing = Wearing(Some(Armor::Chain)); // DR 2
     assert_eq!(resolve_damage(4, Some(&wearing)), 2);
+  }
+
+  #[test]
+  fn zero_attack_deals_no_damage() {
+    let wearing = Wearing(Some(Armor::Leather)); // DR 1
+    assert_eq!(resolve_damage(0, Some(&wearing)), 0);
   }
 }
