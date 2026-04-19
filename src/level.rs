@@ -11,6 +11,47 @@ pub enum Tile {
   Door
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Item {
+  GoldCoin,
+  HealthPotion,
+  Torch,
+  Rock,
+  Mushroom
+}
+
+impl Item {
+  pub fn name(self) -> &'static str {
+    match self {
+      Item::GoldCoin => "Gold Coin",
+      Item::HealthPotion => "Health Potion",
+      Item::Torch => "Torch",
+      Item::Rock => "Rock",
+      Item::Mushroom => "Mushroom"
+    }
+  }
+
+  pub fn glyph(self) -> &'static str {
+    match self {
+      Item::GoldCoin => "$",
+      Item::HealthPotion => "!",
+      Item::Torch => "/",
+      Item::Rock => "`",
+      Item::Mushroom => "%"
+    }
+  }
+
+  pub fn color(self) -> [f32; 3] {
+    match self {
+      Item::GoldCoin => [1.0, 0.85, 0.0],
+      Item::HealthPotion => [0.9, 0.2, 0.3],
+      Item::Torch => [1.0, 0.6, 0.1],
+      Item::Rock => [0.5, 0.5, 0.5],
+      Item::Mushroom => [0.6, 0.3, 0.7]
+    }
+  }
+}
+
 impl Tile {
   pub fn glyph(self) -> &'static str {
     match self {
@@ -43,12 +84,7 @@ impl Tile {
   pub fn walkable(self) -> bool {
     matches!(
       self,
-      Tile::Floor
-        | Tile::Grass
-        | Tile::Sand
-        | Tile::StairsUp
-        | Tile::StairsDown
-        | Tile::Door
+      Tile::Floor | Tile::Grass | Tile::Sand | Tile::StairsUp | Tile::StairsDown
     )
   }
 }
@@ -73,13 +109,19 @@ impl Tile {
 
 pub struct Level {
   pub tiles: Vec<Vec<Tile>>,
+  pub items: Vec<Vec<Option<Item>>>,
   pub width: usize,
   pub height: usize
 }
 
 impl Level {
   pub fn new(width: usize, height: usize, fill: Tile) -> Self {
-    Level { tiles: vec![vec![fill; width]; height], width, height }
+    Level {
+      tiles: vec![vec![fill; width]; height],
+      items: vec![vec![None; width]; height],
+      width,
+      height
+    }
   }
 
   pub fn get(&self, x: i32, y: i32) -> Option<Tile> {
@@ -88,6 +130,20 @@ impl Level {
     }
     let (ux, uy) = (x as usize, y as usize);
     (ux < self.width && uy < self.height).then(|| self.tiles[uy][ux])
+  }
+
+  pub fn get_item(&self, x: i32, y: i32) -> Option<Item> {
+    if x < 0 || y < 0 {
+      return None;
+    }
+    let (ux, uy) = (x as usize, y as usize);
+    (ux < self.width && uy < self.height).then(|| self.items[uy][ux]).flatten()
+  }
+
+  pub fn set_item(&mut self, x: i32, y: i32, item: Option<Item>) {
+    if x >= 0 && y >= 0 && (x as usize) < self.width && (y as usize) < self.height {
+      self.items[y as usize][x as usize] = item;
+    }
   }
 
   pub fn set(&mut self, x: i32, y: i32, tile: Tile) {
@@ -171,11 +227,11 @@ pub fn place_corridor(level: &mut Level, x1: i32, y1: i32, x2: i32, y2: i32) {
 /// Caller is responsible for ensuring both levels exist.
 pub fn place_stairs(levels: &mut [Level], z_from: usize, z_to: usize, x: i32, y: i32) {
   if z_to > z_from {
-    levels[z_from].set(x, y, Tile::StairsDown);
-    levels[z_to].set(x, y, Tile::StairsUp);
-  } else {
     levels[z_from].set(x, y, Tile::StairsUp);
     levels[z_to].set(x, y, Tile::StairsDown);
+  } else {
+    levels[z_from].set(x, y, Tile::StairsDown);
+    levels[z_to].set(x, y, Tile::StairsUp);
   }
 }
 
@@ -291,6 +347,16 @@ pub fn build_test_world() -> World {
     for &(tx, ty) in &[(15, 15), (18, 12), (22, 16), (45, 20), (55, 14), (60, 22)] {
       s.set(tx, ty, Tile::Wall);
     }
+
+    // surface items
+    for &(tx, ty, item) in &[
+      (12, 30, Item::GoldCoin),
+      (25, 12, Item::Rock),
+      (48, 22, Item::Torch),
+      (65, 40, Item::Mushroom)
+    ] {
+      s.set_item(tx, ty, Some(item));
+    }
   }
 
   // === z=3: building upper floor ===
@@ -324,6 +390,17 @@ pub fn build_test_world() -> World {
 
     // sandy area
     carve_blob(c, 40, 35, 3, Tile::Sand);
+
+    // shallow cave items
+    for &(tx, ty, item) in &[
+      (25, 28, Item::GoldCoin),
+      (25, 29, Item::GoldCoin),
+      (50, 18, Item::HealthPotion),
+      (35, 32, Item::Torch),
+      (12, 36, Item::Mushroom)
+    ] {
+      c.set_item(tx, ty, Some(item));
+    }
   }
 
   // stairs: surface cave entrance (z=2) <-> shallow cave (z=1)
@@ -351,6 +428,21 @@ pub fn build_test_world() -> World {
 
     // sandy alcove
     carve_blob(d, 15, 40, 4, Tile::Sand);
+
+    // deep cave items
+    for &(tx, ty, item) in &[
+      (30, 28, Item::GoldCoin),
+      (31, 28, Item::GoldCoin),
+      (30, 29, Item::GoldCoin),
+      (20, 13, Item::HealthPotion),
+      (58, 23, Item::Torch),
+      (40, 35, Item::Rock),
+      (14, 39, Item::Mushroom),
+      (16, 41, Item::Mushroom),
+      (62, 26, Item::GoldCoin)
+    ] {
+      d.set_item(tx, ty, Some(item));
+    }
   }
 
   // stairs: shallow cave (z=1) <-> deep cave (z=0)
@@ -362,12 +454,11 @@ pub fn build_test_world() -> World {
 }
 
 // ---------------------------------------------------------------------------
-// SS13-style visibility (Bresenham raycasting)
+// Visibility: perimeter flood-fill
 //
-// For each tile within `radius` of the viewer, cast a ray from viewer to
-// target using Bresenham's line algorithm. Intermediate opaque tiles block
-// vision, but an opaque tile itself is visible (you can see the wall face).
-// This produces the sharp rectangular shadows characteristic of SS13.
+// Expand outward chebyshev-ring by chebyshev-ring from the viewer.
+// A tile is visible if any of its parent tiles (one step closer to the
+// viewer along each axis) is itself visible and not opaque.
 // ---------------------------------------------------------------------------
 
 pub struct FovGrid {
@@ -412,60 +503,73 @@ impl FovGrid {
 }
 
 /// Compute FOV from (cx, cy) with the given radius on the given level.
-/// Uses SS13-style Bresenham raycasting: cast a ray to every tile on the
-/// perimeter of the vision square, marking tiles visible along the way
-/// until hitting an opaque tile (which is itself marked visible).
+/// Uses perimeter flood-fill: expand outward ring by ring; a tile is visible
+/// if any of its parents (one step closer along each axis) are visible and
+/// not opaque.
 pub fn compute_fov(fov: &mut FovGrid, level: &Level, cx: i32, cy: i32, radius: i32) {
   fov.clear_visible();
 
   // viewer tile is always visible
-  if cx >= 0 && cy >= 0 {
+  if cx >= 0 && cy >= 0 && (cx as usize) < fov.width && (cy as usize) < fov.height {
     fov.mark_visible(cx as usize, cy as usize);
   }
 
-  // cast rays to every tile on the perimeter of the vision square
-  for dy in -radius..=radius {
-    cast_ray(fov, level, cx, cy, cx - radius, cy + dy);
-    cast_ray(fov, level, cx, cy, cx + radius, cy + dy);
+  // local visibility grid, offset-relative to viewer
+  let size = (2 * radius + 1) as usize;
+  let mut vis = vec![vec![false; size]; size];
+  let r = radius as usize;
+  vis[r][r] = true;
+
+  fn sign(n: i32) -> i32 {
+    if n > 0 { 1 } else if n < 0 { -1 } else { 0 }
   }
-  for dx in (-radius + 1)..radius {
-    cast_ray(fov, level, cx, cy, cx + dx, cy - radius);
-    cast_ray(fov, level, cx, cy, cx + dx, cy + radius);
-  }
-}
 
-fn cast_ray(fov: &mut FovGrid, level: &Level, x0: i32, y0: i32, x1: i32, y1: i32) {
-  let mut x = x0;
-  let mut y = y0;
-  let dx = (x1 - x0).abs();
-  let dy = -(y1 - y0).abs();
-  let sx = if x0 < x1 { 1 } else { -1 };
-  let sy = if y0 < y1 { 1 } else { -1 };
-  let mut err = dx + dy;
+  for d in 1..=radius {
+    for dx in -d..=d {
+      for dy in -d..=d {
+        if dx.abs().max(dy.abs()) != d {
+          continue;
+        }
+        let (sx, sy) = (sign(dx), sign(dy));
+        // All parents are on ring d-1, so iteration order doesn't matter.
+        // Corners use only the diagonal parent to ensure a single diagonal
+        // wall tile properly occludes. Edge tiles use two inward parents
+        // along their dominant axis so they aren't over-blocked.
+        let parents: &[(i32, i32)] = if dx == 0 {
+          &[(0, -sy)]
+        } else if dy == 0 {
+          &[(-sx, 0)]
+        } else if dx.abs() == dy.abs() {
+          // corner: only the diagonal d-1 parent
+          &[(-sx, -sy)]
+        } else if dx.abs() > dy.abs() {
+          // vertical edge: two parents one step inward along x
+          &[(-sx, 0), (-sx, -sy)]
+        } else {
+          // horizontal edge: two parents one step inward along y
+          &[(0, -sy), (-sx, -sy)]
+        };
 
-  loop {
-    // mark current tile visible if in bounds
-    if x >= 0 && y >= 0 && (x as usize) < fov.width && (y as usize) < fov.height {
-      fov.mark_visible(x as usize, y as usize);
+        let visible = parents.iter().any(|&(px, py)| {
+          let (pj, pi) = ((dx + px) + radius, (dy + py) + radius);
+          let (uj, ui) = (pj as usize, pi as usize);
+          uj < size
+            && ui < size
+            && vis[ui][uj]
+            && !level
+              .get(cx + dx + px, cy + dy + py)
+              .is_some_and(|t| t.opaque())
+        });
 
-      // if this tile is opaque and it's not the origin, stop the ray
-      if (x != x0 || y != y0) && level.get(x, y).is_some_and(|t| t.opaque()) {
-        return;
+        if visible {
+          let (j, i) = ((dx + radius) as usize, (dy + radius) as usize);
+          vis[i][j] = true;
+          let (wx, wy) = (cx + dx, cy + dy);
+          if wx >= 0 && wy >= 0 && (wx as usize) < fov.width && (wy as usize) < fov.height {
+            fov.mark_visible(wx as usize, wy as usize);
+          }
+        }
       }
-    }
-
-    if x == x1 && y == y1 {
-      return;
-    }
-
-    let e2 = 2 * err;
-    if e2 >= dy {
-      err += dy;
-      x += sx;
-    }
-    if e2 <= dx {
-      err += dx;
-      y += sy;
     }
   }
 }
