@@ -88,7 +88,7 @@ impl Tile {
   pub fn walkable(self) -> bool {
     matches!(
       self,
-      Tile::Floor | Tile::Grass | Tile::Sand | Tile::StairsUp | Tile::StairsDown | Tile::Pit
+      Tile::Air | Tile::Floor | Tile::Grass | Tile::Sand | Tile::StairsUp | Tile::StairsDown | Tile::Pit
     )
   }
 }
