@@ -150,9 +150,9 @@ pub struct Gravity;
 /// ```ignore
 /// player().add(Location::Coords { x: 5, y: 3 }).spawn(&mut commands);
 /// ```
-pub struct Spawnable(Box<dyn FnOnce(&mut EntityCommands) + Send + Sync>);
+pub struct Object(Box<dyn FnOnce(&mut EntityCommands) + Send + Sync>);
 
-impl Spawnable {
+impl Object {
   fn new(bundle: impl Bundle) -> Self {
     Self(Box::new(|e: &mut EntityCommands| { e.insert(bundle); }))
   }

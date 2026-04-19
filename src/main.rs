@@ -5,7 +5,7 @@ use {
   bevy::prelude::*,
   combat::{TileEntityIndex, enemy_ai, maintain_tile_index},
   level::{FovGrid, Tile, World, build_test_world, compute_fov},
-  trl::entities::{Enemy, Glyph, Gravity, Location, Named, Spawnable, Stats, Wearing},
+  trl::entities::{Enemy, Glyph, Gravity, Location, Named, Object, Stats, Wearing},
 };
 
 const TILE_SIZE: f32 = 16.0;
@@ -302,9 +302,9 @@ fn setup(
   let (ex2, ey2) = find_walkable(level, px + 3, py + 4);
   let (cx1, cy1) = find_walkable(level, px - 4, py + 2);
 
-  Spawnable::rat_soldier().spawn_at(&mut commands, ex1, ey1, cz.0);
-  Spawnable::armored_rat_soldier().spawn_at(&mut commands, ex2, ey2, cz.0);
-  Spawnable::catgirl().spawn_at(&mut commands, cx1, cy1, cz.0);
+  Object::rat_soldier().spawn_at(&mut commands, ex1, ey1, cz.0);
+  Object::armored_rat_soldier().spawn_at(&mut commands, ex2, ey2, cz.0);
+  Object::catgirl().spawn_at(&mut commands, cx1, cy1, cz.0);
 
   // HUD — children of camera so they stay fixed on screen
   let time_id = commands
