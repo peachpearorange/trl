@@ -96,6 +96,10 @@ impl Tile {
 impl Tile {
   pub fn opaque(self) -> bool { matches!(self, Tile::Wall | Tile::Door) }
 
+  /// True when an entity standing here should fall to the level below.
+  /// Either the tile itself is an open hole (Pit), or it's Air (open space).
+  pub fn causes_falling(self) -> bool { matches!(self, Tile::Pit | Tile::Air) }
+
   pub fn name(self) -> &'static str {
     match self {
       Tile::Air => "Air",

@@ -98,7 +98,12 @@ pub fn enemy_ai(
           && !index.0.contains_key(&(nx, ny, ez))
           && !claimed.contains(&(nx, ny))
         {
-          let nz = if level.tiles[ny as usize][nx as usize] == crate::Tile::Pit && ez > 0 {
+          let below = ez.checked_sub(1)
+            .map(|z1| gw.0.level(z1).tiles[ny as usize][nx as usize]);
+          let nz = if (level.tiles[ny as usize][nx as usize].causes_falling()
+            || below.is_some_and(|t| t.causes_falling()))
+            && ez > 0
+          {
             ez - 1
           } else {
             ez

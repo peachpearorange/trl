@@ -432,7 +432,13 @@ fn update_entity_visibility(
   }
 }
 
-/// Drop entities with Gravity that are standing on a Pit tile.
+fn should_fall(gw: &World, x: i32, y: i32, z: usize) -> bool {
+  let here = gw.level(z).tiles[y as usize][x as usize];
+  let below = z.checked_sub(1).map(|z1| gw.level(z1).tiles[y as usize][x as usize]);
+  here.causes_falling() || below.is_some_and(|t| t.causes_falling())
+}
+
+/// Drop entities with Gravity standing on open space or over a void.
 /// Non-player entities: update their Location z. Player: rebuild level display.
 fn apply_gravity(
   gw: Res<GameWorld>,
@@ -446,8 +452,8 @@ fn apply_gravity(
   // Non-player gravity entities: just update their z.
   for mut location in entity_q.iter_mut() {
     if let Location::Coords { x, y, z } = *location
-      && gw.0.level(z).tiles[y as usize][x as usize] == Tile::Pit
       && z > 0
+      && should_fall(&gw.0, x, y, z)
     {
       *location = Location::Coords { x, y, z: z - 1 };
     }
@@ -455,8 +461,8 @@ fn apply_gravity(
 
   // Player: fall and rebuild the level display.
   if let Ok((pos, mut transform)) = player_q.single_mut()
-    && gw.0.level(cz.0).tiles[pos.y as usize][pos.x as usize] == Tile::Pit
     && cz.0 > 0
+    && should_fall(&gw.0, pos.x, pos.y, cz.0)
   {
     cz.0 -= 1;
     rebuild_level(&mut commands, &tile_query, &gw.0, cz.0);
