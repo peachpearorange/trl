@@ -8,7 +8,9 @@ pub enum Tile {
   Sand,
   StairsUp,
   StairsDown,
-  Door
+  Door,
+  /// An open hole — walkable, but entities with Gravity fall through to z-1.
+  Pit,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -63,7 +65,8 @@ impl Tile {
       Tile::Sand => ",",
       Tile::StairsUp => "<",
       Tile::StairsDown => ">",
-      Tile::Door => "+"
+      Tile::Door => "+",
+      Tile::Pit => " ",
     }
   }
 
@@ -77,14 +80,15 @@ impl Tile {
       Tile::Sand => [0.8, 0.7, 0.4],
       Tile::StairsUp => [0.9, 0.9, 0.2],
       Tile::StairsDown => [0.9, 0.9, 0.2],
-      Tile::Door => [0.6, 0.3, 0.1]
+      Tile::Door => [0.6, 0.3, 0.1],
+      Tile::Pit => [0.08, 0.04, 0.04],
     }
   }
 
   pub fn walkable(self) -> bool {
     matches!(
       self,
-      Tile::Floor | Tile::Grass | Tile::Sand | Tile::StairsUp | Tile::StairsDown
+      Tile::Floor | Tile::Grass | Tile::Sand | Tile::StairsUp | Tile::StairsDown | Tile::Pit
     )
   }
 }
@@ -102,7 +106,8 @@ impl Tile {
       Tile::Sand => "Sand",
       Tile::StairsUp => "Stairs Up",
       Tile::StairsDown => "Stairs Down",
-      Tile::Door => "Door"
+      Tile::Door => "Door",
+      Tile::Pit => "Pit",
     }
   }
 }
@@ -337,8 +342,8 @@ pub fn build_test_world() -> World {
     // interior detail
     fill_rect(s, 36, 9, 1, 5, Tile::Wall);
 
-    // cave entrance (opening in the ground)
-    fill_rect(s, 5, 35, 8, 6, Tile::Floor);
+    // cave entrance: open pit you fall through (stairs at 8,38 are placed after)
+    fill_rect(s, 5, 35, 8, 6, Tile::Pit);
 
     // pond
     fill_rect(s, 50, 35, 7, 5, Tile::Water);

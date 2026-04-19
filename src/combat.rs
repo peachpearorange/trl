@@ -8,10 +8,10 @@ use {
 // Tile-entity spatial index
 // ---------------------------------------------------------------------------
 
-/// Maps tile coords to entities currently at that position.
+/// Maps (x, y, z) tile coords to entities at that position across all levels.
 /// Rebuilt from scratch each frame — simple, always correct.
 #[derive(Resource, Default)]
-pub struct TileEntityIndex(pub HashMap<(i32, i32), Vec<Entity>>);
+pub struct TileEntityIndex(pub HashMap<(i32, i32, usize), Vec<Entity>>);
 
 pub fn maintain_tile_index(
   mut index: ResMut<TileEntityIndex>,
@@ -19,9 +19,8 @@ pub fn maintain_tile_index(
 ) {
   index.0.clear();
   for (entity, location) in query.iter() {
-    // Only index entities at specific tile coordinates; other Location variants are intentionally skipped.
-    if let Location::Coords { x, y } = location {
-      index.0.entry((*x, *y)).or_default().push(entity);
+    if let Location::Coords { x, y, z } = location {
+      index.0.entry((*x, *y, *z)).or_default().push(entity);
     }
   }
 }
@@ -80,32 +79,34 @@ pub fn enemy_ai(
   for (mut location, mut timer, enemy_stats, enemy_wearing) in enemy_q.iter_mut() {
     timer.0 += dt;
 
-    let Location::Coords { x: ex, y: ey } = *location else { continue };
-    let dist = (px - ex).abs().max((py - ey).abs());
+    if let Location::Coords { x: ex, y: ey, z: ez } = *location
+      && ez == cz.0
+    {
+      let dist = (px - ex).abs().max((py - ey).abs());
 
-    // Attack if adjacent
-    if dist == 1 && timer.0 >= 1.0 / enemy_stats.attack_speed {
-      let dmg = resolve_damage(enemy_stats.attack, enemy_wearing);
-      player_stats.hp = (player_stats.hp - dmg).max(0);
-      if player_stats.hp == 0 {
-        bevy::log::info!("You died.");
-      }
-      timer.0 = 0.0;
-      continue;
-    }
-
-    // Move toward player
-    if timer.0 >= 1.0 / enemy_stats.move_speed {
-      let (dx, dy) = step_toward(ex, ey, px, py);
-      let (nx, ny) = (ex + dx, ey + dy);
-      // Only move if tile is walkable and not already occupied
-      if level.walkable(nx, ny)
-        && !index.0.contains_key(&(nx, ny))
-        && !claimed.contains(&(nx, ny))
-      {
-        *location = Location::Coords { x: nx, y: ny };
-        claimed.insert((nx, ny));
+      if dist == 1 && timer.0 >= 1.0 / enemy_stats.attack_speed {
+        let dmg = resolve_damage(enemy_stats.attack, enemy_wearing);
+        player_stats.hp = (player_stats.hp - dmg).max(0);
+        if player_stats.hp == 0 {
+          bevy::log::info!("You died.");
+        }
         timer.0 = 0.0;
+      } else if timer.0 >= 1.0 / enemy_stats.move_speed {
+        let (dx, dy) = step_toward(ex, ey, px, py);
+        let (nx, ny) = (ex + dx, ey + dy);
+        if level.walkable(nx, ny)
+          && !index.0.contains_key(&(nx, ny, ez))
+          && !claimed.contains(&(nx, ny))
+        {
+          let nz = if level.tiles[ny as usize][nx as usize] == crate::Tile::Pit && ez > 0 {
+            ez - 1
+          } else {
+            ez
+          };
+          *location = Location::Coords { x: nx, y: ny, z: nz };
+          claimed.insert((nx, ny));
+          timer.0 = 0.0;
+        }
       }
     }
   }

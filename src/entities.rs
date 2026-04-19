@@ -8,8 +8,8 @@ use {crate::tile_loader::Faction,
 /// Where an entity exists in the world.
 #[derive(Component, Clone, Debug)]
 pub enum Location {
-  /// At specific tile coordinates.
-  Coords { x: i32, y: i32 },
+  /// At specific tile coordinates on z-level `z`.
+  Coords { x: i32, y: i32, z: usize },
   /// In another entity's inventory.
   Inventory(Entity),
   /// Not placed anywhere (template, UI preview, etc.).
@@ -138,6 +138,10 @@ pub struct Wearing(pub Option<Armor>);
 #[derive(Component, Debug, Default)]
 pub struct TimeSinceAction(pub f32);
 
+/// Marker: this entity is affected by gravity and will fall through Pit tiles.
+#[derive(Component, Debug)]
+pub struct Gravity;
+
 // ============ SPAWNABLE ============
 
 /// Composable entity blueprint. Chain constructor fns that delegate to
@@ -165,14 +169,14 @@ impl Spawnable {
 
   /// NPC base: Neutral faction, non-blocking.
   pub fn npc() -> Self {
-    Self::new((Collidable(false), Character, FactionComp(Faction::Neutral)))
+    Self::new((Collidable(false), Character, FactionComp(Faction::Neutral), Gravity))
   }
 
   /// Spawn this entity at tile coordinates, inserting Location::Coords.
-  pub fn spawn_at(self, commands: &mut Commands, x: i32, y: i32) -> Entity {
+  pub fn spawn_at(self, commands: &mut Commands, x: i32, y: i32, z: usize) -> Entity {
     let mut e = commands.spawn_empty();
     (self.0)(&mut e);
-    e.insert(Location::Coords { x, y });
+    e.insert(Location::Coords { x, y, z });
     e.id()
   }
 
@@ -185,7 +189,7 @@ impl Spawnable {
   //                   └─ door
 
   pub fn physical(blocks: bool) -> Self      { Self::new(Collidable(blocks)) }
-  pub fn character(faction: Faction) -> Self  { Self::physical(true).add((Character, FactionComp(faction))) }
+  pub fn character(faction: Faction) -> Self  { Self::physical(true).add((Character, FactionComp(faction), Gravity)) }
   pub fn player() -> Self                     { Self::character(Faction::Player).add(Player) }
   pub fn enemy() -> Self                      { Self::character(Faction::Hostile).add((Enemy, TimeSinceAction(0.0))) }
   pub fn structure(blocks: bool) -> Self      { Self::physical(blocks) }

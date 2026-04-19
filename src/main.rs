@@ -5,7 +5,7 @@ use {
   bevy::prelude::*,
   combat::{TileEntityIndex, enemy_ai, maintain_tile_index},
   level::{FovGrid, Tile, World, build_test_world, compute_fov},
-  trl::entities::{Enemy, Glyph, Location, Named, Spawnable, Stats, Wearing},
+  trl::entities::{Enemy, Glyph, Gravity, Location, Named, Spawnable, Stats, Wearing},
 };
 
 const TILE_SIZE: f32 = 16.0;
@@ -171,7 +171,7 @@ fn setup_glyph_visuals(
   query: Query<(Entity, &Glyph, &Location), (Added<Glyph>, Without<GlyphVisual>)>,
 ) {
   for (entity, glyph, location) in query.iter() {
-    if let Location::Coords { x, y } = location {
+    if let Location::Coords { x, y, .. } = location {
       let pos = tile_screen_pos(*x as usize, *y as usize, gw.0.width, gw.0.height)
         + Vec3::new(0.0, 0.0, 2.0);
       commands.entity(entity).insert((
@@ -190,7 +190,7 @@ fn sync_entity_positions(
   mut query: Query<(&Location, &mut Transform), (With<GlyphVisual>, Changed<Location>)>,
 ) {
   for (location, mut transform) in query.iter_mut() {
-    if let Location::Coords { x, y } = location {
+    if let Location::Coords { x, y, .. } = location {
       transform.translation =
         tile_screen_pos(*x as usize, *y as usize, gw.0.width, gw.0.height)
           + Vec3::new(0.0, 0.0, 2.0);
@@ -232,10 +232,12 @@ fn main() {
         maintain_tile_index,
         setup_glyph_visuals,
         sync_entity_positions,
+        update_entity_visibility,
         advance_realtime,
         handle_menus,
         player_input,
         ApplyDeferred,
+        apply_gravity,
         enemy_ai,
         camera_follow,
         update_fov_visuals,
@@ -300,9 +302,9 @@ fn setup(
   let (ex2, ey2) = find_walkable(level, px + 3, py + 4);
   let (cx1, cy1) = find_walkable(level, px - 4, py + 2);
 
-  Spawnable::rat_soldier().spawn_at(&mut commands, ex1, ey1);
-  Spawnable::armored_rat_soldier().spawn_at(&mut commands, ex2, ey2);
-  Spawnable::catgirl().spawn_at(&mut commands, cx1, cy1);
+  Spawnable::rat_soldier().spawn_at(&mut commands, ex1, ey1, cz.0);
+  Spawnable::armored_rat_soldier().spawn_at(&mut commands, ex2, ey2, cz.0);
+  Spawnable::catgirl().spawn_at(&mut commands, cx1, cy1, cz.0);
 
   // HUD — children of camera so they stay fixed on screen
   let time_id = commands
@@ -411,6 +413,61 @@ fn rebuild_level(
 }
 
 // ---------------------------------------------------------------------------
+// Gravity
+// ---------------------------------------------------------------------------
+
+/// Show entities on the current z-level, hide those on other levels.
+fn update_entity_visibility(
+  cz: Res<CurrentZ>,
+  mut entity_q: Query<(&Location, &mut Visibility), With<GlyphVisual>>,
+) {
+  for (location, mut vis) in entity_q.iter_mut() {
+    *vis = if let Location::Coords { z, .. } = location
+      && *z == cz.0
+    {
+      Visibility::Visible
+    } else {
+      Visibility::Hidden
+    };
+  }
+}
+
+/// Drop entities with Gravity that are standing on a Pit tile.
+/// Non-player entities: update their Location z. Player: rebuild level display.
+fn apply_gravity(
+  gw: Res<GameWorld>,
+  mut cz: ResMut<CurrentZ>,
+  mut fov: ResMut<Fov>,
+  mut commands: Commands,
+  tile_query: Query<Entity, With<TileGlyph>>,
+  mut player_q: Query<(&mut PlayerPos, &mut Transform), With<Player>>,
+  mut entity_q: Query<&mut Location, (With<Gravity>, Without<Player>)>,
+) {
+  // Non-player gravity entities: just update their z.
+  for mut location in entity_q.iter_mut() {
+    if let Location::Coords { x, y, z } = *location
+      && gw.0.level(z).tiles[y as usize][x as usize] == Tile::Pit
+      && z > 0
+    {
+      *location = Location::Coords { x, y, z: z - 1 };
+    }
+  }
+
+  // Player: fall and rebuild the level display.
+  if let Ok((pos, mut transform)) = player_q.single_mut()
+    && gw.0.level(cz.0).tiles[pos.y as usize][pos.x as usize] == Tile::Pit
+    && cz.0 > 0
+  {
+    cz.0 -= 1;
+    rebuild_level(&mut commands, &tile_query, &gw.0, cz.0);
+    fov.0 = FovGrid::new(gw.0.width, gw.0.height);
+    compute_fov(&mut fov.0, gw.0.level(cz.0), pos.x, pos.y, FOV_RADIUS);
+    transform.translation =
+      tile_screen_pos(pos.x as usize, pos.y as usize, gw.0.width, gw.0.height) + Vec3::Z;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Camera follow
 // ---------------------------------------------------------------------------
 
@@ -513,7 +570,7 @@ fn mouse_hover_tile(
   let entity_lines = if visible {
     index
       .0
-      .get(&(tx, ty))
+      .get(&(tx, ty, cz.0))
       .and_then(|entities| entities.first())
       .and_then(|&e| named_q.get(e).ok())
       .map(|(named, stats)| {
@@ -953,7 +1010,7 @@ fn player_input(
   if dx != 0 || dy != 0 {
     let hostile_entity = index
       .0
-      .get(&(target_x, target_y))
+      .get(&(target_x, target_y, cz.0))
       .and_then(|entities| entities.iter().find(|&&e| enemy_query.get(e).is_ok()))
       .copied();
 
