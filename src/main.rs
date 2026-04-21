@@ -1116,9 +1116,82 @@ fn execute_interaction(
 // Player input
 // ---------------------------------------------------------------------------
 
+/// Check if pos would step off the zone edge in direction (dx, dy).
+/// If so and the adjacent zone exists and target tile is walkable, perform the transition.
+/// Returns true if a transition happened (or was blocked at world boundary) — caller skips normal move.
+fn try_zone_transition(
+  pos: &mut PlayerPos,
+  transform: &mut Transform,
+  gw: &ZoneWorld,
+  fov: &mut FovGrid,
+  commands: &mut Commands,
+  asset_server: &AssetServer,
+  tile_query: &Query<Entity, With<TileGlyph>>,
+  dx: i32,
+  dy: i32,
+) -> bool {
+  let lx = pos.x % ZONE_WIDTH as i32;
+  let ly = pos.y % ZONE_HEIGHT as i32;
+  let (zx, zy) = world_to_zone(pos.x, pos.y);
+
+  let nlx = lx + dx;
+  let nly = ly + dy;
+
+  // Only handle transitions — steps within the zone are handled by normal resolve_move
+  let x_exit = nlx < 0 || nlx >= ZONE_WIDTH as i32;
+  let y_exit = nly < 0 || nly >= ZONE_HEIGHT as i32;
+  if !x_exit && !y_exit {
+    return false;
+  }
+
+  // Compute adjacent zone and wrapped local position
+  let (mut new_zx, mut new_zy) = (zx as i32, zy as i32);
+  let (mut new_lx, mut new_ly) = (nlx, nly);
+
+  if nlx < 0 {
+    new_zx -= 1;
+    new_lx = ZONE_WIDTH as i32 - 1;
+  } else if nlx >= ZONE_WIDTH as i32 {
+    new_zx += 1;
+    new_lx = 0;
+  }
+
+  if nly < 0 {
+    new_zy -= 1;
+    new_ly = ZONE_HEIGHT as i32 - 1;
+  } else if nly >= ZONE_HEIGHT as i32 {
+    new_zy += 1;
+    new_ly = 0;
+  }
+
+  // Block at world boundary
+  if !gw.in_bounds(new_zx, new_zy) {
+    return true; // consumed the move, player doesn't move
+  }
+
+  // Check walkability in the destination zone
+  let dest_zone = gw.zone(new_zx as usize, new_zy as usize, pos.z);
+  if !dest_zone.walkable(new_lx, new_ly) {
+    return true; // consumed — tile is impassable
+  }
+
+  // Perform transition: update world-space position
+  pos.x = new_zx * ZONE_WIDTH as i32 + new_lx;
+  pos.y = new_zy * ZONE_HEIGHT as i32 + new_ly;
+
+  rebuild_level(commands, asset_server, tile_query, gw, new_zx as usize, new_zy as usize, pos.z);
+  *fov = FovGrid::new(ZONE_WIDTH, ZONE_HEIGHT);
+  compute_fov(fov, gw.zone(new_zx as usize, new_zy as usize, pos.z), new_lx, new_ly, FOV_RADIUS);
+  transform.translation =
+    tile_screen_pos(new_lx as usize, new_ly as usize, ZONE_WIDTH, ZONE_HEIGHT) + Vec3::Z;
+
+  true
+}
+
 fn player_input(
   keys: Res<ButtonInput<KeyCode>>,
   time: Res<Time>,
+  asset_server: Res<AssetServer>,
   gw: Res<GameWorld>,
   pause: Res<PauseMenu>,
   dialogue_state: Res<DialogueState>,
@@ -1128,6 +1201,7 @@ fn player_input(
   mut fov: ResMut<Fov>,
   index: Res<TileEntityIndex>,
   mut commands: Commands,
+  tile_query: Query<Entity, With<TileGlyph>>,
   mut player_query: Query<(&mut PlayerPos, &mut Transform, &Stats), With<Player>>,
   mut enemy_query: Query<(&mut Stats, Option<&Wearing>), (With<Enemy>, Without<Player>)>,
   dialogue_q: Query<(&Named, &Dialogue)>,
@@ -1173,32 +1247,46 @@ fn player_input(
       );
       let level = gw.0.zone(zx, zy, pos.z);
       let dir = read_direction(&keys);
-      let (dx, dy) = resolve_move(level, lx, ly, dir.0, dir.1);
+      let (raw_dx, raw_dy) = (dir.0, dir.1);
 
-      if (dx, dy) != (0, 0) {
-        let target_wx = pos.x + dx;
-        let target_wy = pos.y + dy;
+      // Check zone transition first (resolve_move blocks off-edge steps)
+      let transitioned = try_zone_transition(
+        &mut pos, &mut transform, &gw.0, &mut fov.0,
+        &mut commands, &asset_server, &tile_query,
+        raw_dx, raw_dy,
+      );
 
-        // Try bump attack first; fall through to movement if no hostile found.
-        let bumped = index.0.get(&(target_wx, target_wy, pos.z))
-          .and_then(|entities| entities.iter().find(|&&e| enemy_query.get(e).is_ok()).copied())
-          .and_then(|hostile| enemy_query.get_mut(hostile).ok().map(|(mut es, ew)| {
-            if combat::bump_attack(player_attack, &mut es, ew) {
-              commands.entity(hostile).despawn();
-            }
-          }));
-
-        if bumped.is_none() {
-          pos.x += dx;
-          pos.y += dy;
-          let (nlx, nly) = world_to_local(pos.x, pos.y);
-          transform.translation =
-            tile_screen_pos(nlx, nly, ZONE_WIDTH, ZONE_HEIGHT) + Vec3::Z;
-          compute_fov(&mut fov.0, level, nlx as i32, nly as i32, FOV_RADIUS);
-        }
-
-        clock.advance(PlayerAction::Move { dx, dy }.time_cost());
+      if transitioned {
+        clock.advance(PlayerAction::Move { dx: raw_dx, dy: raw_dy }.time_cost());
         cooldown.0 = MOVE_COOLDOWN;
+      } else {
+        let (dx, dy) = resolve_move(level, lx, ly, raw_dx, raw_dy);
+
+        if (dx, dy) != (0, 0) {
+          let target_wx = pos.x + dx;
+          let target_wy = pos.y + dy;
+
+          // Try bump attack first; fall through to movement if no hostile found.
+          let bumped = index.0.get(&(target_wx, target_wy, pos.z))
+            .and_then(|entities| entities.iter().find(|&&e| enemy_query.get(e).is_ok()).copied())
+            .and_then(|hostile| enemy_query.get_mut(hostile).ok().map(|(mut es, ew)| {
+              if combat::bump_attack(player_attack, &mut es, ew) {
+                commands.entity(hostile).despawn();
+              }
+            }));
+
+          if bumped.is_none() {
+            pos.x += dx;
+            pos.y += dy;
+            let (nlx, nly) = world_to_local(pos.x, pos.y);
+            transform.translation =
+              tile_screen_pos(nlx, nly, ZONE_WIDTH, ZONE_HEIGHT) + Vec3::Z;
+            compute_fov(&mut fov.0, level, nlx as i32, nly as i32, FOV_RADIUS);
+          }
+
+          clock.advance(PlayerAction::Move { dx, dy }.time_cost());
+          cooldown.0 = MOVE_COOLDOWN;
+        }
       }
     }
   }
