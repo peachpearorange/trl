@@ -536,9 +536,7 @@ fn apply_gravity(
       && z > 0
       && should_fall(&gw.0, x, y, z)
     {
-      let zx = x as usize / ZONE_WIDTH;
-      let zy = y as usize / ZONE_HEIGHT;
-      *location = Location::Coords { x, y, z: z - 1, zx, zy };
+      *location = Location::xyz(x, y, z - 1);
     }
   }
 

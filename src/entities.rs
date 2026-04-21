@@ -76,6 +76,14 @@ pub enum Location {
   Nowhere
 }
 
+impl Location {
+  /// Construct `Coords` from world-space tile coordinates.
+  /// Zone indices are derived via `x / 48`, `y / 48` (must match `ZONE_WIDTH`/`ZONE_HEIGHT` in `level.rs`).
+  pub fn xyz(x: i32, y: i32, z: usize) -> Self {
+    Location::Coords { x, y, z, zx: x as usize / 48, zy: y as usize / 48 }
+  }
+}
+
 // ============ VALUE TYPES ============
 
 /// Items that can be picked up and used.
@@ -208,7 +216,7 @@ pub struct Gravity;
 /// each other, then call `.spawn()`.
 ///
 /// ```ignore
-/// player().add(Location::Coords { x: 5, y: 3 }).spawn(&mut commands);
+/// player().add(Location::xyz(5, 3, 2)).spawn(&mut commands);
 /// ```
 pub struct Object(Box<dyn FnOnce(&mut EntityCommands) + Send + Sync>);
 
@@ -234,13 +242,9 @@ impl Object {
 
   /// Spawn this entity at tile coordinates, inserting Location::Coords.
   pub fn spawn_at(self, commands: &mut Commands, x: i32, y: i32, z: usize) -> Entity {
-    const ZONE_W: usize = 48;
-    const ZONE_H: usize = 48;
-    let zx = x as usize / ZONE_W;
-    let zy = y as usize / ZONE_H;
     let mut e = commands.spawn_empty();
     (self.0)(&mut e);
-    e.insert(Location::Coords { x, y, z, zx, zy });
+    e.insert(Location::xyz(x, y, z));
     e.id()
   }
 

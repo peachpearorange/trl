@@ -127,9 +127,7 @@ pub fn enemy_ai(
             } else {
               ez
             };
-            let nzx = nex as usize / crate::level::ZONE_WIDTH;
-            let nzy = ney as usize / crate::level::ZONE_HEIGHT;
-            *location = Location::Coords { x: nex, y: ney, z: nz, zx: nzx, zy: nzy };
+            *location = Location::xyz(nex, ney, nz);
             claimed.insert((nex, ney));
             timer.0 = 0.0;
           }
