@@ -1,6 +1,8 @@
 mod level;
 mod combat;
 mod dialogue;
+mod worldgen;
+mod world_data;
 
 use {
   bevy::prelude::*,
@@ -487,9 +489,10 @@ fn rebuild_level(
 // Gravity
 // ---------------------------------------------------------------------------
 
-/// Show entities on the current z-level in the current zone, hide those on other levels/zones.
+/// Show entities on the current z-level in the current zone only if their tile is in the FoV.
 fn update_entity_visibility(
   player_q: Query<&PlayerPos, With<Player>>,
+  fov: Res<Fov>,
   mut entity_q: Query<(&Location, &mut Visibility), With<GlyphVisual>>,
 ) {
   let Ok(pos) = player_q.single() else { return };
@@ -499,7 +502,8 @@ fn update_entity_visibility(
       && world_to_zone(*x, *y) == (player_zx, player_zy)
       && *z == pos.z
     {
-      Visibility::Visible
+      let (lx, ly) = world_to_local(*x, *y);
+      if fov.0.is_visible(lx, ly) { Visibility::Visible } else { Visibility::Hidden }
     } else {
       Visibility::Hidden
     };
