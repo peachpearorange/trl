@@ -399,6 +399,54 @@ impl World {
 }
 
 // ---------------------------------------------------------------------------
+// Zone world — 10×10×4 grid of 48×48 Levels
+// ---------------------------------------------------------------------------
+
+pub const ZONE_WIDTH:  usize = 48;
+pub const ZONE_HEIGHT: usize = 48;
+pub const WORLD_COLS:  usize = 10;
+pub const WORLD_ROWS:  usize = 10;
+pub const WORLD_DEPTH: usize = 4;
+
+/// A 10×10×4 grid of zones.  zones[zx][zy][z] is one 48×48 Level.
+/// Surface is z=3; underground levels are z=2, z=1, z=0.
+pub struct ZoneWorld {
+  pub zones: Vec<Vec<Vec<Level>>>,
+}
+
+impl ZoneWorld {
+  /// Construct an empty ZoneWorld; every level is filled with `fill`.
+  pub fn new(fill: Tile) -> Self {
+    let zones = (0..WORLD_COLS)
+      .map(|_| {
+        (0..WORLD_ROWS)
+          .map(|_| {
+            (0..WORLD_DEPTH)
+              .map(|_| Level::new(ZONE_WIDTH, ZONE_HEIGHT, fill))
+              .collect()
+          })
+          .collect()
+      })
+      .collect();
+    ZoneWorld { zones }
+  }
+
+  pub fn zone(&self, zx: usize, zy: usize, z: usize) -> &Level {
+    &self.zones[zx][zy][z]
+  }
+
+  pub fn zone_mut(&mut self, zx: usize, zy: usize, z: usize) -> &mut Level {
+    &mut self.zones[zx][zy][z]
+  }
+
+  pub fn in_bounds(&self, zx: i32, zy: i32) -> bool {
+    zx >= 0 && zy >= 0
+      && (zx as usize) < WORLD_COLS
+      && (zy as usize) < WORLD_ROWS
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Test world
 // ---------------------------------------------------------------------------
 
