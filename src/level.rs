@@ -3,14 +3,27 @@ pub enum Tile {
   Air,
   Floor,
   Wall,
+  CobblestoneWall,
+  BrickWall,
   Grass,
   Water,
   Sand,
   StairsUp,
   StairsDown,
   Door,
-  /// An open hole — walkable, but entities with Gravity fall through to z-1.
-  Pit,
+  TallGrass,
+  Bush,
+  Ash,
+  Lava,
+  ShallowWater,
+  DeepWater,
+  Road,
+  WoodWall,
+  WoodFloor,
+  Fence,
+  CaveWall,
+  CaveFloor,
+  CrystalFormation,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -59,14 +72,26 @@ impl Tile {
     match self {
       Tile::Air => " ",
       Tile::Floor => ".",
-      Tile::Wall => "#",
+      Tile::Wall | Tile::CobblestoneWall | Tile::BrickWall => "#",
       Tile::Grass => "\"",
       Tile::Water => "~",
       Tile::Sand => ",",
       Tile::StairsUp => "<",
       Tile::StairsDown => ">",
       Tile::Door => "+",
-      Tile::Pit => " ",
+      Tile::TallGrass => "\"",
+      Tile::Bush => "%",
+      Tile::Ash => ".",
+      Tile::Lava => "~",
+      Tile::ShallowWater => "~",
+      Tile::DeepWater => "≈",
+      Tile::Road => "·",
+      Tile::WoodWall => "#",
+      Tile::WoodFloor => ".",
+      Tile::Fence => "+",
+      Tile::CaveWall => "#",
+      Tile::CaveFloor => ".",
+      Tile::CrystalFormation => "*",
     }
   }
 
@@ -75,43 +100,99 @@ impl Tile {
       Tile::Air => [0.0, 0.0, 0.0],
       Tile::Floor => [0.6, 0.5, 0.3],
       Tile::Wall => [0.4, 0.4, 0.4],
+      Tile::CobblestoneWall => [0.5, 0.5, 0.5],
+      Tile::BrickWall => [0.6, 0.3, 0.2],
       Tile::Grass => [0.2, 0.6, 0.2],
       Tile::Water => [0.2, 0.3, 0.8],
       Tile::Sand => [0.8, 0.7, 0.4],
       Tile::StairsUp => [0.9, 0.9, 0.2],
       Tile::StairsDown => [0.9, 0.9, 0.2],
       Tile::Door => [0.6, 0.3, 0.1],
-      Tile::Pit => [0.08, 0.04, 0.04],
+      Tile::TallGrass => [0.25, 0.65, 0.25],
+      Tile::Bush => [0.15, 0.45, 0.15],
+      Tile::Ash => [0.55, 0.53, 0.5],
+      Tile::Lava => [0.9, 0.3, 0.05],
+      Tile::ShallowWater => [0.3, 0.5, 0.85],
+      Tile::DeepWater => [0.1, 0.15, 0.6],
+      Tile::Road => [0.45, 0.4, 0.35],
+      Tile::WoodWall => [0.45, 0.3, 0.15],
+      Tile::WoodFloor => [0.55, 0.4, 0.25],
+      Tile::Fence => [0.5, 0.35, 0.2],
+      Tile::CaveWall => [0.3, 0.28, 0.25],
+      Tile::CaveFloor => [0.4, 0.38, 0.35],
+      Tile::CrystalFormation => [0.5, 0.8, 0.95],
+    }
+  }
+
+  pub fn texture_path(self) -> Option<&'static str> {
+    match self {
+      Tile::CobblestoneWall => Some("textures/cobblestone_wall.png"),
+      Tile::BrickWall => Some("textures/brick_wall.png"),
+      _ => None,
     }
   }
 
   pub fn walkable(self) -> bool {
     matches!(
       self,
-      Tile::Air | Tile::Floor | Tile::Grass | Tile::Sand | Tile::StairsUp | Tile::StairsDown | Tile::Pit
+      Tile::Air
+        | Tile::Floor
+        | Tile::Grass
+        | Tile::Sand
+        | Tile::StairsUp
+        | Tile::StairsDown
+        | Tile::TallGrass
+        | Tile::Ash
+        | Tile::Road
+        | Tile::WoodFloor
+        | Tile::CaveFloor
+        | Tile::ShallowWater
     )
   }
 }
 
 impl Tile {
-  pub fn opaque(self) -> bool { matches!(self, Tile::Wall | Tile::Door) }
+  pub fn opaque(self) -> bool {
+    matches!(
+      self,
+      Tile::Wall
+        | Tile::CobblestoneWall
+        | Tile::BrickWall
+        | Tile::WoodWall
+        | Tile::CaveWall
+        | Tile::Door
+    )
+  }
 
   /// True when an entity standing here should fall to the level below.
-  /// Either the tile itself is an open hole (Pit), or it's Air (open space).
-  pub fn causes_falling(self) -> bool { matches!(self, Tile::Pit | Tile::Air) }
+  pub fn causes_falling(self) -> bool { matches!(self, Tile::Air) }
 
   pub fn name(self) -> &'static str {
     match self {
       Tile::Air => "Air",
       Tile::Floor => "Floor",
       Tile::Wall => "Wall",
+      Tile::CobblestoneWall => "Cobblestone Wall",
+      Tile::BrickWall => "Brick Wall",
       Tile::Grass => "Grass",
       Tile::Water => "Water",
       Tile::Sand => "Sand",
       Tile::StairsUp => "Stairs Up",
       Tile::StairsDown => "Stairs Down",
       Tile::Door => "Door",
-      Tile::Pit => "Pit",
+      Tile::TallGrass => "Tall Grass",
+      Tile::Bush => "Bush",
+      Tile::Ash => "Ash",
+      Tile::Lava => "Lava",
+      Tile::ShallowWater => "Shallow Water",
+      Tile::DeepWater => "Deep Water",
+      Tile::Road => "Road",
+      Tile::WoodWall => "Wooden Wall",
+      Tile::WoodFloor => "Wooden Floor",
+      Tile::Fence => "Fence",
+      Tile::CaveWall => "Cave Wall",
+      Tile::CaveFloor => "Cave Floor",
+      Tile::CrystalFormation => "Crystal Formation",
     }
   }
 }
@@ -179,9 +260,9 @@ pub fn fill_rect(level: &mut Level, x: i32, y: i32, w: usize, h: usize, tile: Ti
   }
 }
 
-/// Place a room: wall border with floor interior.
-pub fn place_room(level: &mut Level, x: i32, y: i32, w: usize, h: usize) {
-  fill_rect(level, x, y, w, h, Tile::Wall);
+///// Place a room: wall border with floor interior.
+pub fn place_room(level: &mut Level, x: i32, y: i32, w: usize, h: usize, wall: Tile) {
+  fill_rect(level, x, y, w, h, wall);
   if w > 2 && h > 2 {
     fill_rect(level, x + 1, y + 1, w - 2, h - 2, Tile::Floor);
   }
@@ -195,9 +276,10 @@ pub fn place_room_with_door(
   w: usize,
   h: usize,
   door_side: Side,
-  door_offset: usize
+  door_offset: usize,
+  wall: Tile
 ) {
-  place_room(level, x, y, w, h);
+  place_room(level, x, y, w, h, wall);
   let (dx, dy) = match door_side {
     Side::North => (x + door_offset as i32, y),
     Side::South => (x + door_offset as i32, y + h as i32 - 1),
@@ -342,12 +424,12 @@ pub fn build_test_world() -> World {
     fill_rect(s, 35, 10, 3, 21, Tile::Sand);
 
     // building ground floor (12x10) at top-right area
-    place_room_with_door(s, 30, 8, 12, 10, Side::South, 6);
+    place_room_with_door(s, 30, 8, 12, 10, Side::South, 6, Tile::BrickWall);
     // interior detail
-    fill_rect(s, 36, 9, 1, 5, Tile::Wall);
+    fill_rect(s, 36, 9, 1, 5, Tile::BrickWall);
 
-    // cave entrance: open pit you fall through (stairs at 8,38 are placed after)
-    fill_rect(s, 5, 35, 8, 6, Tile::Pit);
+    // cave entrance: open air you fall through (stairs at 8,38 are placed after)
+    fill_rect(s, 5, 35, 8, 6, Tile::Air);
 
     // pond
     fill_rect(s, 50, 35, 7, 5, Tile::Water);
@@ -371,8 +453,8 @@ pub fn build_test_world() -> World {
   // === z=3: building upper floor ===
   {
     let u = world.level_mut(3);
-    place_room_with_door(u, 30, 8, 12, 10, Side::South, 6);
-    fill_rect(u, 35, 9, 1, 4, Tile::Wall);
+    place_room_with_door(u, 30, 8, 12, 10, Side::South, 6, Tile::BrickWall);
+    fill_rect(u, 35, 9, 1, 4, Tile::BrickWall);
     u.set(35, 12, Tile::Door);
   }
 
@@ -382,7 +464,7 @@ pub fn build_test_world() -> World {
   // === z=1: shallow cave ===
   {
     let c = world.level_mut(1);
-    fill_rect(c, 0, 0, W, H, Tile::Wall);
+    fill_rect(c, 0, 0, W, H, Tile::CobblestoneWall);
 
     // large main cavern
     carve_blob(c, 30, 30, 14, Tile::Floor);
@@ -420,7 +502,7 @@ pub fn build_test_world() -> World {
   // === z=0: deep cave ===
   {
     let d = world.level_mut(0);
-    fill_rect(d, 0, 0, W, H, Tile::Wall);
+    fill_rect(d, 0, 0, W, H, Tile::CobblestoneWall);
 
     // huge main chamber
     carve_blob(d, 35, 30, 16, Tile::Floor);
