@@ -222,25 +222,8 @@ fn sync_entity_positions(
 // App
 // ---------------------------------------------------------------------------
 
-/// Build a ZoneWorld from the old single-level World, placing all levels into zone (0,0).
-fn make_zone_world() -> ZoneWorld {
-  let old = build_test_world();
-  let mut zw = ZoneWorld::new(Tile::Air);
-  for z in 0..old.depth().min(WORLD_DEPTH) {
-    let src = old.level(z);
-    let dst = zw.zone_mut(0, 0, z);
-    for y in 0..src.height.min(ZONE_HEIGHT) {
-      for x in 0..src.width.min(ZONE_WIDTH) {
-        dst.tiles[y][x] = src.tiles[y][x];
-        dst.items[y][x] = src.items[y][x];
-      }
-    }
-  }
-  zw
-}
-
 fn main() {
-  let world = make_zone_world();
+  let world = build_test_world();
   let fov = FovGrid::new(ZONE_WIDTH, ZONE_HEIGHT);
 
   App::new()

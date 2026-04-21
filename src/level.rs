@@ -455,44 +455,32 @@ impl ZoneWorld {
 ///   z=1  shallow cave / basement
 ///   z=2  surface (main level, building, cave entrance)
 ///   z=3  building upper floor
-pub fn build_test_world() -> World {
-  const W: usize = 80;
-  const H: usize = 60;
-  let mut world = World::new(W, H, 4, Tile::Air);
+pub fn build_test_world() -> ZoneWorld {
+  const W: usize = ZONE_WIDTH;
+  const H: usize = ZONE_HEIGHT;
+  const ZX: usize = 0;
+  const ZY: usize = 0;
+
+  let mut world = ZoneWorld::new(Tile::Air);
 
   // === z=2: surface ===
   {
-    let s = world.level_mut(2);
-
-    // grass ground across the whole level
+    let s = world.zone_mut(ZX, ZY, 2);
     fill_rect(s, 0, 0, W, H, Tile::Grass);
-
-    // dirt paths
-    fill_rect(s, 10, 28, 50, 3, Tile::Sand);
-    fill_rect(s, 35, 10, 3, 21, Tile::Sand);
-
-    // building ground floor (12x10) at top-right area
-    place_room_with_door(s, 30, 8, 12, 10, Side::South, 6, Tile::BrickWall);
-    // interior detail
-    fill_rect(s, 36, 9, 1, 5, Tile::BrickWall);
-
-    // cave entrance: open air you fall through (stairs at 8,38 are placed after)
-    fill_rect(s, 5, 35, 8, 6, Tile::Air);
-
-    // pond
-    fill_rect(s, 50, 35, 7, 5, Tile::Water);
-
-    // some trees (wall tiles on grass)
-    for &(tx, ty) in &[(15, 15), (18, 12), (22, 16), (45, 20), (55, 14), (60, 22)] {
+    fill_rect(s, 10, 20, 28, 3, Tile::Sand);
+    fill_rect(s, 23, 8, 3, 15, Tile::Sand);
+    place_room_with_door(s, 18, 6, 12, 10, Side::South, 6, Tile::BrickWall);
+    fill_rect(s, 24, 7, 1, 5, Tile::BrickWall);
+    fill_rect(s, 3, 28, 8, 6, Tile::Air);
+    fill_rect(s, 32, 28, 7, 5, Tile::Water);
+    for &(tx, ty) in &[(8, 8), (11, 6), (15, 10), (28, 14), (38, 8), (42, 16)] {
       s.set(tx, ty, Tile::Wall);
     }
-
-    // surface items
     for &(tx, ty, item) in &[
-      (12, 30, Item::GoldCoin),
-      (25, 12, Item::Rock),
-      (48, 22, Item::Torch),
-      (65, 40, Item::Mushroom)
+      (10, 22, Item::GoldCoin),
+      (16, 8, Item::Rock),
+      (30, 16, Item::Torch),
+      (44, 28, Item::Mushroom),
     ] {
       s.set_item(tx, ty, Some(item));
     }
@@ -500,94 +488,68 @@ pub fn build_test_world() -> World {
 
   // === z=3: building upper floor ===
   {
-    let u = world.level_mut(3);
-    place_room_with_door(u, 30, 8, 12, 10, Side::South, 6, Tile::BrickWall);
-    fill_rect(u, 35, 9, 1, 4, Tile::BrickWall);
-    u.set(35, 12, Tile::Door);
+    let u = world.zone_mut(ZX, ZY, 3);
+    place_room_with_door(u, 18, 6, 12, 10, Side::South, 6, Tile::BrickWall);
+    fill_rect(u, 23, 7, 1, 4, Tile::BrickWall);
+    u.set(23, 10, Tile::Door);
   }
 
-  // stairs between building floors (z=2 <-> z=3)
-  place_stairs(&mut world.levels, 2, 3, 40, 10);
+  place_stairs(world.zones[ZX][ZY].as_mut_slice(), 2, 3, 28, 8);
 
   // === z=1: shallow cave ===
   {
-    let c = world.level_mut(1);
+    let c = world.zone_mut(ZX, ZY, 1);
     fill_rect(c, 0, 0, W, H, Tile::CobblestoneWall);
-
-    // large main cavern
-    carve_blob(c, 30, 30, 14, Tile::Floor);
-    // entrance cavern near stairs from surface
-    carve_blob(c, 10, 38, 8, Tile::Floor);
-    // side chamber
-    carve_blob(c, 55, 20, 8, Tile::Floor);
-    // connecting corridors (wide)
-    place_wide_corridor(c, 18, 38, 30, 30);
-    place_wide_corridor(c, 44, 30, 55, 20);
-
-    // underground pool
-    carve_blob(c, 25, 22, 4, Tile::Water);
-
-    // sandy area
-    carve_blob(c, 40, 35, 3, Tile::Sand);
-
-    // shallow cave items
+    carve_blob(c, 20, 24, 12, Tile::Floor);
+    carve_blob(c, 6, 32, 7, Tile::Floor);
+    carve_blob(c, 38, 16, 7, Tile::Floor);
+    place_wide_corridor(c, 13, 32, 20, 24);
+    place_wide_corridor(c, 32, 24, 38, 16);
+    carve_blob(c, 16, 18, 4, Tile::Water);
+    carve_blob(c, 28, 28, 3, Tile::Sand);
     for &(tx, ty, item) in &[
-      (25, 28, Item::GoldCoin),
-      (25, 29, Item::GoldCoin),
-      (50, 18, Item::HealthPotion),
-      (35, 32, Item::Torch),
-      (12, 36, Item::Mushroom)
+      (16, 22, Item::GoldCoin),
+      (16, 23, Item::GoldCoin),
+      (34, 14, Item::HealthPotion),
+      (22, 26, Item::Torch),
+      (8, 30, Item::Mushroom),
     ] {
       c.set_item(tx, ty, Some(item));
     }
   }
 
-  // stairs: surface cave entrance (z=2) <-> shallow cave (z=1)
-  place_stairs(&mut world.levels, 1, 2, 8, 38);
-  clear_around(world.level_mut(1), 8, 38, 2);
-  clear_around(world.level_mut(2), 8, 38, 2);
+  place_stairs(world.zones[ZX][ZY].as_mut_slice(), 1, 2, 6, 32);
+  clear_around(world.zone_mut(ZX, ZY, 1), 6, 32, 2);
+  clear_around(world.zone_mut(ZX, ZY, 2), 6, 32, 2);
 
   // === z=0: deep cave ===
   {
-    let d = world.level_mut(0);
+    let d = world.zone_mut(ZX, ZY, 0);
     fill_rect(d, 0, 0, W, H, Tile::CobblestoneWall);
-
-    // huge main chamber
-    carve_blob(d, 35, 30, 16, Tile::Floor);
-    // northern chamber
-    carve_blob(d, 20, 15, 10, Tile::Floor);
-    // eastern alcove
-    carve_blob(d, 60, 25, 7, Tile::Floor);
-    // connecting passages
-    place_wide_corridor(d, 28, 20, 35, 30);
-    place_wide_corridor(d, 51, 30, 60, 25);
-
-    // lava pool
-    carve_blob(d, 42, 38, 5, Tile::Water);
-
-    // sandy alcove
-    carve_blob(d, 15, 40, 4, Tile::Sand);
-
-    // deep cave items
+    carve_blob(d, 24, 24, 14, Tile::Floor);
+    carve_blob(d, 12, 12, 9, Tile::Floor);
+    carve_blob(d, 40, 20, 6, Tile::Floor);
+    place_wide_corridor(d, 18, 16, 24, 24);
+    place_wide_corridor(d, 38, 24, 40, 20);
+    carve_blob(d, 28, 32, 5, Tile::Water);
+    carve_blob(d, 10, 34, 4, Tile::Sand);
     for &(tx, ty, item) in &[
-      (30, 28, Item::GoldCoin),
-      (31, 28, Item::GoldCoin),
-      (30, 29, Item::GoldCoin),
-      (20, 13, Item::HealthPotion),
-      (58, 23, Item::Torch),
-      (40, 35, Item::Rock),
-      (14, 39, Item::Mushroom),
-      (16, 41, Item::Mushroom),
-      (62, 26, Item::GoldCoin)
+      (20, 22, Item::GoldCoin),
+      (21, 22, Item::GoldCoin),
+      (20, 23, Item::GoldCoin),
+      (11, 10, Item::HealthPotion),
+      (38, 18, Item::Torch),
+      (26, 28, Item::Rock),
+      (9, 33, Item::Mushroom),
+      (42, 22, Item::GoldCoin),
     ] {
       d.set_item(tx, ty, Some(item));
     }
   }
 
-  // stairs: shallow cave (z=1) <-> deep cave (z=0)
-  place_stairs(&mut world.levels, 0, 1, 30, 30);
-  clear_around(world.level_mut(0), 30, 30, 2);
-  clear_around(world.level_mut(1), 30, 30, 2);
+  place_stairs(world.zones[ZX][ZY].as_mut_slice(), 0, 1, 20, 24);
+  clear_around(world.zone_mut(ZX, ZY, 0), 20, 24, 2);
+  clear_around(world.zone_mut(ZX, ZY, 1), 20, 24, 2);
 
   world
 }
