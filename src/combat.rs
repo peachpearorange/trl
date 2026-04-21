@@ -8,19 +8,28 @@ use {
 // Tile-entity spatial index
 // ---------------------------------------------------------------------------
 
-/// Maps (x, y, z) tile coords to entities at that position across all levels.
+/// Maps (x, y, z) world tile coords to entities at that position.
 /// Rebuilt from scratch each frame — simple, always correct.
+/// Only indexes entities in the player's current zone.
 #[derive(Resource, Default)]
 pub struct TileEntityIndex(pub HashMap<(i32, i32, usize), Vec<Entity>>);
 
 pub fn maintain_tile_index(
   mut index: ResMut<TileEntityIndex>,
   query: Query<(Entity, &Location)>,
+  player_q: Query<&crate::PlayerPos, With<crate::Player>>,
 ) {
   index.0.clear();
+  let Ok(pos) = player_q.single() else { return };
+  let player_zx = pos.x as usize / crate::level::ZONE_WIDTH;
+  let player_zy = pos.y as usize / crate::level::ZONE_HEIGHT;
   for (entity, location) in query.iter() {
-    if let Location::Coords { x, y, z } = location {
-      index.0.entry((*x, *y, *z)).or_default().push(entity);
+    if let Location::Coords { x, y, z, .. } = location {
+      let ezx = *x as usize / crate::level::ZONE_WIDTH;
+      let ezy = *y as usize / crate::level::ZONE_HEIGHT;
+      if ezx == player_zx && ezy == player_zy {
+        index.0.entry((*x, *y, *z)).or_default().push(entity);
+      }
     }
   }
 }
@@ -61,7 +70,6 @@ fn step_toward(ex: i32, ey: i32, px: i32, py: i32) -> (i32, i32) {
 pub fn enemy_ai(
   time: Res<Time>,
   index: Res<TileEntityIndex>,
-  cz: Res<crate::CurrentZ>,
   gw: Res<crate::GameWorld>,
   mut player_q: Query<(&crate::PlayerPos, &mut Stats), (With<crate::Player>, Without<Enemy>)>,
   mut enemy_q: Query<
@@ -69,48 +77,62 @@ pub fn enemy_ai(
     (With<Enemy>, Without<crate::Player>),
   >,
 ) {
-  let Ok((player_pos, mut player_stats)) = player_q.single_mut() else { return };
-  let (px, py) = (player_pos.x, player_pos.y);
-  let level = gw.0.level(cz.0);
-  let dt = time.delta_secs();
+  if let Ok((player_pos, mut player_stats)) = player_q.single_mut() {
+    let (px, py) = (player_pos.x, player_pos.y);
+    let player_zx = px as usize / crate::level::ZONE_WIDTH;
+    let player_zy = py as usize / crate::level::ZONE_HEIGHT;
+    let level = gw.0.zone(player_zx, player_zy, player_pos.z);
+    let dt = time.delta_secs();
 
-  let mut claimed: HashSet<(i32, i32)> = HashSet::new();
+    let mut claimed: HashSet<(i32, i32)> = HashSet::new();
 
-  for (mut location, mut timer, enemy_stats, enemy_wearing) in enemy_q.iter_mut() {
-    timer.0 += dt;
+    for (mut location, mut timer, enemy_stats, enemy_wearing) in enemy_q.iter_mut() {
+      timer.0 += dt;
 
-    if let Location::Coords { x: ex, y: ey, z: ez } = *location
-      && ez == cz.0
-    {
-      let dist = (px - ex).abs().max((py - ey).abs());
+      if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location {
+        let ezx = ex as usize / crate::level::ZONE_WIDTH;
+        let ezy = ey as usize / crate::level::ZONE_HEIGHT;
+        if ezx != player_zx || ezy != player_zy || ez != player_pos.z { continue; }
 
-      if dist == 1 && timer.0 >= 1.0 / enemy_stats.attack_speed {
-        let dmg = resolve_damage(enemy_stats.attack, enemy_wearing);
-        player_stats.hp = (player_stats.hp - dmg).max(0);
-        if player_stats.hp == 0 {
-          bevy::log::info!("You died.");
-        }
-        timer.0 = 0.0;
-      } else if timer.0 >= 1.0 / enemy_stats.move_speed {
-        let (dx, dy) = step_toward(ex, ey, px, py);
-        let (nx, ny) = (ex + dx, ey + dy);
-        if level.walkable(nx, ny)
-          && !index.0.contains_key(&(nx, ny, ez))
-          && !claimed.contains(&(nx, ny))
-        {
-          let below = ez.checked_sub(1)
-            .map(|z1| gw.0.level(z1).tiles[ny as usize][nx as usize]);
-          let nz = if (level.tiles[ny as usize][nx as usize].causes_falling()
-            || below.is_some_and(|t| t.causes_falling()))
-            && ez > 0
-          {
-            ez - 1
-          } else {
-            ez
-          };
-          *location = Location::Coords { x: nx, y: ny, z: nz };
-          claimed.insert((nx, ny));
+        // Convert to local coords for tile access
+        let lex = ex as usize % crate::level::ZONE_WIDTH;
+        let ley = ey as usize % crate::level::ZONE_HEIGHT;
+        let _ = (lex, ley); // used implicitly via world coord math below
+
+        let dist = (px - ex).abs().max((py - ey).abs());
+
+        if dist == 1 && timer.0 >= 1.0 / enemy_stats.attack_speed {
+          let dmg = resolve_damage(enemy_stats.attack, enemy_wearing);
+          player_stats.hp = (player_stats.hp - dmg).max(0);
+          if player_stats.hp == 0 {
+            bevy::log::info!("You died.");
+          }
           timer.0 = 0.0;
+        } else if timer.0 >= 1.0 / enemy_stats.move_speed {
+          let (dx, dy) = step_toward(ex, ey, px, py);
+          let (nex, ney) = (ex + dx, ey + dy); // world coords
+          let nlx = nex as usize % crate::level::ZONE_WIDTH;
+          let nly = ney as usize % crate::level::ZONE_HEIGHT;
+          if level.walkable(nlx as i32, nly as i32)
+            && !index.0.contains_key(&(nex, ney, ez))
+            && !claimed.contains(&(nex, ney))
+          {
+            let below = ez.checked_sub(1)
+              .map(|z1| gw.0.zone(player_zx, player_zy, z1).tiles[nly][nlx]);
+            let nz = if (level.tiles[nly][nlx].causes_falling()
+              || below.is_some_and(|t| t.causes_falling()))
+              && ez > 0
+            {
+              ez - 1
+            } else {
+              ez
+            };
+            let nzx = nex as usize / crate::level::ZONE_WIDTH;
+            let nzy = ney as usize / crate::level::ZONE_HEIGHT;
+            *location = Location::Coords { x: nex, y: ney, z: nz, zx: nzx, zy: nzy };
+            claimed.insert((nex, ney));
+            timer.0 = 0.0;
+          }
         }
       }
     }

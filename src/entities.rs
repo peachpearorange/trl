@@ -3,13 +3,73 @@
 use {crate::tile_loader::Faction,
      bevy::prelude::*};
 
+// ============ DIALOGUE ============
+
+/// A flat list of named nodes that forms one NPC's conversation.
+#[derive(Debug)]
+pub struct DialogueTree {
+  pub nodes: &'static [DialogueNode],
+}
+
+impl DialogueTree {
+  /// Find a node by name. Returns the first node if `name` is not found.
+  pub fn find(&self, name: &str) -> &DialogueNode {
+    self.nodes.iter().find(|n| n.name == name).unwrap_or(&self.nodes[0])
+  }
+}
+
+/// One node in a dialogue tree: a name, what the NPC says, and the player's choices.
+#[derive(Debug)]
+pub struct DialogueNode {
+  pub name:    &'static str,
+  pub text:    &'static str,
+  pub choices: &'static [DialogueChoice],
+}
+
+/// One response option the player can pick.
+#[derive(Debug)]
+pub struct DialogueChoice {
+  /// Button label shown to the player.
+  pub text: &'static str,
+  /// Name of the next node, or `None` to end the conversation.
+  pub next: Option<&'static str>,
+}
+
+/// Marks an entity as conversable; holds a pointer to its dialogue tree.
+#[derive(Component, Debug)]
+pub struct Dialogue(pub &'static DialogueTree);
+
+/// Construct a [`DialogueTree`] (for use in `static` initializers).
+pub const fn tree(nodes: &'static [DialogueNode]) -> DialogueTree {
+  DialogueTree { nodes }
+}
+
+/// Construct a named [`DialogueNode`].
+pub const fn node(
+  name: &'static str,
+  text: &'static str,
+  choices: &'static [DialogueChoice],
+) -> DialogueNode {
+  DialogueNode { name, text, choices }
+}
+
+/// A choice that advances to another node by name.
+pub const fn go(text: &'static str, next: &'static str) -> DialogueChoice {
+  DialogueChoice { text, next: Some(next) }
+}
+
+/// A choice that ends the conversation.
+pub const fn end(text: &'static str) -> DialogueChoice {
+  DialogueChoice { text, next: None }
+}
+
 // ============ LOCATION ============
 
 /// Where an entity exists in the world.
 #[derive(Component, Clone, Debug)]
 pub enum Location {
   /// At specific tile coordinates on z-level `z`.
-  Coords { x: i32, y: i32, z: usize },
+  Coords { x: i32, y: i32, z: usize, zx: usize, zy: usize },
   /// In another entity's inventory.
   Inventory(Entity),
   /// Not placed anywhere (template, UI preview, etc.).
@@ -138,7 +198,7 @@ pub struct Wearing(pub Option<Armor>);
 #[derive(Component, Debug, Default)]
 pub struct TimeSinceAction(pub f32);
 
-/// Marker: this entity is affected by gravity and will fall through Pit tiles.
+/// Marker: this entity is affected by gravity and will fall through Air tiles.
 #[derive(Component, Debug)]
 pub struct Gravity;
 
@@ -174,9 +234,13 @@ impl Object {
 
   /// Spawn this entity at tile coordinates, inserting Location::Coords.
   pub fn spawn_at(self, commands: &mut Commands, x: i32, y: i32, z: usize) -> Entity {
+    const ZONE_W: usize = 48;
+    const ZONE_H: usize = 48;
+    let zx = x as usize / ZONE_W;
+    let zy = y as usize / ZONE_H;
     let mut e = commands.spawn_empty();
     (self.0)(&mut e);
-    e.insert(Location::Coords { x, y, z });
+    e.insert(Location::Coords { x, y, z, zx, zy });
     e.id()
   }
 
