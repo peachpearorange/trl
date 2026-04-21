@@ -7,6 +7,6 @@ use crate::level::{
 pub const WORLD_SEED: u64 = 42;
 
 /// Generate a full ZoneWorld from a deterministic seed.
-pub fn generate_world(seed: u64) -> ZoneWorld {
+pub fn generate_world(_seed: u64) -> ZoneWorld {
   ZoneWorld::new(Tile::Air)
 }
