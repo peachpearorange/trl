@@ -270,6 +270,7 @@ fn main() {
   let fov = FovGrid::new(ZONE_WIDTH, ZONE_HEIGHT);
 
   App::new()
+    .add_plugins(haalka::HaalkaPlugin::default())
     .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()).set(WindowPlugin {
       primary_window: Some(Window {
         title: "trl".into(),
