@@ -1,3 +1,4 @@
+mod ui;
 mod level;
 mod combat;
 mod dialogue;
@@ -8,7 +9,7 @@ use {
   bevy::prelude::*,
   combat::{TileEntityIndex, enemy_ai, maintain_tile_index},
   level::{FovGrid, Tile, ZoneWorld, ZONE_WIDTH, ZONE_HEIGHT, WORLD_DEPTH, build_test_world, compute_fov},
-  trl::entities::{Dialogue, DialogueTree, Enemy, Glyph, Gravity, Location, Named, Object, Stats, Wearing},
+  trl::entities::{Collidable, Dialogue, DialogueTree, Enemy, Glyph, Gravity, Location, Named, Object, Stats, Tree},
 };
 
 const TILE_SIZE: f32 = 32.0;
@@ -49,24 +50,6 @@ pub enum TimeMode {
   TurnBased
 }
 
-#[derive(Resource)]
-struct GameClock {
-  time: f32,
-  mode: TimeMode
-}
-
-impl GameClock {
-  fn new() -> Self { GameClock { time: 0.0, mode: TimeMode::RealTime } }
-
-  fn advance(&mut self, cost: f32) { self.time += cost; }
-
-  fn tick_realtime(&mut self, dt: f32) {
-    if self.mode == TimeMode::RealTime {
-      self.time += dt;
-    }
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Interaction menu
 // ---------------------------------------------------------------------------
@@ -83,10 +66,12 @@ enum InteractionAction {
   Descend,
   OpenDoor(i32, i32),
   Talk { speaker: &'static str, tree: &'static DialogueTree },
+  ChopTree(Entity),
+  PickUpItem(i32, i32),
 }
 
-#[derive(Resource, Default)]
-enum InteractMenu {
+#[derive(Default)]
+pub enum InteractMenu {
   #[default]
   Closed,
   Open {
@@ -98,7 +83,7 @@ enum InteractMenu {
 // Pause / Esc menu
 // ---------------------------------------------------------------------------
 
-#[derive(Resource, Default, PartialEq, Eq)]
+#[derive(Default, PartialEq, Eq)]
 enum PauseMenu {
   #[default]
   Closed,
@@ -117,23 +102,60 @@ enum DialogueState {
   Open { speaker: &'static str, tree: &'static DialogueTree, node_name: &'static str },
 }
 
-impl Resource for DialogueState {}
-
 #[derive(Component)]
 struct DialogueOverlay;
+
+// ---------------------------------------------------------------------------
+// Merged UI state
+// ---------------------------------------------------------------------------
+
+#[derive(Resource, Default)]
+struct UiState {
+  pause: PauseMenu,
+  interact: InteractMenu,
+  dialogue: DialogueState,
+}
+
+impl UiState {
+  fn any_open(&self) -> bool {
+    self.pause != PauseMenu::Closed
+      || matches!(self.interact, InteractMenu::Open { .. })
+      || matches!(self.dialogue, DialogueState::Open { .. })
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Merged timing
+// ---------------------------------------------------------------------------
+
+#[derive(Resource)]
+pub struct Clock {
+  time: f32,
+  mode: TimeMode,
+  move_cooldown: f32,
+}
+
+impl Clock {
+  fn new() -> Self { Clock { time: 0.0, mode: TimeMode::RealTime, move_cooldown: 0.0 } }
+
+  fn advance(&mut self, cost: f32) { self.time += cost; }
+
+  fn tick_realtime(&mut self, dt: f32) {
+    if self.mode == TimeMode::RealTime {
+      self.time += dt;
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Resources & components
 // ---------------------------------------------------------------------------
 
 #[derive(Resource)]
-struct GameWorld(ZoneWorld);
+pub struct GameWorld(pub ZoneWorld);
 
 #[derive(Resource)]
-struct MoveCooldown(f32);
-
-#[derive(Resource)]
-struct Fov(FovGrid);
+pub struct Fov(pub FovGrid);
 
 #[derive(Component)]
 pub struct Player;
@@ -167,6 +189,17 @@ struct InteractOverlay;
 #[derive(Component)]
 struct PauseOverlay;
 
+#[derive(Component, Default)]
+pub struct Inventory(std::collections::HashMap<level::Item, u32>);
+
+/// Marker for entities that have had their Text2d visual set up.
+#[derive(Component)]
+struct GlyphVisual;
+
+// ---------------------------------------------------------------------------
+// HUD component markers
+// ---------------------------------------------------------------------------
+
 #[derive(Component)]
 struct HudElement;
 
@@ -179,9 +212,8 @@ struct LevelDisplay;
 #[derive(Component)]
 struct TileInfoDisplay;
 
-/// Marker for entities that have had their Text2d visual set up.
 #[derive(Component)]
-struct GlyphVisual;
+struct InventoryDisplay;
 
 // ---------------------------------------------------------------------------
 // Glyph rendering systems
@@ -239,13 +271,11 @@ fn main() {
     }))
     .insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.05)))
     .insert_resource(GameWorld(world))
-    .insert_resource(GameClock::new())
-    .insert_resource(MoveCooldown(0.0))
-    .insert_resource(InteractMenu::default())
-    .insert_resource(PauseMenu::default())
-    .insert_resource(DialogueState::default())
+    .insert_resource(Clock::new())
+    .insert_resource(UiState::default())
     .insert_resource(Fov(fov))
     .insert_resource(TileEntityIndex::default())
+    .add_plugins(ui::UiPlugin)
     .add_systems(Startup, setup)
     .add_systems(
       Update,
@@ -258,14 +288,13 @@ fn main() {
         update_time_mode,
         handle_menus,
         handle_dialogue,
+        handle_interact,
         player_input,
         ApplyDeferred,
         apply_gravity,
         enemy_ai,
         camera_follow,
         update_fov_visuals,
-        mouse_hover_tile,
-        update_hud,
       )
         .chain()
     )
@@ -284,7 +313,7 @@ fn tile_screen_pos(x: usize, y: usize, w: usize, h: usize) -> Vec3 {
   )
 }
 
-fn screen_to_tile(world_pos: Vec2, w: usize, h: usize) -> (i32, i32) {
+pub fn screen_to_tile(world_pos: Vec2, w: usize, h: usize) -> (i32, i32) {
   let tx = (world_pos.x / TILE_SIZE + w as f32 / 2.0).floor() as i32;
   let ty = (h as f32 / 2.0 - world_pos.y / TILE_SIZE).floor() as i32;
   (tx, ty)
@@ -294,7 +323,7 @@ fn world_to_local(wx: i32, wy: i32) -> (usize, usize) {
   (wx as usize % ZONE_WIDTH, wy as usize % ZONE_HEIGHT)
 }
 
-fn world_to_zone(wx: i32, wy: i32) -> (usize, usize) {
+pub fn world_to_zone(wx: i32, wy: i32) -> (usize, usize) {
   (wx as usize / ZONE_WIDTH, wy as usize / ZONE_HEIGHT)
 }
 
@@ -334,6 +363,7 @@ fn setup(
     Player,
     PlayerPos { x: px, y: py, z: START_Z },
     Stats { hp: 20, max_hp: 20, attack: 5, move_speed: 3.0, attack_speed: 1.0 },
+    Inventory::default(),
   ));
 
   // Spawn enemies and NPCs — compute walkable in local coords, convert to world
@@ -358,6 +388,16 @@ fn setup(
   Object::catgirl()
     .add(Dialogue(&dialogue::MIRA))
     .spawn_at(&mut commands, cx1, cy1, START_Z);
+
+  // Trees — place a few on grass tiles around the starting area
+  for &(tx, ty) in &[(5, 5), (40, 5), (5, 40), (35, 35), (20, 3), (3, 20), (42, 30)] {
+    let (ltx, lty) = find_walkable(level, tx, ty);
+    let (wx, wy) = (
+      (START_ZX * ZONE_WIDTH) as i32 + ltx as i32,
+      (START_ZY * ZONE_HEIGHT) as i32 + lty as i32,
+    );
+    Object::tree().spawn_at(&mut commands, wx, wy, START_Z);
+  }
 
   // HUD — children of camera so they stay fixed on screen
   let time_id = commands
@@ -393,7 +433,18 @@ fn setup(
     ))
     .id();
 
-  commands.entity(cam_entity).add_children(&[time_id, level_id, tile_info_id]);
+  let inv_id = commands
+    .spawn((
+      Text2d::new(""),
+      TextFont { font_size: 13.0, ..default() },
+      TextColor(Color::srgb(0.7, 0.65, 0.45)),
+      Transform::from_xyz(-580.0, 340.0, 5.0),
+      HudElement,
+      InventoryDisplay
+    ))
+    .id();
+
+  commands.entity(cam_entity).add_children(&[time_id, level_id, tile_info_id, inv_id]);
 }
 
 fn find_walkable(level: &level::Level, hint_x: usize, hint_y: usize) -> (usize, usize) {
@@ -690,14 +741,14 @@ fn tile_hover_text(
 // Time
 // ---------------------------------------------------------------------------
 
-fn advance_realtime(time: Res<Time>, mut clock: ResMut<GameClock>) {
+fn advance_realtime(time: Res<Time>, mut clock: ResMut<Clock>) {
   clock.tick_realtime(time.delta_secs());
 }
 
 const ENEMY_ALERT_RADIUS: i32 = 8;
 
 fn update_time_mode(
-  mut clock: ResMut<GameClock>,
+  mut clock: ResMut<Clock>,
   player_q: Query<&PlayerPos, With<Player>>,
   enemy_q: Query<&Location, With<Enemy>>,
 ) {
@@ -715,13 +766,14 @@ fn update_time_mode(
 }
 
 fn update_hud(
-  clock: Res<GameClock>,
-  player_q: Query<&PlayerPos, With<Player>>,
+  clock: Res<Clock>,
+  player_q: Query<(&PlayerPos, &Inventory), With<Player>>,
   mut time_q: Query<
     (&mut Text2d, &mut TextColor),
-    (With<TimeDisplay>, Without<LevelDisplay>)
+    (With<TimeDisplay>, Without<LevelDisplay>, Without<InventoryDisplay>)
   >,
-  mut level_q: Query<&mut Text2d, (With<LevelDisplay>, Without<TimeDisplay>)>
+  mut level_q: Query<&mut Text2d, (With<LevelDisplay>, Without<TimeDisplay>, Without<InventoryDisplay>)>,
+  mut inv_q: Query<&mut Text2d, (With<InventoryDisplay>, Without<TimeDisplay>, Without<LevelDisplay>)>,
 ) {
   if let Ok((mut text, mut color)) = time_q.single_mut() {
     let mode_str = match clock.mode {
@@ -736,7 +788,7 @@ fn update_hud(
   }
 
   if let Ok(mut text) = level_q.single_mut()
-    && let Ok(pos) = player_q.single()
+    && let Ok((pos, _)) = player_q.single()
   {
     let (zx, zy) = world_to_zone(pos.x, pos.y);
     let label = match pos.z {
@@ -747,6 +799,21 @@ fn update_hud(
       z => { *text = Text2d::new(format!("z={z} [{zx},{zy}]")); return; }
     };
     *text = Text2d::new(format!("{label} [{zx},{zy}]"));
+  }
+
+  // Inventory display
+  if let Ok(mut text) = inv_q.single_mut()
+    && let Ok((_, inventory)) = player_q.single()
+  {
+    let contents = if inventory.0.is_empty() {
+      "Inv: (empty)".to_string()
+    } else {
+      let items: Vec<String> = inventory.0.iter()
+        .map(|(item, count)| format!("{}x{}", item.name(), count))
+        .collect();
+      format!("Inv: {}", items.join(" "))
+    };
+    *text = Text2d::new(contents);
   }
 }
 
@@ -807,23 +874,21 @@ fn resolve_move(level: &level::Level, px: i32, py: i32, dx: i32, dy: i32) -> (i3
 fn handle_menus(
   keys: Res<ButtonInput<KeyCode>>,
   asset_server: Res<AssetServer>,
-  mut pause: ResMut<PauseMenu>,
-  mut interact: ResMut<InteractMenu>,
-  mut dialogue_state: ResMut<DialogueState>,
+  mut ui: ResMut<UiState>,
   mut commands: Commands,
   pause_overlay_q: Query<Entity, With<PauseOverlay>>,
   interact_overlay_q: Query<Entity, With<InteractOverlay>>,
   mut gw: ResMut<GameWorld>,
-  mut clock: ResMut<GameClock>,
+  mut clock: ResMut<Clock>,
   mut fov: ResMut<Fov>,
   tile_query: Query<Entity, With<TileGlyph>>,
-  mut player_query: Query<(&mut PlayerPos, &mut Transform), With<Player>>,
+  mut player_query: Query<(&mut PlayerPos, &mut Transform, &mut Inventory), With<Player>>,
   mut exit: MessageWriter<AppExit>
 ) {
   // 1. Interact menu takes priority over pause menu
-  if let InteractMenu::Open { options } = &*interact {
+  if let InteractMenu::Open { options } = &ui.interact {
     if keys.just_pressed(KeyCode::Escape) {
-      *interact = InteractMenu::Closed;
+      ui.interact = InteractMenu::Closed;
       despawn_interact_overlays(&mut commands, &interact_overlay_q);
     } else if let Some(idx) = [
         KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3,
@@ -833,38 +898,38 @@ fn handle_menus(
       && idx < options.len()
     {
       let option = options[idx].clone();
-      *interact = InteractMenu::Closed;
+      ui.interact = InteractMenu::Closed;
       despawn_interact_overlays(&mut commands, &interact_overlay_q);
       execute_interaction(
         &option.action, &mut gw, &mut clock, &mut fov,
-        &mut dialogue_state, &mut commands, &asset_server, &tile_query, &mut player_query
+        &mut ui, &mut commands, &asset_server, &tile_query, &mut player_query
       );
     }
   } else {
   // 2. Pause menu
-  match *pause {
+  match ui.pause {
     PauseMenu::Closed => {
       let open = keys.just_pressed(KeyCode::Escape)
         || (keys.just_pressed(KeyCode::Slash)
           && (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight)));
 
       if open {
-        *pause = if keys.just_pressed(KeyCode::Slash) {
+        ui.pause = if keys.just_pressed(KeyCode::Slash) {
           PauseMenu::Controls
         } else {
           PauseMenu::Main
         };
-        spawn_pause_overlay(&mut commands, &pause);
+        spawn_pause_overlay(&mut commands, &ui);
       }
     }
     PauseMenu::Main => {
       if keys.just_pressed(KeyCode::Escape) || keys.just_pressed(KeyCode::Digit1) {
-        *pause = PauseMenu::Closed;
+        ui.pause = PauseMenu::Closed;
         despawn_overlays(&mut commands, &pause_overlay_q);
       } else if keys.just_pressed(KeyCode::Digit2) {
         despawn_overlays(&mut commands, &pause_overlay_q);
-        *pause = PauseMenu::Controls;
-        spawn_pause_overlay(&mut commands, &pause);
+        ui.pause = PauseMenu::Controls;
+        spawn_pause_overlay(&mut commands, &ui);
       } else if keys.just_pressed(KeyCode::Digit3) {
         exit.write(AppExit::Success);
       }
@@ -872,16 +937,16 @@ fn handle_menus(
     PauseMenu::Controls => {
       if keys.just_pressed(KeyCode::Escape) {
         despawn_overlays(&mut commands, &pause_overlay_q);
-        *pause = PauseMenu::Main;
-        spawn_pause_overlay(&mut commands, &pause);
+        ui.pause = PauseMenu::Main;
+        spawn_pause_overlay(&mut commands, &ui);
       }
     }
   }
   } // end else (pause menu)
 }
 
-fn spawn_pause_overlay(commands: &mut Commands, state: &PauseMenu) {
-  let text = match state {
+fn spawn_pause_overlay(commands: &mut Commands, ui: &UiState) {
+  let text = match ui.pause {
     PauseMenu::Main => {
       "\
             Paused\n\
@@ -943,11 +1008,11 @@ fn format_dialogue(speaker: &str, node: &trl::entities::DialogueNode) -> String 
 
 fn handle_dialogue(
   keys: Res<ButtonInput<KeyCode>>,
-  mut state: ResMut<DialogueState>,
+  mut ui: ResMut<UiState>,
   mut commands: Commands,
   overlay_q: Query<Entity, With<DialogueOverlay>>,
 ) {
-  if let DialogueState::Open { speaker, tree, node_name } = &*state {
+  if let DialogueState::Open { speaker, tree, node_name } = &ui.dialogue {
     let (speaker, tree, node_name) = (*speaker, *tree, *node_name);
     let node = tree.find(node_name);
 
@@ -961,7 +1026,7 @@ fn handle_dialogue(
         DialogueOverlay,
       ));
     } else if keys.just_pressed(KeyCode::Escape) {
-      *state = DialogueState::Closed;
+      ui.dialogue = DialogueState::Closed;
     } else if let Some(idx) = [
         KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3,
         KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6,
@@ -970,7 +1035,7 @@ fn handle_dialogue(
       && idx < node.choices.len()
     {
       for e in overlay_q.iter() { commands.entity(e).despawn(); }
-      *state = node.choices[idx].next
+      ui.dialogue = node.choices[idx].next
         .map_or(DialogueState::Closed, |next_name| DialogueState::Open { speaker, tree, node_name: next_name });
     }
   } else {
@@ -1040,7 +1105,7 @@ fn direction_name(dx: i32, dy: i32) -> String {
 }
 
 fn show_interact_menu(
-  menu: &mut ResMut<InteractMenu>,
+  ui: &mut UiState,
   commands: &mut Commands,
   options: Vec<InteractionOption>
 ) {
@@ -1063,21 +1128,21 @@ fn show_interact_menu(
     InteractOverlay
   ));
 
-  **menu = InteractMenu::Open { options };
+  ui.interact = InteractMenu::Open { options };
 }
 
 fn execute_interaction(
   action: &InteractionAction,
   gw: &mut ResMut<GameWorld>,
-  clock: &mut ResMut<GameClock>,
+  clock: &mut Clock,
   fov: &mut ResMut<Fov>,
-  dialogue_state: &mut ResMut<DialogueState>,
+  ui: &mut UiState,
   commands: &mut Commands,
   asset_server: &AssetServer,
   tile_query: &Query<Entity, With<TileGlyph>>,
-  player_query: &mut Query<(&mut PlayerPos, &mut Transform), With<Player>>
+  player_query: &mut Query<(&mut PlayerPos, &mut Transform, &mut Inventory), With<Player>>
 ) {
-  if let Ok((mut pos, mut transform)) = player_query.single_mut() {
+  if let Ok((mut pos, mut transform, mut inventory)) = player_query.single_mut() {
     let (zx, zy) = world_to_zone(pos.x, pos.y);
     let (lx, ly) = world_to_local(pos.x, pos.y);
     match action {
@@ -1108,7 +1173,24 @@ fn execute_interaction(
         clock.advance(1.0);
       }
       InteractionAction::Talk { speaker, tree } => {
-        **dialogue_state = DialogueState::Open { speaker, tree, node_name: tree.nodes[0].name };
+        ui.dialogue = DialogueState::Open { speaker, tree, node_name: tree.nodes[0].name };
+      }
+      InteractionAction::ChopTree(entity) => {
+        commands.entity(*entity).despawn();
+        *inventory.0.entry(level::Item::Wood).or_insert(0) += 1;
+        clock.advance(2.0);
+      }
+      InteractionAction::PickUpItem(wx, wy) => {
+        let (izx, izy) = world_to_zone(*wx, *wy);
+        let (ilx, ily) = world_to_local(*wx, *wy);
+        let level = gw.0.zone(izx, izy, pos.z);
+        if ily < level.height && ilx < level.width {
+          if let Some(item) = level.items[ily][ilx] {
+            *inventory.0.entry(item).or_insert(0) += 1;
+            gw.0.zone_mut(izx, izy, pos.z).set_item(*wx, *wy, None);
+          }
+        }
+        clock.advance(1.0);
       }
     }
   }
@@ -1195,53 +1277,28 @@ fn player_input(
   time: Res<Time>,
   asset_server: Res<AssetServer>,
   gw: Res<GameWorld>,
-  pause: Res<PauseMenu>,
-  dialogue_state: Res<DialogueState>,
-  mut menu: ResMut<InteractMenu>,
-  mut clock: ResMut<GameClock>,
-  mut cooldown: ResMut<MoveCooldown>,
+  ui: Res<UiState>,
+  mut clock: ResMut<Clock>,
   mut fov: ResMut<Fov>,
   index: Res<TileEntityIndex>,
   mut commands: Commands,
   tile_query: Query<Entity, With<TileGlyph>>,
-  mut player_query: Query<(&mut PlayerPos, &mut Transform, &Stats), With<Player>>,
-  mut enemy_query: Query<(&mut Stats, Option<&Wearing>), (With<Enemy>, Without<Player>)>,
-  dialogue_q: Query<(&Named, &Dialogue)>,
+  mut player_query: Query<(&mut PlayerPos, &mut Transform, &Stats, &mut Inventory), With<Player>>,
+  mut enemy_query: Query<&mut Stats, (With<Enemy>, Without<Player>)>,
+  collidable_q: Query<&Collidable>,
 ) {
-  if *pause == PauseMenu::Closed
-    && !matches!(*menu, InteractMenu::Open { .. })
-    && !matches!(*dialogue_state, DialogueState::Open { .. })
-    && let Ok((mut pos, mut transform, stats)) = player_query.single_mut()
+  if !ui.any_open()
+    && let Ok((mut pos, mut transform, stats, mut inventory)) = player_query.single_mut()
   {
     let player_attack = stats.attack;
-    cooldown.0 = (cooldown.0 - time.delta_secs()).max(0.0);
+    clock.move_cooldown = (clock.move_cooldown - time.delta_secs()).max(0.0);
 
-    if keys.just_pressed(KeyCode::Space) {
-      // Gather tile interactions + Talk options for adjacent NPCs.
-      let (zx, zy) = world_to_zone(pos.x, pos.y);
-      let (lx, ly) = (
-        (pos.x as usize % ZONE_WIDTH) as i32,
-        (pos.y as usize % ZONE_HEIGHT) as i32,
-      );
-      let level = gw.0.zone(zx, zy, pos.z);
-      let mut options = gather_interactions(level, lx, ly, pos.z);
-      options.extend(
-        (-1i32..=1).flat_map(|dy| (-1i32..=1).map(move |dx| (dx, dy)))
-          .filter_map(|(dx, dy)| index.0.get(&(pos.x + dx, pos.y + dy, pos.z)))
-          .flat_map(|entities| entities.iter())
-          .filter_map(|&e| dialogue_q.get(e).ok())
-          .map(|(named, dialogue)| InteractionOption {
-            label: format!("Talk to {}", named.name),
-            action: InteractionAction::Talk { speaker: named.name, tree: dialogue.0 },
-          })
-      );
-      show_interact_menu(&mut menu, &mut commands, options);
-    } else if keys.just_pressed(KeyCode::Period)
+    if keys.just_pressed(KeyCode::Period)
       && !keys.pressed(KeyCode::ShiftLeft)
       && !keys.pressed(KeyCode::ShiftRight)
     {
       clock.advance(PlayerAction::Wait.time_cost());
-    } else if any_direction_pressed(&keys) && cooldown.0 == 0.0 {
+    } else if any_direction_pressed(&keys) && clock.move_cooldown == 0.0 {
       let (zx, zy) = world_to_zone(pos.x, pos.y);
       let (lx, ly) = (
         (pos.x as usize % ZONE_WIDTH) as i32,
@@ -1251,7 +1308,6 @@ fn player_input(
       let dir = read_direction(&keys);
       let (raw_dx, raw_dy) = (dir.0, dir.1);
 
-      // Check zone transition first (resolve_move blocks off-edge steps)
       let transitioned = try_zone_transition(
         &mut pos, &mut transform, &gw.0, &mut fov.0,
         &mut commands, &asset_server, &tile_query,
@@ -1260,7 +1316,7 @@ fn player_input(
 
       if transitioned {
         clock.advance(PlayerAction::Move { dx: raw_dx, dy: raw_dy }.time_cost());
-        cooldown.0 = MOVE_COOLDOWN;
+        clock.move_cooldown = MOVE_COOLDOWN;
       } else {
         let (dx, dy) = resolve_move(level, lx, ly, raw_dx, raw_dy);
 
@@ -1268,28 +1324,111 @@ fn player_input(
           let target_wx = pos.x + dx;
           let target_wy = pos.y + dy;
 
-          // Try bump attack first; fall through to movement if no hostile found.
-          let bumped = index.0.get(&(target_wx, target_wy, pos.z))
-            .and_then(|entities| entities.iter().find(|&&e| enemy_query.get(e).is_ok()).copied())
-            .and_then(|hostile| enemy_query.get_mut(hostile).ok().map(|(mut es, ew)| {
-              if combat::bump_attack(player_attack, &mut es, ew) {
+          // Check for an enemy to bump-attack
+          let enemy_hit = index.0.get(&(target_wx, target_wy, pos.z))
+            .and_then(|entities| entities.iter().find(|&&e| enemy_query.get(e).is_ok()).copied());
+
+          if let Some(hostile) = enemy_hit {
+            if let Ok(mut es) = enemy_query.get_mut(hostile) {
+              es.hp -= player_attack;
+              if es.hp <= 0 {
                 commands.entity(hostile).despawn();
               }
-            }));
+            }
+          } else {
+            // Block if a collidable non-enemy entity occupies the tile
+            let blocked = index.0.get(&(target_wx, target_wy, pos.z))
+              .is_some_and(|entities| entities.iter().any(|&e| {
+                collidable_q.get(e).is_ok_and(|c| c.0)
+              }));
 
-          if bumped.is_none() {
-            pos.x += dx;
-            pos.y += dy;
-            let (nlx, nly) = world_to_local(pos.x, pos.y);
-            transform.translation =
-              tile_screen_pos(nlx, nly, ZONE_WIDTH, ZONE_HEIGHT) + Vec3::Z;
-            compute_fov(&mut fov.0, level, nlx as i32, nly as i32, FOV_RADIUS);
+            if !blocked {
+              pos.x += dx;
+              pos.y += dy;
+              let (nlx, nly) = world_to_local(pos.x, pos.y);
+              transform.translation =
+                tile_screen_pos(nlx, nly, ZONE_WIDTH, ZONE_HEIGHT) + Vec3::Z;
+              compute_fov(&mut fov.0, level, nlx as i32, nly as i32, FOV_RADIUS);
+
+              // Auto-pickup items underfoot
+              let (izx, izy) = world_to_zone(pos.x, pos.y);
+              let (ilx, ily) = world_to_local(pos.x, pos.y);
+              let lvl = gw.0.zone(izx, izy, pos.z);
+              if ily < lvl.height && ilx < lvl.width {
+                if let Some(item) = lvl.items[ily][ilx] {
+                  *inventory.0.entry(item).or_insert(0) += 1;
+                }
+              }
+            }
           }
 
           clock.advance(PlayerAction::Move { dx, dy }.time_cost());
-          cooldown.0 = MOVE_COOLDOWN;
+          clock.move_cooldown = MOVE_COOLDOWN;
         }
       }
     }
   }
+}
+
+/// Separate system for Space key interactions to avoid Bevy's system param limit.
+fn handle_interact(
+  keys: Res<ButtonInput<KeyCode>>,
+  gw: Res<GameWorld>,
+  mut ui: ResMut<UiState>,
+  index: Res<TileEntityIndex>,
+  mut commands: Commands,
+  player_q: Query<&PlayerPos, With<Player>>,
+  dialogue_q: Query<(&Named, &Dialogue)>,
+  tree_q: Query<Entity, With<Tree>>,
+) {
+  if ui.any_open() || !keys.just_pressed(KeyCode::Space)
+  {
+    return;
+  }
+
+  let Ok(pos) = player_q.single() else { return };
+
+  let (zx, zy) = world_to_zone(pos.x, pos.y);
+  let (lx, ly) = (
+    (pos.x as usize % ZONE_WIDTH) as i32,
+    (pos.y as usize % ZONE_HEIGHT) as i32,
+  );
+  let level = gw.0.zone(zx, zy, pos.z);
+  let mut options = gather_interactions(level, lx, ly, pos.z);
+
+  // Entity-based interactions: trees, dialogue, items
+  for (dx, dy) in (-1i32..=1).flat_map(|dy| (-1i32..=1).map(move |dx| (dx, dy))) {
+    let wx = pos.x + dx;
+    let wy = pos.y + dy;
+    if let Some(entities) = index.0.get(&(wx, wy, pos.z)) {
+      for &e in entities.iter() {
+        if tree_q.get(e).is_ok() {
+          let dir = if dx == 0 && dy == 0 { "here".to_string() } else { direction_name(dx, dy) };
+          options.push(InteractionOption {
+            label: format!("Chop tree ({dir})"),
+            action: InteractionAction::ChopTree(e),
+          });
+        }
+        if let Ok((named, dialogue)) = dialogue_q.get(e) {
+          options.push(InteractionOption {
+            label: format!("Talk to {}", named.name),
+            action: InteractionAction::Talk { speaker: named.name, tree: dialogue.0 },
+          });
+        }
+      }
+    }
+    // Item pickup
+    let (ilx, ily) = (wx as usize % ZONE_WIDTH, wy as usize % ZONE_HEIGHT);
+    if ily < level.height && ilx < level.width
+      && level.items[ily][ilx].is_some()
+    {
+      let dir = if dx == 0 && dy == 0 { "here".to_string() } else { direction_name(dx, dy) };
+      options.push(InteractionOption {
+        label: format!("Pick up item ({dir})"),
+        action: InteractionAction::PickUpItem(wx, wy),
+      });
+    }
+  }
+
+  show_interact_menu(&mut ui, &mut commands, options);
 }

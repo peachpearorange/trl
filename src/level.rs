@@ -26,13 +26,14 @@ pub enum Tile {
   CrystalFormation,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Item {
   GoldCoin,
   HealthPotion,
   Torch,
   Rock,
-  Mushroom
+  Mushroom,
+  Wood
 }
 
 impl Item {
@@ -42,7 +43,8 @@ impl Item {
       Item::HealthPotion => "Health Potion",
       Item::Torch => "Torch",
       Item::Rock => "Rock",
-      Item::Mushroom => "Mushroom"
+      Item::Mushroom => "Mushroom",
+      Item::Wood => "Wood"
     }
   }
 
@@ -52,7 +54,8 @@ impl Item {
       Item::HealthPotion => "!",
       Item::Torch => "/",
       Item::Rock => "`",
-      Item::Mushroom => "%"
+      Item::Mushroom => "%",
+      Item::Wood => "/"
     }
   }
 
@@ -62,7 +65,8 @@ impl Item {
       Item::HealthPotion => [0.9, 0.2, 0.3],
       Item::Torch => [1.0, 0.6, 0.1],
       Item::Rock => [0.5, 0.5, 0.5],
-      Item::Mushroom => [0.6, 0.3, 0.7]
+      Item::Mushroom => [0.6, 0.3, 0.7],
+      Item::Wood => [0.55, 0.35, 0.15]
     }
   }
 }
@@ -550,6 +554,17 @@ pub fn build_test_world() -> ZoneWorld {
   place_stairs(world.zones[ZX][ZY].as_mut_slice(), 0, 1, 20, 24);
   clear_around(world.zone_mut(ZX, ZY, 0), 20, 24, 2);
   clear_around(world.zone_mut(ZX, ZY, 1), 20, 24, 2);
+
+  // Fill all other zones with basic terrain so walking off the edge of zone (0,0)
+  // doesn't drop the player into an Air void.
+  for zx in 0..WORLD_COLS {
+    for zy in 0..WORLD_ROWS {
+      if zx == ZX && zy == ZY { continue; }
+      fill_rect(world.zone_mut(zx, zy, 2), 0, 0, W, H, Tile::Grass);
+      fill_rect(world.zone_mut(zx, zy, 1), 0, 0, W, H, Tile::CobblestoneWall);
+      fill_rect(world.zone_mut(zx, zy, 0), 0, 0, W, H, Tile::CobblestoneWall);
+    }
+  }
 
   world
 }

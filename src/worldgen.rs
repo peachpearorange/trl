@@ -14,7 +14,7 @@ pub fn island_mask(wx: usize, wy: usize) -> f64 {
   // Normalise to [-1, 1] range; corners land at ≈ 1.41
   let dx = (wx as f64 - cx) / cx;
   let dy = (wy as f64 - cy) / cy;
-  // Clamp to 1.0 so corners don't go above 1 after sqrt
+  // Corners produce d ≈ 1.41; clamp so (1.0 - d) doesn't go negative before .max(0.0)
   let d = (dx * dx + dy * dy).sqrt().min(1.0);
   // Smooth quadratic falloff: 1 at center, 0 at edge
   (1.0 - d).max(0.0).powi(2)
@@ -90,5 +90,23 @@ mod tests {
   fn tile_from_sand_range() {
     let t = tile_from_value(0.24);
     assert_eq!(t, Tile::Sand);
+  }
+
+  #[test]
+  fn tile_from_value_boundaries() {
+    assert_eq!(tile_from_value(0.119), Tile::DeepWater);
+    assert_eq!(tile_from_value(0.120), Tile::ShallowWater);
+    assert_eq!(tile_from_value(0.199), Tile::ShallowWater);
+    assert_eq!(tile_from_value(0.200), Tile::Sand);
+    assert_eq!(tile_from_value(0.259), Tile::Sand);
+    assert_eq!(tile_from_value(0.260), Tile::Grass);
+    assert_eq!(tile_from_value(0.579), Tile::Grass);
+    assert_eq!(tile_from_value(0.580), Tile::TallGrass);
+    assert_eq!(tile_from_value(0.659), Tile::TallGrass);
+    assert_eq!(tile_from_value(0.660), Tile::Bush);
+    assert_eq!(tile_from_value(0.729), Tile::Bush);
+    assert_eq!(tile_from_value(0.730), Tile::Ash);
+    assert_eq!(tile_from_value(0.829), Tile::Ash);
+    assert_eq!(tile_from_value(0.830), Tile::Lava);
   }
 }

@@ -262,7 +262,11 @@ impl Object {
   pub fn enemy() -> Self                      { Self::character(Faction::Hostile).add((Enemy, TimeSinceAction(0.0))) }
   pub fn structure(blocks: bool) -> Self      { Self::physical(blocks) }
   pub fn wall(material: Material) -> Self     { Self::structure(true).add(WallComp { material }) }
-  pub fn tree() -> Self                       { Self::structure(true).add(Tree) }
+  pub fn tree() -> Self                       { Self::structure(true).add((
+    Tree,
+    Glyph { ch: 'T', color: Color::srgb(0.13, 0.55, 0.13) },
+    Named { name: "Tree", flavor: "A sturdy tree. Could be chopped for wood." },
+  )) }
   pub fn door(open: bool) -> Self             { Self::structure(!open).add(Door { open }) }
   pub fn ground_item(item: Item) -> Self      { Self::new(GroundItem(item)) }
   pub fn torch(radius: u32) -> Self           { Self::new(LightSource { radius }) }

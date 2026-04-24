@@ -99,30 +99,19 @@ impl TileLoader {
   pub fn new() -> Self { TileLoader { cache: HashMap::new() } }
 
   pub fn load(&mut self, name: &str) -> Option<PixelArt> {
-    if let Some(cached) = self.cache.get(name) {
-      return Some(cached.clone());
+    if !self.cache.contains_key(name) {
+      let art = std::fs::read_to_string(format!("tiles/{}.sprite", name))
+        .ok()
+        .map(|content| PixelArt::from_text(&content))?;
+      self.cache.insert(name.to_string(), art);
     }
-
-    let path = format!("tiles/{}.sprite", name);
-
-    match std::fs::read_to_string(&path) {
-      Ok(content) => {
-        let art = PixelArt::from_text(&content);
-        self.cache.insert(name.to_string(), art.clone());
-        Some(art)
-      }
-      Err(_) => None
-    }
+    self.cache.get(name).cloned()
   }
 
   pub fn load_or_single(&mut self, name: &str, fallback_char: char) -> Sprite {
-    match self.load(name) {
-      Some(art) => Sprite::new(art, fallback_char),
-      None => {
-        let art = PixelArt::from_text(&fallback_char.to_string());
-        Sprite::new(art, fallback_char)
-      }
-    }
+    let art = self.load(name)
+      .unwrap_or_else(|| PixelArt::from_text(&fallback_char.to_string()));
+    Sprite::new(art, fallback_char)
   }
 }
 
