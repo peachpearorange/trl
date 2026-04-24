@@ -8,7 +8,7 @@ mod world_data;
 use {
   bevy::prelude::*,
   combat::{TileEntityIndex, enemy_ai, maintain_tile_index},
-  level::{FovGrid, Tile, ZoneWorld, ZONE_WIDTH, ZONE_HEIGHT, WORLD_DEPTH, build_test_world, compute_fov},
+  level::{FovGrid, Tile, ZoneWorld, ZONE_WIDTH, ZONE_HEIGHT, WORLD_DEPTH, compute_fov},
   trl::entities::{Collidable, Dialogue, DialogueTree, Enemy, Glyph, Gravity, Location, Named, Object, Stats, Tree},
 };
 
@@ -187,6 +187,15 @@ struct ItemGlyph {
 struct InteractOverlay;
 
 #[derive(Component)]
+struct WorldMapOverlay;
+
+#[derive(Resource)]
+struct WorldMapImage(Handle<Image>);
+
+#[derive(Resource, Default, PartialEq, Eq)]
+enum WorldMapState { #[default] Closed, Open }
+
+#[derive(Component)]
 struct PauseOverlay;
 
 #[derive(Component, Default)]
@@ -257,7 +266,7 @@ fn sync_entity_positions(
 // ---------------------------------------------------------------------------
 
 fn main() {
-  let world = build_test_world();
+  let world = worldgen::generate_world(worldgen::WORLD_SEED);
   let fov = FovGrid::new(ZONE_WIDTH, ZONE_HEIGHT);
 
   App::new()
@@ -273,6 +282,7 @@ fn main() {
     .insert_resource(GameWorld(world))
     .insert_resource(Clock::new())
     .insert_resource(UiState::default())
+    .insert_resource(WorldMapState::default())
     .insert_resource(Fov(fov))
     .insert_resource(TileEntityIndex::default())
     .add_plugins(ui::UiPlugin)
@@ -286,6 +296,7 @@ fn main() {
         update_entity_visibility,
         advance_realtime,
         update_time_mode,
+        handle_world_map,
         handle_menus,
         handle_dialogue,
         handle_interact,
@@ -335,10 +346,11 @@ fn setup(
   mut commands: Commands,
   asset_server: Res<AssetServer>,
   gw: Res<GameWorld>,
-  mut fov: ResMut<Fov>
+  mut fov: ResMut<Fov>,
+  mut images: ResMut<Assets<Image>>,
 ) {
-  const START_ZX: usize = 0;
-  const START_ZY: usize = 0;
+  const START_ZX: usize = 4;
+  const START_ZY: usize = 4;
   const START_Z:  usize = 2;
 
   let cam_entity = commands.spawn(Camera2d).id();
@@ -346,7 +358,7 @@ fn setup(
   spawn_level_tiles(&mut commands, &asset_server, &gw.0, START_ZX, START_ZY, START_Z);
 
   let level = gw.0.zone(START_ZX, START_ZY, START_Z);
-  let (lx, ly) = find_walkable(level, 15, 15);
+  let (lx, ly) = find_walkable(level, ZONE_WIDTH / 2, ZONE_HEIGHT / 2);
   let (px, py) = (
     (START_ZX * ZONE_WIDTH) as i32 + lx as i32,
     (START_ZY * ZONE_HEIGHT) as i32 + ly as i32,
@@ -445,6 +457,9 @@ fn setup(
     .id();
 
   commands.entity(cam_entity).add_children(&[time_id, level_id, tile_info_id, inv_id]);
+
+  let map_handle = generate_world_map_image(&gw.0, &mut images);
+  commands.insert_resource(WorldMapImage(map_handle));
 }
 
 fn find_walkable(level: &level::Level, hint_x: usize, hint_y: usize) -> (usize, usize) {
@@ -1431,4 +1446,84 @@ fn handle_interact(
   }
 
   show_interact_menu(&mut ui, &mut commands, options);
+}
+
+// ---------------------------------------------------------------------------
+// World map overlay
+// ---------------------------------------------------------------------------
+
+fn generate_world_map_image(world: &ZoneWorld, images: &mut Assets<Image>) -> Handle<Image> {
+  use bevy::{
+    asset::RenderAssetUsages,
+    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
+  };
+  use level::{WORLD_COLS, WORLD_ROWS, ZONE_WIDTH, ZONE_HEIGHT};
+
+  let w = WORLD_COLS * ZONE_WIDTH;
+  let h = WORLD_ROWS * ZONE_HEIGHT;
+  let mut data = vec![0u8; w * h * 4];
+
+  for zy in 0..WORLD_ROWS {
+    for zx in 0..WORLD_COLS {
+      let zone = world.zone(zx, zy, 2);
+      for ty in 0..ZONE_HEIGHT {
+        for tx in 0..ZONE_WIDTH {
+          let wx = zx * ZONE_WIDTH + tx;
+          let wy = zy * ZONE_HEIGHT + ty;
+          let [r, g, b] = zone.tiles[ty][tx].color();
+          let idx = (wy * w + wx) * 4;
+          data[idx]     = (r * 255.0) as u8;
+          data[idx + 1] = (g * 255.0) as u8;
+          data[idx + 2] = (b * 255.0) as u8;
+          data[idx + 3] = 255;
+        }
+      }
+    }
+  }
+
+  images.add(Image::new(
+    Extent3d { width: w as u32, height: h as u32, depth_or_array_layers: 1 },
+    TextureDimension::D2,
+    data,
+    TextureFormat::Rgba8UnormSrgb,
+    RenderAssetUsages::RENDER_WORLD,
+  ))
+}
+
+fn handle_world_map(
+  keys: Res<ButtonInput<KeyCode>>,
+  mut state: ResMut<WorldMapState>,
+  map_image: Res<WorldMapImage>,
+  mut commands: Commands,
+  overlay_q: Query<Entity, With<WorldMapOverlay>>,
+  ui: Res<UiState>,
+) {
+  if ui.any_open() { return; }
+
+  match *state {
+    WorldMapState::Closed => {
+      if keys.just_pressed(KeyCode::KeyM) {
+        *state = WorldMapState::Open;
+        use level::{WORLD_COLS, WORLD_ROWS, ZONE_WIDTH, ZONE_HEIGHT};
+        commands.spawn((
+          Sprite {
+            image: map_image.0.clone(),
+            custom_size: Some(Vec2::new(
+              (WORLD_COLS * ZONE_WIDTH * TILE_SIZE as usize) as f32,
+              (WORLD_ROWS * ZONE_HEIGHT * TILE_SIZE as usize) as f32,
+            )),
+            ..default()
+          },
+          Transform::from_xyz(0.0, 0.0, 50.0),
+          WorldMapOverlay,
+        ));
+      }
+    }
+    WorldMapState::Open => {
+      if keys.just_pressed(KeyCode::KeyM) || keys.just_pressed(KeyCode::Escape) {
+        *state = WorldMapState::Closed;
+        for e in overlay_q.iter() { commands.entity(e).despawn(); }
+      }
+    }
+  }
 }
