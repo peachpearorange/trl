@@ -1013,7 +1013,7 @@ fn handle_menus(
       ui.interact = InteractMenu::Closed;
       execute_interaction(
         &option.action, &mut gw, &mut clock, &mut fov,
-        &mut ui, &mut log, &mut commands, &asset_server, &tile_query, &sight_q, &mut player_query
+        &mut ui, &mut *log, &mut commands, &asset_server, &tile_query, &sight_q, &mut player_query
       );
     }
   } else {
@@ -1123,11 +1123,11 @@ fn handle_dialogue(
       && idx < node.choices.len()
     {
       let choice = &node.choices[idx];
-      log_message(&mut log, format!("You: {}", choice.text));
+      log_message(&mut *log, format!("You: {}", choice.text));
       if let Some(next_name) = choice.next {
         ui.dialogue = DialogueState::Open { speaker, tree, node_name: next_name };
         let next_node = tree.find(next_name);
-        log_dialogue_node_block(&mut log, speaker, next_node);
+        log_dialogue_node_block(&mut *log, speaker, next_node);
       } else {
         ui.dialogue = DialogueState::Closed;
       }
@@ -1215,6 +1215,14 @@ fn execute_interaction(
   sight_q: &Query<&Location, With<BlocksSight>>,
   player_query: &mut Query<(&mut PlayerPos, &mut Inventory), With<Player>>
 ) {
+  // No player/position needed; must not sit behind `player_query` or logging can be skipped.
+  if let InteractionAction::Talk { speaker, tree } = action {
+    let node = tree.find(tree.nodes[0].name);
+    ui.dialogue = DialogueState::Open { speaker, tree, node_name: tree.nodes[0].name };
+    log_dialogue_node_block(log, speaker, node);
+    return;
+  }
+
   if let Ok((mut pos, mut inventory)) = player_query.single_mut() {
     let (zx, zy) = world_to_zone(pos.x, pos.y);
     let (lx, ly) = world_to_local(pos.x, pos.y);
@@ -1273,11 +1281,7 @@ fn execute_interaction(
         );
         clock.advance(1);
       }
-      InteractionAction::Talk { speaker, tree } => {
-        let node = tree.find(tree.nodes[0].name);
-        ui.dialogue = DialogueState::Open { speaker, tree, node_name: tree.nodes[0].name };
-        log_dialogue_node_block(log, speaker, node);
-      }
+      InteractionAction::Talk { .. } => unreachable!(),
       InteractionAction::ChopTree(entity) => {
         commands.entity(*entity).despawn();
         *inventory.0.entry(level::Item::Wood).or_insert(0) += 1;
