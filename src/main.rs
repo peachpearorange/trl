@@ -23,6 +23,9 @@ const TILE_SIZE: f32 = 32.0;
 pub const RENDER_FRAMES_PER_SIM_STEP: u32 = 6;
 const FOV_RADIUS: i32 = 99;
 const DIM_FACTOR: f32 = 0.3;
+/// Haalka layout: game view is the left 70% of the window; status bar is 24px along the bottom.
+const GAME_VIEWPORT_WIDTH_FRAC: f32 = 0.70;
+const STATUS_BAR_HEIGHT: f32 = 24.0;
 
 // ---------------------------------------------------------------------------
 // Player actions
@@ -226,6 +229,10 @@ struct LevelDisplay;
 #[derive(Component)]
 struct TileInfoDisplay;
 
+/// Semi-transparent cell highlight following the cursor over the current zone.
+#[derive(Component)]
+struct TileHoverHighlight;
+
 #[derive(Component)]
 struct InventoryDisplay;
 
@@ -394,6 +401,7 @@ fn main() {
         update_entity_visibility,
         camera_follow,
         update_fov_visuals,
+        update_tile_hover_highlight,
       )
         .chain()
     )
@@ -513,6 +521,19 @@ fn setup(
   let cam_entity = commands.spawn(Camera2d).id();
 
   spawn_level_tiles(&mut commands, &asset_server, &gw.0, START_ZX, START_ZY, START_Z);
+
+  let hover_img = white_pixel_image(&mut images);
+  commands.spawn((
+    TileHoverHighlight,
+    Sprite {
+      image: hover_img,
+      custom_size: Some(Vec2::splat(TILE_SIZE)),
+      color: Color::srgba(0.95, 0.92, 0.45, 0.28),
+      ..default()
+    },
+    Transform::from_translation(Vec3::new(0.0, 0.0, 0.25)),
+    Visibility::Hidden,
+  ));
 
   let level = gw.0.zone(START_ZX, START_ZY, START_Z);
   let (lx, ly) = find_walkable(level, ZONE_WIDTH / 2, ZONE_HEIGHT / 2);
@@ -836,6 +857,69 @@ fn camera_follow(
 // ---------------------------------------------------------------------------
 // FOV visuals
 // ---------------------------------------------------------------------------
+
+fn white_pixel_image(images: &mut Assets<Image>) -> Handle<Image> {
+  use bevy::asset::RenderAssetUsages;
+  use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+  images.add(Image::new(
+    Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+    TextureDimension::D2,
+    vec![255, 255, 255, 255],
+    TextureFormat::Rgba8UnormSrgb,
+    RenderAssetUsages::RENDER_WORLD,
+  ))
+}
+
+fn update_tile_hover_highlight(
+  windows: Query<&Window>,
+  camera_q: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
+  gw: Res<GameWorld>,
+  fov: Res<Fov>,
+  player_q: Query<&PlayerPos, With<Player>>,
+  world_map: Res<WorldMapView>,
+  mut q: Query<(&mut Transform, &mut Visibility), With<TileHoverHighlight>>,
+) {
+  let Ok((mut transform, mut vis)) = q.single_mut() else {
+    return;
+  };
+  *vis = Visibility::Hidden;
+  if world_map.open {
+    return;
+  }
+  let Ok(window) = windows.single() else {
+    return;
+  };
+  let Ok((camera, cam_transform)) = camera_q.single() else {
+    return;
+  };
+  let Ok(player_pos) = player_q.single() else {
+    return;
+  };
+  let w = window.resolution.width();
+  let (zx, zy) = world_to_zone(player_pos.x, player_pos.y);
+  let level = gw.0.zone(zx, zy, player_pos.z);
+  if let Some(cursor) = window.cursor_position()
+    && cursor.x < w * GAME_VIEWPORT_WIDTH_FRAC
+    && cursor.y > STATUS_BAR_HEIGHT
+    && let Ok(world_pos) = camera.viewport_to_world_2d(cam_transform, cursor)
+  {
+    let (tx, ty) = screen_to_tile(world_pos, ZONE_WIDTH, ZONE_HEIGHT);
+    if tx < 0
+      || ty < 0
+      || (tx as usize) >= level.width
+      || (ty as usize) >= level.height
+    {
+      return;
+    }
+    let visible = fov.0.is_visible(tx as usize, ty as usize);
+    let revealed = fov.0.is_revealed(tx as usize, ty as usize);
+    if visible || revealed {
+      *vis = Visibility::Visible;
+      transform.translation =
+        tile_screen_pos(tx as f32, ty as f32, ZONE_WIDTH, ZONE_HEIGHT) + Vec3::new(0.0, 0.0, 0.25);
+    }
+  }
+}
 
 fn update_fov_visuals(
   fov: Res<Fov>,
