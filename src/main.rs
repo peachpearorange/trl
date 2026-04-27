@@ -879,44 +879,37 @@ fn update_tile_hover_highlight(
   world_map: Res<WorldMapView>,
   mut q: Query<(&mut Transform, &mut Visibility), With<TileHoverHighlight>>,
 ) {
-  let Ok((mut transform, mut vis)) = q.single_mut() else {
-    return;
-  };
-  *vis = Visibility::Hidden;
-  if world_map.open {
-    return;
-  }
-  let Ok(window) = windows.single() else {
-    return;
-  };
-  let Ok((camera, cam_transform)) = camera_q.single() else {
-    return;
-  };
-  let Ok(player_pos) = player_q.single() else {
-    return;
-  };
-  let w = window.resolution.width();
-  let (zx, zy) = world_to_zone(player_pos.x, player_pos.y);
-  let level = gw.0.zone(zx, zy, player_pos.z);
-  if let Some(cursor) = window.cursor_position()
-    && cursor.x < w * GAME_VIEWPORT_WIDTH_FRAC
-    && cursor.y > STATUS_BAR_HEIGHT
-    && let Ok(world_pos) = camera.viewport_to_world_2d(cam_transform, cursor)
-  {
-    let (tx, ty) = screen_to_tile(world_pos, ZONE_WIDTH, ZONE_HEIGHT);
-    if tx < 0
-      || ty < 0
-      || (tx as usize) >= level.width
-      || (ty as usize) >= level.height
+  if let Ok((mut transform, mut vis)) = q.single_mut() {
+    *vis = Visibility::Hidden;
+    if !world_map.open
+      && let Ok(window) = windows.single()
+      && let Ok((camera, cam_transform)) = camera_q.single()
+      && let Ok(player_pos) = player_q.single()
     {
-      return;
-    }
-    let visible = fov.0.is_visible(tx as usize, ty as usize);
-    let revealed = fov.0.is_revealed(tx as usize, ty as usize);
-    if visible || revealed {
-      *vis = Visibility::Visible;
-      transform.translation =
-        tile_screen_pos(tx as f32, ty as f32, ZONE_WIDTH, ZONE_HEIGHT) + Vec3::new(0.0, 0.0, 0.25);
+      let w = window.resolution.width();
+      let (zx, zy) = world_to_zone(player_pos.x, player_pos.y);
+      let level = gw.0.zone(zx, zy, player_pos.z);
+      if let Some(cursor) = window.cursor_position()
+        && cursor.x < w * GAME_VIEWPORT_WIDTH_FRAC
+        && cursor.y > STATUS_BAR_HEIGHT
+        && let Ok(world_pos) = camera.viewport_to_world_2d(cam_transform, cursor)
+      {
+        let (tx, ty) = screen_to_tile(world_pos, ZONE_WIDTH, ZONE_HEIGHT);
+        if tx >= 0
+          && ty >= 0
+          && (tx as usize) < level.width
+          && (ty as usize) < level.height
+        {
+          let visible = fov.0.is_visible(tx as usize, ty as usize);
+          let revealed = fov.0.is_revealed(tx as usize, ty as usize);
+          if visible || revealed {
+            *vis = Visibility::Visible;
+            transform.translation =
+              tile_screen_pos(tx as f32, ty as f32, ZONE_WIDTH, ZONE_HEIGHT)
+                + Vec3::new(0.0, 0.0, 0.25);
+          }
+        }
+      }
     }
   }
 }
