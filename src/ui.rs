@@ -1,7 +1,7 @@
 //! Haalka-based UI layer.  Owns the full window layout: game viewport on the
-//! left, panel UI on the right/bottom, and centred overlays for menus and
-//! dialogue.  A single [`sync_ui`] system bridges Bevy game-state into cloneable
-//! resources every frame; Haalka signals react to those resources.
+//! left, panel UI on the right/bottom, and centred overlays for menus.
+//! A single [`sync_ui`] system bridges Bevy game-state into cloneable resources
+//! each frame; Haalka `reactive_text` / [`from_resource`] read those resources.
 
 use {
   crate::{
@@ -50,11 +50,12 @@ pub struct HoverInfo {
 #[derive(Resource, Clone, Default)]
 pub struct LogEntries(pub Vec<String>);
 
-/// Clone of [`LogEntries`] for Haalka — like [`ClockData`], written in [`sync_ui`] so Jonmo
-/// `from_resource` sees updates **after** `sync_ui` and **before** `SignalProcessing`.
-/// `map_in` must never return `None` to the child builder (empty log used to freeze the log panel).
+/// Log body for the sidebar, like [`InvDisplayData`]: one string set in [`sync_ui`], read by
+/// `reactive_text` (avoids `item_signal` + nested `Column` issues in Jonmo).
 #[derive(Resource, Clone, Default)]
-pub struct LogPanelData(pub Vec<String>);
+pub struct LogDisplayData {
+  pub text: String,
+}
 
 /// Push one line or multiline block; oldest entries are dropped to keep at most 100.
 pub fn log_message(log: &mut LogEntries, line: String) {
@@ -124,7 +125,7 @@ impl Plugin for UiPlugin {
       .init_resource::<PlayerData>()
       .init_resource::<HoverInfo>()
       .init_resource::<LogEntries>()
-      .init_resource::<LogPanelData>()
+      .init_resource::<LogDisplayData>()
       .init_resource::<InvDisplayData>()
     .init_resource::<OverlayData>()
     .init_resource::<WorldMapView>()
@@ -404,34 +405,17 @@ fn message_log() -> impl Element {
     .background_color(BackgroundColor(PANEL_BG))
     .border_color(BorderColor::all(BORDER))
     .item(panel_label("Log"))
-    .item_signal(log_entries_signal())
-}
-
-fn log_entries_signal() -> impl Signal<Item = Option<impl Element>> {
-  // Use `LogPanelData` (filled in `sync_ui`) and **always** emit `Some(column)`: `map_in` with
-  // `None` terminates the Jonmo branch; an initially empty log left the child unwired.
-  signal::from_resource::<LogPanelData>().map_in(|data| {
-    let lines: Vec<String> = if data.0.is_empty() {
-      vec![]
-    } else {
-      data.0
-        .iter()
-        .rev()
-        .take(50)
-        .flat_map(|s| s.lines().map(String::from))
-        .collect()
-    };
-    let column = if lines.is_empty() {
-      Column::<Node>::new()
-        .with_node(|mut n| { n.width = Val::Percent(100.); n.column_gap = Val::Px(1.0); })
-        .item(static_text("\u{2014}", FONT_SIZE_SMALL, DIM_TEXT))
-    } else {
-      Column::<Node>::new()
-        .with_node(|mut n| { n.width = Val::Percent(100.); n.column_gap = Val::Px(1.0); })
-        .items(lines.into_iter().map(|line| static_text(line, FONT_SIZE_SMALL, DIM_TEXT)))
-    };
-    Some(column)
-  })
+    .item(
+      // Same pattern as `inventory_list`: one `reactive_text` driven by a sync-only resource.
+      El::<Node>::new()
+        .with_node(|mut n| { n.width = Val::Percent(100.0); n.min_height = Val::Px(4.0); })
+        .child(
+          reactive_text(
+            signal::from_resource::<LogDisplayData>().map_in(|d| d.text.clone()),
+            FONT_SIZE_SMALL, DIM_TEXT,
+          )
+        )
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -607,7 +591,7 @@ fn sync_ui(
   mut inv_display: ResMut<InvDisplayData>,
   mut overlay: ResMut<OverlayData>,
   res_log: Res<LogEntries>,
-  mut log_panel: ResMut<LogPanelData>,
+  mut log_display: ResMut<LogDisplayData>,
 ) {
   // ── Clock ──
   *clock_data = ClockData {
@@ -655,8 +639,21 @@ fn sync_ui(
     crate::InteractMenu::Closed => None,
   });
 
-  // ── Log: mirror for Haalka (see `LogPanelData` doc) ──
-  log_panel.0 = res_log.0.clone();
+  // ── Log: formatted string (same as inventory display) ──
+  {
+    let lines: String = if res_log.0.is_empty() {
+      String::new()
+    } else {
+      res_log.0
+        .iter()
+        .rev()
+        .take(50)
+        .flat_map(|s| s.lines().map(String::from))
+        .collect::<Vec<_>>()
+        .join("\n")
+    };
+    log_display.text = if lines.is_empty() { "\u{2014}".into() } else { lines };
+  }
 }
 
 fn compute_hover_info(

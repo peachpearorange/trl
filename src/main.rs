@@ -374,8 +374,8 @@ fn main() {
         advance_realtime,
         update_time_mode,
         handle_world_map,
-        handle_menus,
         handle_dialogue,
+        handle_menus,
         handle_interact,
         player_input,
         ApplyDeferred,
@@ -1107,9 +1107,16 @@ fn log_dialogue_node_block(log: &mut LogEntries, speaker: &str, node: &DialogueN
 
 fn handle_dialogue(
   keys: Res<ButtonInput<KeyCode>>,
+  world_map: Res<WorldMapView>,
   mut ui: ResMut<UiState>,
   mut log: ResMut<LogEntries>,
 ) {
+  // Digit keys are shared with the interact list; `handle_menus` runs after us. While the
+  // interact overlay is up, that same key would otherwise apply to dialogue the same frame.
+  if world_map.open || matches!(&ui.interact, InteractMenu::Open { .. }) {
+    return;
+  }
+
   if let DialogueState::Open { speaker, tree, node_name } = &ui.dialogue {
     let (speaker, tree, node_name) = (*speaker, *tree, *node_name);
     let node = tree.find(node_name);
