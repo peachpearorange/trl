@@ -11,11 +11,11 @@ use {
   combat::{TileEntityIndex, enemy_ai, maintain_tile_index},
   level::{FovGrid, Tile, ZoneWorld, SURFACE_Z, ZONE_WIDTH, ZONE_HEIGHT, WORLD_DEPTH, compute_fov},
   std::collections::HashSet,
-  ui::WorldMapView,
+  ui::{log_message, LogEntries, WorldMapView},
   trl::entities::{
-    BlocksSight, Collidable, Dialogue, DialogueTree, Enemy, Glyph, Gravity, Location, Named, Object, Stats, Tree, Visuals,
+    BlocksSight, Collidable, Dialogue, DialogueNode, DialogueTree, Enemy, Glyph, Gravity, Location, Named, Object, Stats,
+    Tree, Visuals,
   },
-  utils::mapv,
 };
 
 const TILE_SIZE: f32 = 32.0;
@@ -206,10 +206,6 @@ struct ItemGlyph {
   x: usize,
   y: usize
 }
-
-#[derive(Component)]
-struct InteractOverlay;
-
 
 #[derive(Component)]
 struct PauseOverlay;
@@ -988,10 +984,10 @@ fn handle_menus(
   mut world_map: ResMut<WorldMapView>,
   mut commands: Commands,
   pause_overlay_q: Query<Entity, With<PauseOverlay>>,
-  interact_overlay_q: Query<Entity, With<InteractOverlay>>,
   mut gw: ResMut<GameWorld>,
   mut clock: ResMut<Clock>,
   mut fov: ResMut<Fov>,
+  mut log: ResMut<LogEntries>,
   tile_query: Query<Entity, With<TileGlyph>>,
   sight_q: Query<&Location, With<BlocksSight>>,
   mut player_query: Query<(&mut PlayerPos, &mut Inventory), With<Player>>,
@@ -1006,7 +1002,6 @@ fn handle_menus(
   if let InteractMenu::Open { options } = &ui.interact {
     if keys.just_pressed(KeyCode::Escape) {
       ui.interact = InteractMenu::Closed;
-      despawn_interact_overlays(&mut commands, &interact_overlay_q);
     } else if let Some(idx) = [
         KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3,
         KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6,
@@ -1016,10 +1011,9 @@ fn handle_menus(
     {
       let option = options[idx].clone();
       ui.interact = InteractMenu::Closed;
-      despawn_interact_overlays(&mut commands, &interact_overlay_q);
       execute_interaction(
         &option.action, &mut gw, &mut clock, &mut fov,
-        &mut ui, &mut commands, &asset_server, &tile_query, &sight_q, &mut player_query
+        &mut ui, &mut log, &mut commands, &asset_server, &tile_query, &sight_q, &mut player_query
       );
     }
   } else {
@@ -1102,20 +1096,23 @@ fn despawn_overlays(commands: &mut Commands, query: &Query<Entity, With<PauseOve
   }
 }
 
-fn despawn_interact_overlays(commands: &mut Commands, query: &Query<Entity, With<InteractOverlay>>) {
-  for entity in query.iter() {
-    commands.entity(entity).despawn();
+fn log_dialogue_node_block(log: &mut LogEntries, speaker: &str, node: &DialogueNode) {
+  let mut s = format!("{speaker}: {}", node.text);
+  for (i, c) in node.choices.iter().enumerate() {
+    s.push('\n');
+    s.push_str(&format!("  {}) {}", i + 1, c.text));
   }
+  log_message(log, s);
 }
 
 fn handle_dialogue(
   keys: Res<ButtonInput<KeyCode>>,
   mut ui: ResMut<UiState>,
+  mut log: ResMut<LogEntries>,
 ) {
   if let DialogueState::Open { speaker, tree, node_name } = &ui.dialogue {
     let (speaker, tree, node_name) = (*speaker, *tree, *node_name);
     let node = tree.find(node_name);
-
     if keys.just_pressed(KeyCode::Escape) {
       ui.dialogue = DialogueState::Closed;
     } else if let Some(idx) = [
@@ -1125,8 +1122,15 @@ fn handle_dialogue(
       ].iter().position(|k| keys.just_pressed(*k))
       && idx < node.choices.len()
     {
-      ui.dialogue = node.choices[idx].next
-        .map_or(DialogueState::Closed, |next_name| DialogueState::Open { speaker, tree, node_name: next_name });
+      let choice = &node.choices[idx];
+      log_message(&mut log, format!("You: {}", choice.text));
+      if let Some(next_name) = choice.next {
+        ui.dialogue = DialogueState::Open { speaker, tree, node_name: next_name };
+        let next_node = tree.find(next_name);
+        log_dialogue_node_block(&mut log, speaker, next_node);
+      } else {
+        ui.dialogue = DialogueState::Closed;
+      }
     }
   }
 }
@@ -1192,27 +1196,10 @@ fn direction_name(dx: i32, dy: i32) -> String {
   .to_string()
 }
 
-fn show_interact_menu(
-  ui: &mut UiState,
-  commands: &mut Commands,
-  options: Vec<InteractionOption>
-) {
-  if options.is_empty() {
-    return;
+fn show_interact_menu(ui: &mut UiState, options: Vec<InteractionOption>) {
+  if !options.is_empty() {
+    ui.interact = InteractMenu::Open { options };
   }
-
-  let text = mapv(|(i, opt)| format!("{}) {}", i + 1, opt.label), options.iter().enumerate())
-    .join("\n");
-
-  commands.spawn((
-    Text2d::new(format!("Use what?\n\n{text}\n\nEsc to cancel")),
-    TextFont { font_size: 16.0, ..default() },
-    TextColor(Color::srgb(0.9, 0.9, 0.8)),
-    Transform::from_xyz(0.0, 60.0, 20.0),
-    InteractOverlay
-  ));
-
-  ui.interact = InteractMenu::Open { options };
 }
 
 fn execute_interaction(
@@ -1221,6 +1208,7 @@ fn execute_interaction(
   clock: &mut Clock,
   fov: &mut ResMut<Fov>,
   ui: &mut UiState,
+  log: &mut LogEntries,
   commands: &mut Commands,
   asset_server: &AssetServer,
   tile_query: &Query<Entity, With<TileGlyph>>,
@@ -1286,7 +1274,9 @@ fn execute_interaction(
         clock.advance(1);
       }
       InteractionAction::Talk { speaker, tree } => {
+        let node = tree.find(tree.nodes[0].name);
         ui.dialogue = DialogueState::Open { speaker, tree, node_name: tree.nodes[0].name };
+        log_dialogue_node_block(log, speaker, node);
       }
       InteractionAction::ChopTree(entity) => {
         commands.entity(*entity).despawn();
@@ -1511,7 +1501,6 @@ fn handle_interact(
   mut ui: ResMut<UiState>,
   world_map: Res<WorldMapView>,
   index: Res<TileEntityIndex>,
-  mut commands: Commands,
   player_q: Query<&PlayerPos, With<Player>>,
   dialogue_q: Query<(&Named, &Dialogue)>,
   tree_q: Query<Entity, With<Tree>>,
@@ -1564,7 +1553,7 @@ fn handle_interact(
       }
     }
 
-    show_interact_menu(&mut ui, &mut commands, options);
+    show_interact_menu(&mut ui, options);
   }
 }
 

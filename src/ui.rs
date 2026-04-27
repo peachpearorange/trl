@@ -49,6 +49,15 @@ pub struct HoverInfo {
 #[derive(Resource, Clone, Default)]
 pub struct LogEntries(pub Vec<String>);
 
+/// Push one line or multiline block; oldest entries are dropped to keep at most 100.
+pub fn log_message(log: &mut LogEntries, line: String) {
+  const MAX: usize = 100;
+  while log.0.len() >= MAX {
+    log.0.remove(0);
+  }
+  log.0.push(line);
+}
+
 /// Full-island map texture and visibility (game viewport overlay). Filled in `setup`; toggled with M.
 #[derive(Resource, Clone)]
 pub struct WorldMapView {
@@ -60,13 +69,6 @@ impl Default for WorldMapView {
   fn default() -> Self {
     Self { open: false, image: Handle::default() }
   }
-}
-
-#[derive(Resource, Clone)]
-pub struct DialogueData {
-  pub speaker: String,
-  pub text: String,
-  pub choices: Vec<String>,
 }
 
 #[derive(Resource, Clone, Debug, PartialEq)]
@@ -116,9 +118,8 @@ impl Plugin for UiPlugin {
       .init_resource::<HoverInfo>()
       .init_resource::<LogEntries>()
       .init_resource::<InvDisplayData>()
-      .init_resource::<OverlayData>()
-      .init_resource::<DialogueRes>()
-      .init_resource::<WorldMapView>()
+    .init_resource::<OverlayData>()
+    .init_resource::<WorldMapView>()
       .add_systems(PostUpdate, sync_ui);
   }
 }
@@ -131,7 +132,6 @@ fn build_ui_root() -> impl Element {
   Stack::<Node>::new()
     .with_node(|mut n| { n.width = Val::Percent(100.0); n.height = Val::Percent(100.0); })
     .layer(main_layout())
-    .layer_signal(dialogue_signal())
     .layer_signal(overlay_signal())
     .layer_signal(world_map_signal())
 }
@@ -405,7 +405,12 @@ fn log_entries_signal() -> impl Signal<Item = Option<impl Element>> {
       if entries.0.is_empty() {
         return None;
       }
-      let lines: Vec<String> = entries.0.iter().rev().take(50).cloned().collect();
+      let lines: Vec<String> = entries.0
+        .iter()
+        .rev()
+        .take(50)
+        .flat_map(|s| s.lines().map(String::from))
+        .collect();
       Some(
         Column::<Node>::new()
           .with_node(|mut n| { n.width = Val::Percent(100.); n.column_gap = Val::Px(1.0); })
@@ -446,48 +451,6 @@ fn status_bar() -> impl Element {
           FONT_SIZE_SMALL, DIM_TEXT
         ))
     )
-}
-
-// ---------------------------------------------------------------------------
-// Dialogue — Skyrim-style subtitle bar at bottom of screen
-// ---------------------------------------------------------------------------
-
-fn dialogue_signal() -> impl Signal<Item = Option<impl Element>> {
-  signal::from_resource::<DialogueRes>()
-    .map_in(|res| {
-      res.0.as_ref().cloned().map(|data| {
-        El::<Node>::new()
-          .with_node(|mut n| {
-            n.width = Val::Percent(70.);
-            n.position_type = PositionType::Absolute;
-            n.bottom = Val::Px(28.0);
-            n.left = Val::Percent(15.);
-          })
-          .background_color(BackgroundColor(DARK_BG))
-          .border_color(BorderColor::all(BORDER))
-          .child(
-            Column::<Node>::new()
-              .with_node(|mut n| {
-                n.border_radius = BorderRadius::all(Val::Px(6.0));
-                n.padding = UiRect { left: Val::Px(14.), right: Val::Px(14.), top: Val::Px(10.), bottom: Val::Px(10.) };
-                n.column_gap = Val::Px(4.0);
-              })
-              .item(
-                Row::<Node>::new()
-                  .with_node(|mut n| { n.justify_content = JustifyContent::SpaceBetween; })
-                  .item(static_text(&data.speaker, FONT_SIZE_TITLE, Color::srgb(0.80, 0.75, 0.50)))
-                  .item(static_text("───", FONT_SIZE_BODY, BORDER))
-              )
-              .item(static_text(&data.text, FONT_SIZE_BODY, LIGHT_TEXT))
-              .items({
-                let choices = mapv(|c| format!("  {c}"), &data.choices);
-                choices.into_iter().map(|c|
-                  static_text(c, FONT_SIZE_BODY, Color::srgb(0.7, 0.65, 0.5))
-                )
-              })
-          )
-      })
-    })
 }
 
 // World map — same column width as the game view (70%), shows full generated island
@@ -558,7 +521,7 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
         let label = match kind {
           OverlayKind::PauseMain => "Paused",
           OverlayKind::PauseControls => "Controls",
-          OverlayKind::Interact(_) => "Interact",
+          OverlayKind::Interact(_) => "Use what?",
         };
         let lines: Vec<String> = match kind {
           OverlayKind::PauseMain => vec![
@@ -610,13 +573,6 @@ pub struct OverlayData {
 }
 
 // ---------------------------------------------------------------------------
-// Dialogue overlay (Skyrim-style, anchored above status bar)
-// ---------------------------------------------------------------------------
-
-#[derive(Resource, Clone, Default)]
-pub struct DialogueRes(pub Option<DialogueData>);
-
-// ---------------------------------------------------------------------------
 // sync_ui — reads Bevy world, writes signal resources
 // ---------------------------------------------------------------------------
 
@@ -635,7 +591,6 @@ fn sync_ui(
   mut hover_info: ResMut<HoverInfo>,
   mut inv_display: ResMut<InvDisplayData>,
   mut overlay: ResMut<OverlayData>,
-  mut dialogue_res: ResMut<DialogueRes>,
 ) {
   // ── Clock ──
   *clock_data = ClockData {
@@ -682,23 +637,6 @@ fn sync_ui(
     }
     crate::InteractMenu::Closed => None,
   });
-
-  // ── Dialogue ──
-  dialogue_res.0 = match &ui.dialogue {
-    crate::DialogueState::Open { speaker, tree, node_name } => {
-      let node = tree.find(node_name);
-      let choices = mapv(
-        |(i, c)| format!("{}) {}", i + 1, c.text),
-        node.choices.iter().enumerate()
-      );
-      Some(DialogueData {
-        speaker: (*speaker).into(),
-        text: node.text.into(),
-        choices,
-      })
-    }
-    crate::DialogueState::Closed => None,
-  };
 }
 
 fn compute_hover_info(
