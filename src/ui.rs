@@ -325,7 +325,7 @@ fn hover_panel() -> impl Element {
     .item(panel_label("Target"))
     .item(hover_coords_line())
     .item(hover_tile_line())
-    .item_signal(hover_entity_section())
+    .item(hover_entity_lines())
 }
 
 fn hover_coords_line() -> impl Element {
@@ -342,55 +342,40 @@ fn hover_tile_line() -> impl Element {
   )
 }
 
-fn hover_entity_section() -> impl Signal<Item = Option<impl Element>> {
-  signal::from_resource::<HoverInfo>().map_in(move |h| {
-    h.entity_name.as_ref().map(|name| {
-      let name_row = static_text(name.as_str(), FONT_SIZE_BODY, Color::srgb(0.9, 0.75, 0.45));
-      if let (Some((hp, max)), Some(flavor)) = (h.entity_hp, h.flavor.as_ref()) {
-        Column::<Node>::new()
-          .with_node(|mut n| {
-            n.width = Val::Percent(100.);
-            n.column_gap = Val::Px(2.0);
-          })
-          .item(name_row)
-          .item(hp_bar_static(hp, max))
-          .item(static_text(flavor.as_str(), FONT_SIZE_SMALL, DIM_TEXT))
-      } else if let Some((hp, max)) = h.entity_hp {
-        Column::<Node>::new()
-          .with_node(|mut n| {
-            n.width = Val::Percent(100.);
-            n.column_gap = Val::Px(2.0);
-          })
-          .item(name_row)
-          .item(hp_bar_static(hp, max))
-      } else if let Some(ref flavor) = h.flavor {
-        Column::<Node>::new()
-          .with_node(|mut n| {
-            n.width = Val::Percent(100.);
-            n.column_gap = Val::Px(2.0);
-          })
-          .item(name_row)
-          .item(static_text(flavor.as_str(), FONT_SIZE_SMALL, DIM_TEXT))
-      } else {
-        Column::<Node>::new()
-          .with_node(|mut n| {
-            n.width = Val::Percent(100.);
-            n.column_gap = Val::Px(2.0);
-          })
-          .item(name_row)
-      }
-    })
+/// One text node (avoids `item_signal` + nested `Column` extra gaps in the flex layout).
+fn hover_entity_lines() -> impl Element {
+  reactive_text(
+    signal::from_resource::<HoverInfo>().map_in(|h| format_entity_hover_block(&h)),
+    FONT_SIZE_BODY,
+    Color::srgb(0.9, 0.75, 0.45),
+  )
+}
+
+fn format_entity_hover_block(h: &HoverInfo) -> String {
+  h.entity_name.as_deref().map_or_else(String::new, |name| {
+    let mut s = name.to_string();
+    if let Some((hp, max)) = h.entity_hp {
+      s.push('\n');
+      s.push_str(&format_hp_line(hp, max));
+    }
+    if let Some(ref f) = h.flavor {
+      s.push('\n');
+      s.push_str(f);
+    }
+    s
   })
 }
 
-fn hp_bar_static(hp: i32, max_hp: i32) -> impl Element {
+fn format_hp_line(hp: i32, max_hp: i32) -> String {
   let ratio = if max_hp > 0 { hp as f32 / max_hp as f32 } else { 0.0 };
   let filled = (ratio * 10.0).round() as usize;
-  let bar = format!("[{}{}] {}/{}", "█".repeat(filled.min(10)), "░".repeat(10usize.saturating_sub(filled.min(10))), hp, max_hp);
-  El::<Text>::new()
-    .text(Text::new(bar))
-    .text_font(TextFont { font_size: FONT_SIZE_SMALL, ..default() })
-    .text_color(TextColor(DIM_TEXT))
+  format!(
+    "[{}{}] {}/{}",
+    "█".repeat(filled.min(10)),
+    "░".repeat(10usize.saturating_sub(filled.min(10))),
+    hp,
+    max_hp
+  )
 }
 
 // ---------------------------------------------------------------------------
