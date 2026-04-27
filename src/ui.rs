@@ -5,9 +5,9 @@
 
 use {
   crate::{
-    level::{Item, Tile, ZONE_WIDTH, ZONE_HEIGHT},
+    level::{ZONE_WIDTH, ZONE_HEIGHT},
     utils::mapv,
-    Clock, screen_to_tile, world_to_zone,
+    Clock, screen_to_tile, world_to_zone, GAME_VIEWPORT_WIDTH_FRAC, STATUS_BAR_HEIGHT,
   },
   bevy::prelude::*,
   haalka::prelude::*,
@@ -343,16 +343,44 @@ fn hover_tile_line() -> impl Element {
 }
 
 fn hover_entity_section() -> impl Signal<Item = Option<impl Element>> {
-  signal::from_resource::<HoverInfo>()
-    .map_in(move |h| {
-      h.entity_name.as_ref().map(|name| {
+  signal::from_resource::<HoverInfo>().map_in(move |h| {
+    h.entity_name.as_ref().map(|name| {
+      let name_row = static_text(name.as_str(), FONT_SIZE_BODY, Color::srgb(0.9, 0.75, 0.45));
+      if let (Some((hp, max)), Some(flavor)) = (h.entity_hp, h.flavor.as_ref()) {
         Column::<Node>::new()
-          .with_node(|mut n| { n.width = Val::Percent(100.); n.column_gap = Val::Px(2.0); })
-          .item(static_text(name.as_str(), FONT_SIZE_BODY, Color::srgb(0.9, 0.75, 0.45)))
-          .item(h.entity_hp.map(|(hp, max)| hp_bar_static(hp, max)))
-          .item(h.flavor.as_ref().map(|f| static_text(f.as_str(), FONT_SIZE_SMALL, DIM_TEXT)))
-      })
+          .with_node(|mut n| {
+            n.width = Val::Percent(100.);
+            n.column_gap = Val::Px(2.0);
+          })
+          .item(name_row)
+          .item(hp_bar_static(hp, max))
+          .item(static_text(flavor.as_str(), FONT_SIZE_SMALL, DIM_TEXT))
+      } else if let Some((hp, max)) = h.entity_hp {
+        Column::<Node>::new()
+          .with_node(|mut n| {
+            n.width = Val::Percent(100.);
+            n.column_gap = Val::Px(2.0);
+          })
+          .item(name_row)
+          .item(hp_bar_static(hp, max))
+      } else if let Some(ref flavor) = h.flavor {
+        Column::<Node>::new()
+          .with_node(|mut n| {
+            n.width = Val::Percent(100.);
+            n.column_gap = Val::Px(2.0);
+          })
+          .item(name_row)
+          .item(static_text(flavor.as_str(), FONT_SIZE_SMALL, DIM_TEXT))
+      } else {
+        Column::<Node>::new()
+          .with_node(|mut n| {
+            n.width = Val::Percent(100.);
+            n.column_gap = Val::Px(2.0);
+          })
+          .item(name_row)
+      }
     })
+  })
 }
 
 fn hp_bar_static(hp: i32, max_hp: i32) -> impl Element {
@@ -709,6 +737,8 @@ fn compute_hover_info(
     && let Ok((camera, cam_tf)) = camera_q.single()
     && let Ok((pos, _, _)) = player_q.single()
     && let Some(cursor) = window.cursor_position()
+    && cursor.x < window.resolution.width() * GAME_VIEWPORT_WIDTH_FRAC
+    && cursor.y > STATUS_BAR_HEIGHT
     && let Ok(world_pos) = camera.viewport_to_world_2d(cam_tf, cursor)
   {
     let (tx, ty) = screen_to_tile(world_pos, ZONE_WIDTH, ZONE_HEIGHT);
@@ -733,19 +763,25 @@ fn compute_hover_info(
     // Look for entity on this tile
     let wx = (zx * ZONE_WIDTH) as i32 + tx;
     let wy = (zy * ZONE_HEIGHT) as i32 + ty;
-    let (entity_name, entity_hp, flavor) = visible.then(|| {
-      index.0.get(&(wx, wy, pos.z))
-        .and_then(|entities| entities.first().copied())
-        .and_then(|e| named_q.get(e).ok())
-        .map(|(named, stats)| {
-          (
-            Some(named.name.into()),
-            stats.map(|s| (s.hp, s.max_hp)),
-            Some(named.flavor.into()),
-          )
+    let (entity_name, entity_hp, flavor) = if visible {
+      index
+        .0
+        .get(&(wx, wy, pos.z))
+        .and_then(|entities| {
+          entities.iter().find_map(|&e| {
+            named_q.get(e).ok().map(|(named, stats)| {
+              (
+                Some(named.name.into()),
+                stats.map(|s| (s.hp, s.max_hp)),
+                Some(named.flavor.into()),
+              )
+            })
+          })
         })
         .unwrap_or((None, None, None))
-    }).unwrap_or_default();
+    } else {
+      (None, None, None)
+    };
 
     HoverInfo {
       coords: (tx, ty),

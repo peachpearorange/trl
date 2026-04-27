@@ -24,8 +24,8 @@ pub const RENDER_FRAMES_PER_SIM_STEP: u32 = 6;
 const FOV_RADIUS: i32 = 99;
 const DIM_FACTOR: f32 = 0.3;
 /// Haalka layout: game view is the left 70% of the window; status bar is 24px along the bottom.
-const GAME_VIEWPORT_WIDTH_FRAC: f32 = 0.70;
-const STATUS_BAR_HEIGHT: f32 = 24.0;
+pub const GAME_VIEWPORT_WIDTH_FRAC: f32 = 0.70;
+pub const STATUS_BAR_HEIGHT: f32 = 24.0;
 
 // ---------------------------------------------------------------------------
 // Player actions
@@ -213,28 +213,9 @@ pub struct Inventory(std::collections::HashMap<level::Item, u32>);
 #[derive(Component)]
 struct GlyphVisual;
 
-// ---------------------------------------------------------------------------
-// HUD component markers
-// ---------------------------------------------------------------------------
-
-#[derive(Component)]
-struct HudElement;
-
-#[derive(Component)]
-struct TimeDisplay;
-
-#[derive(Component)]
-struct LevelDisplay;
-
-#[derive(Component)]
-struct TileInfoDisplay;
-
 /// Semi-transparent cell highlight following the cursor over the current zone.
 #[derive(Component)]
 struct TileHoverHighlight;
-
-#[derive(Component)]
-struct InventoryDisplay;
 
 // ---------------------------------------------------------------------------
 // Glyph rendering systems
@@ -518,7 +499,7 @@ fn setup(
   const START_ZY: usize = 4;
   const START_Z:  usize = SURFACE_Z;
 
-  let cam_entity = commands.spawn(Camera2d).id();
+  commands.spawn(Camera2d);
 
   spawn_level_tiles(&mut commands, &asset_server, &gw.0, START_ZX, START_ZY, START_Z);
 
@@ -604,53 +585,6 @@ fn setup(
     START_ZY,
     START_Z,
   );
-
-  // HUD — children of camera so they stay fixed on screen
-  let time_id = commands
-    .spawn((
-      Text2d::new("RT T:0"),
-      TextFont { font_size: 14.0, ..default() },
-      TextColor(Color::srgb(0.5, 0.7, 0.5)),
-      Transform::from_xyz(-580.0, 380.0, 5.0),
-      HudElement,
-      TimeDisplay
-    ))
-    .id();
-
-  let level_id = commands
-    .spawn((
-      Text2d::new("Surface (z=2)"),
-      TextFont { font_size: 14.0, ..default() },
-      TextColor(Color::srgb(0.6, 0.6, 0.6)),
-      Transform::from_xyz(-580.0, 360.0, 5.0),
-      HudElement,
-      LevelDisplay
-    ))
-    .id();
-
-  let tile_info_id = commands
-    .spawn((
-      Text2d::new(""),
-      TextFont { font_size: 13.0, ..default() },
-      TextColor(Color::srgb(0.7, 0.7, 0.6)),
-      Transform::from_xyz(460.0, 380.0, 5.0),
-      HudElement,
-      TileInfoDisplay
-    ))
-    .id();
-
-  let inv_id = commands
-    .spawn((
-      Text2d::new(""),
-      TextFont { font_size: 13.0, ..default() },
-      TextColor(Color::srgb(0.7, 0.65, 0.45)),
-      Transform::from_xyz(-580.0, 340.0, 5.0),
-      HudElement,
-      InventoryDisplay
-    ))
-    .id();
-
-  commands.entity(cam_entity).add_children(&[time_id, level_id, tile_info_id, inv_id]);
 
   world_map.image = generate_world_map_image(&gw.0, &mut images);
 }
@@ -948,83 +882,6 @@ fn update_fov_visuals(
 }
 
 // ---------------------------------------------------------------------------
-// Mouse hover tile info
-// ---------------------------------------------------------------------------
-
-fn mouse_hover_tile(
-  windows: Query<&Window>,
-  camera_q: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
-  gw: Res<GameWorld>,
-  fov: Res<Fov>,
-  index: Res<TileEntityIndex>,
-  player_q: Query<&PlayerPos, With<Player>>,
-  named_q: Query<(&Named, Option<&Stats>)>,
-  mut info_q: Query<&mut Text2d, With<TileInfoDisplay>>,
-) {
-  if let Ok(mut info_text) = info_q.single_mut()
-    && let Ok(window) = windows.single()
-    && let Ok((camera, cam_transform)) = camera_q.single()
-    && let Ok(pos) = player_q.single()
-  {
-    *info_text = Text2d::new(
-      tile_hover_text(window, camera, cam_transform, &gw, pos, &fov, &index, &named_q)
-        .unwrap_or_default()
-    );
-  }
-}
-
-fn tile_hover_text(
-  window: &Window,
-  camera: &Camera,
-  cam_transform: &GlobalTransform,
-  gw: &GameWorld,
-  player_pos: &PlayerPos,
-  fov: &Fov,
-  index: &TileEntityIndex,
-  named_q: &Query<(&Named, Option<&Stats>)>,
-) -> Option<String> {
-  window.cursor_position()
-    .and_then(|cursor| camera.viewport_to_world_2d(cam_transform, cursor).ok())
-    .and_then(|world_pos| {
-      let (tx, ty) = screen_to_tile(world_pos, ZONE_WIDTH, ZONE_HEIGHT);
-      let (player_zx, player_zy) = world_to_zone(player_pos.x, player_pos.y);
-      let level = gw.0.zone(player_zx, player_zy, player_pos.z);
-      (tx >= 0 && ty >= 0 && (tx as usize) < level.width && (ty as usize) < level.height)
-        .then(|| {
-          let visible  = fov.0.is_visible(tx as usize, ty as usize);
-          let revealed = fov.0.is_revealed(tx as usize, ty as usize);
-          (visible || revealed).then(|| {
-            let tile = level.tiles[ty as usize][tx as usize];
-            let tile_line = if revealed && !visible {
-              format!("({tx}, {ty})\n{} (remembered)", tile.name())
-            } else {
-              format!("({tx}, {ty})\n{}", tile.name())
-            };
-            // Convert local tile coords to world coords for index lookup
-            let wx = (player_zx * ZONE_WIDTH) as i32 + tx;
-            let wy = (player_zy * ZONE_HEIGHT) as i32 + ty;
-            let entity_lines: String = visible.then(|| {
-              index.0.get(&(wx, wy, player_pos.z))
-                .and_then(|entities| entities.first())
-                .and_then(|&e| named_q.get(e).ok())
-                .map(|(named, stats)| {
-                  let hp_bar: String = stats.map(|s| {
-                    let filled = (((s.hp as f32 / s.max_hp as f32) * 10.0).round() as usize).min(10);
-                    let empty  = 10usize.saturating_sub(filled);
-                    format!("\n[{}{}] {}/{}", "█".repeat(filled), "░".repeat(empty), s.hp, s.max_hp)
-                  }).unwrap_or_default();
-                  format!("\n\n{}{}\n{}", named.name, hp_bar, named.flavor)
-                })
-                .unwrap_or_default()
-            }).unwrap_or_default();
-            format!("{tile_line}{entity_lines}")
-          })
-        })
-        .flatten()
-    })
-}
-
-// ---------------------------------------------------------------------------
 // Time
 // ---------------------------------------------------------------------------
 
@@ -1059,56 +916,6 @@ fn update_time_mode(
     })
   });
   clock.mode = if enemy_near { TimeMode::TurnBased } else { TimeMode::RealTime };
-}
-
-fn update_hud(
-  clock: Res<Clock>,
-  player_q: Query<(&PlayerPos, &Inventory), With<Player>>,
-  mut time_q: Query<
-    (&mut Text2d, &mut TextColor),
-    (With<TimeDisplay>, Without<LevelDisplay>, Without<InventoryDisplay>)
-  >,
-  mut level_q: Query<&mut Text2d, (With<LevelDisplay>, Without<TimeDisplay>, Without<InventoryDisplay>)>,
-  mut inv_q: Query<&mut Text2d, (With<InventoryDisplay>, Without<TimeDisplay>, Without<LevelDisplay>)>,
-) {
-  if let Ok((mut text, mut color)) = time_q.single_mut() {
-    let mode_str = match clock.mode {
-      TimeMode::RealTime => "RT",
-      TimeMode::TurnBased => "TB"
-    };
-    *text = Text2d::new(format!("{mode_str} T:{}", clock.time));
-    *color = TextColor(match clock.mode {
-      TimeMode::RealTime => Color::srgb(0.5, 0.7, 0.5),
-      TimeMode::TurnBased => Color::srgb(0.9, 0.4, 0.4)
-    });
-  }
-
-  if let Ok(mut text) = level_q.single_mut()
-    && let Ok((pos, _)) = player_q.single()
-  {
-    let (zx, zy) = world_to_zone(pos.x, pos.y);
-    let label = match pos.z {
-      0 => "Deep Cave (z=0)",
-      1 => "Shallow Cave (z=1)",
-      2 => "Surface (z=2)",
-      3 => "Building Upper (z=3)",
-      z => { *text = Text2d::new(format!("z={z} [{zx},{zy}]")); return; }
-    };
-    *text = Text2d::new(format!("{label} [{zx},{zy}]"));
-  }
-
-  // Inventory display
-  if let Ok(mut text) = inv_q.single_mut()
-    && let Ok((_, inventory)) = player_q.single()
-  {
-    let contents = if inventory.0.is_empty() {
-      "Inv: (empty)".to_string()
-    } else {
-      let items = mapv(|(item, count)| format!("{}x{}", item.name(), count), &inventory.0);
-      format!("Inv: {}", items.join(" "))
-    };
-    *text = Text2d::new(contents);
-  }
 }
 
 // ---------------------------------------------------------------------------
