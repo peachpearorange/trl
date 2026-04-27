@@ -6,6 +6,7 @@
 use {
   crate::{
     level::{Item, Tile, ZONE_WIDTH, ZONE_HEIGHT},
+    utils::mapv,
     Clock, screen_to_tile, world_to_zone,
   },
   bevy::prelude::*,
@@ -21,7 +22,7 @@ use {
 #[derive(Resource, Clone, Default)]
 pub struct ClockData {
   pub mode: &'static str,
-  pub tick: f32,
+  pub tick: u64,
 }
 
 #[derive(Resource, Clone, Default)]
@@ -47,6 +48,19 @@ pub struct HoverInfo {
 /// Accumulated messages; capped at 100 entries.
 #[derive(Resource, Clone, Default)]
 pub struct LogEntries(pub Vec<String>);
+
+/// Full-island map texture and visibility (game viewport overlay). Filled in `setup`; toggled with M.
+#[derive(Resource, Clone)]
+pub struct WorldMapView {
+  pub open: bool,
+  pub image: Handle<Image>,
+}
+
+impl Default for WorldMapView {
+  fn default() -> Self {
+    Self { open: false, image: Handle::default() }
+  }
+}
 
 #[derive(Resource, Clone)]
 pub struct DialogueData {
@@ -104,7 +118,7 @@ impl Plugin for UiPlugin {
       .init_resource::<InvDisplayData>()
       .init_resource::<OverlayData>()
       .init_resource::<DialogueRes>()
-      .add_systems(Startup, |world: &mut World| { build_ui_root().spawn(world); })
+      .init_resource::<WorldMapView>()
       .add_systems(PostUpdate, sync_ui);
   }
 }
@@ -115,8 +129,15 @@ impl Plugin for UiPlugin {
 
 fn build_ui_root() -> impl Element {
   Stack::<Node>::new()
+    .with_node(|mut n| { n.width = Val::Percent(100.0); n.height = Val::Percent(100.0); })
     .layer(main_layout())
+    .layer_signal(dialogue_signal())
     .layer_signal(overlay_signal())
+    .layer_signal(world_map_signal())
+}
+
+pub fn spawn_haalka_root(world: &mut World) {
+  build_ui_root().spawn(world);
 }
 
 fn main_layout() -> impl Element {
@@ -141,7 +162,7 @@ fn main_layout() -> impl Element {
 fn sidebar_column() -> impl Element {
   Column::<Node>::new()
     .with_node(|mut n| {
-      n.width = Val::Percent(100.);
+      n.width = Val::Percent(30.);
       n.height = Val::Percent(100.);
       n.border = UiRect::left(Val::Px(1.0));
       n.padding = UiRect::all(Val::Px(PANEL_PAD));
@@ -324,14 +345,13 @@ fn hover_tile_line() -> impl Element {
 fn hover_entity_section() -> impl Signal<Item = Option<impl Element>> {
   signal::from_resource::<HoverInfo>()
     .map_in(move |h| {
-      let Some(ref name) = h.entity_name else { return None; };
-      Some(
+      h.entity_name.as_ref().map(|name| {
         Column::<Node>::new()
           .with_node(|mut n| { n.width = Val::Percent(100.); n.column_gap = Val::Px(2.0); })
           .item(static_text(name.as_str(), FONT_SIZE_BODY, Color::srgb(0.9, 0.75, 0.45)))
           .item(h.entity_hp.map(|(hp, max)| hp_bar_static(hp, max)))
           .item(h.flavor.as_ref().map(|f| static_text(f.as_str(), FONT_SIZE_SMALL, DIM_TEXT)))
-      )
+      })
     })
 }
 
@@ -409,49 +429,147 @@ fn status_bar() -> impl Element {
           FONT_SIZE_SMALL, DIM_TEXT
         ))
         .item(reactive_text(
-          signal::from_resource::<ClockData>().map_in(|d| format!("{} T:{:.0}", d.mode, d.tick)),
+          signal::from_resource::<ClockData>().map_in(|d| format!("{} T:{}", d.mode, d.tick)),
           FONT_SIZE_SMALL, DIM_TEXT
         ))
     )
 }
 
 // ---------------------------------------------------------------------------
+// Dialogue — Skyrim-style subtitle bar at bottom of screen
+// ---------------------------------------------------------------------------
+
+fn dialogue_signal() -> impl Signal<Item = Option<impl Element>> {
+  signal::from_resource::<DialogueRes>()
+    .map_in(|res| {
+      res.0.as_ref().cloned().map(|data| {
+        El::<Node>::new()
+          .with_node(|mut n| {
+            n.width = Val::Percent(70.);
+            n.position_type = PositionType::Absolute;
+            n.bottom = Val::Px(28.0);
+            n.left = Val::Percent(15.);
+          })
+          .background_color(BackgroundColor(DARK_BG))
+          .border_color(BorderColor::all(BORDER))
+          .child(
+            Column::<Node>::new()
+              .with_node(|mut n| {
+                n.border_radius = BorderRadius::all(Val::Px(6.0));
+                n.padding = UiRect { left: Val::Px(14.), right: Val::Px(14.), top: Val::Px(10.), bottom: Val::Px(10.) };
+                n.column_gap = Val::Px(4.0);
+              })
+              .item(
+                Row::<Node>::new()
+                  .with_node(|mut n| { n.justify_content = JustifyContent::SpaceBetween; })
+                  .item(static_text(&data.speaker, FONT_SIZE_TITLE, Color::srgb(0.80, 0.75, 0.50)))
+                  .item(static_text("───", FONT_SIZE_BODY, BORDER))
+              )
+              .item(static_text(&data.text, FONT_SIZE_BODY, LIGHT_TEXT))
+              .items({
+                let choices = mapv(|c| format!("  {c}"), &data.choices);
+                choices.into_iter().map(|c|
+                  static_text(c, FONT_SIZE_BODY, Color::srgb(0.7, 0.65, 0.5))
+                )
+              })
+          )
+      })
+    })
+}
+
+// World map — same column width as the game view (70%), shows full generated island
+// ---------------------------------------------------------------------------
+
+fn world_map_signal() -> impl Signal<Item = Option<impl Element>> {
+  signal::from_resource::<WorldMapView>().map_in(|m| {
+    m.open.then_some(
+      El::<Node>::new()
+        .with_node(|mut n| {
+          n.width = Val::Percent(100.);
+          n.height = Val::Percent(100.);
+          n.position_type = PositionType::Absolute;
+          n.align_items = AlignItems::Center;
+          n.justify_content = JustifyContent::Center;
+        })
+        .background_color(BackgroundColor(OVERLAY_DIM))
+        .child(
+          Column::<Node>::new()
+            .with_node(|mut n| {
+              n.width = Val::Percent(70.);
+              n.max_height = Val::Percent(96.);
+              n.padding = UiRect::all(Val::Px(14.));
+              n.column_gap = Val::Px(8.0);
+              n.align_items = AlignItems::Center;
+            })
+            .background_color(BackgroundColor(DARK_BG))
+            .border_color(BorderColor::all(BORDER))
+            .item(static_text("World map", FONT_SIZE_TITLE, ACCENT))
+            .item(
+              // Square region: the texture is 1:1; avoid non-square flex slots (they caused Stretch to flatten).
+              El::<Node>::new()
+                .with_node(|mut n| {
+                  n.width = Val::Percent(100.);
+                  n.aspect_ratio = Some(1.0);
+                })
+                .align(Align::center())
+                .child(
+                  El::<ImageNode>::new()
+                    .with_node(|mut n| {
+                      n.width = Val::Percent(100.);
+                      n.height = Val::Percent(100.);
+                    })
+                    .with_builder(|builder| {
+                      builder.on_spawn_with_system(
+                        |In(entity): In<Entity>, map: Res<WorldMapView>, mut commands: Commands| {
+                          if let Ok(mut e) = commands.get_entity(entity) {
+                            e.insert(ImageNode::new(map.image.clone()));
+                          }
+                        },
+                      )
+                    })
+                )
+            )
+            .item(static_text("M  or  Esc  to close  ·  one pixel = one world tile", FONT_SIZE_SMALL, DIM_TEXT))
+        )
+    )
+  })
+}
+
 // Overlays — centred on top of everything
 // ---------------------------------------------------------------------------
 
 fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
   signal::from_resource::<OverlayData>()
     .map_in(|data| {
-      let Some(ref kind) = data.kind else { return None };
-      let label = match &kind {
-        OverlayKind::PauseMain => "Paused",
-        OverlayKind::PauseControls => "Controls",
-        OverlayKind::Interact(_) => "Interact",
-      };
-      let lines: Vec<String> = match &kind {
-        OverlayKind::PauseMain => vec![
-          "1) Resume".into(),
-          "2) Controls".into(),
-          "3) Quit Game".into(),
-          String::new(),
-          "Esc to resume".into(),
-        ],
-        OverlayKind::PauseControls => vec![
-          "WASD / Arrows   move".into(),
-          "Space           use / interact".into(),
-          ".               wait".into(),
-          "?               controls".into(),
-          "Esc             menu / back".into(),
-        ],
-        OverlayKind::Interact(opts) => opts.iter()
-          .enumerate()
-          .map(|(i, o)| format!("{}) {}", i + 1, o))
-          .chain(core::iter::once(String::new()))
-          .chain(core::iter::once("Esc to cancel".into()))
-          .collect(),
-      };
+      data.kind.as_ref().map(|kind| {
+        let label = match kind {
+          OverlayKind::PauseMain => "Paused",
+          OverlayKind::PauseControls => "Controls",
+          OverlayKind::Interact(_) => "Interact",
+        };
+        let lines: Vec<String> = match kind {
+          OverlayKind::PauseMain => vec![
+            "1) Resume".into(),
+            "2) Controls".into(),
+            "3) Quit Game".into(),
+            String::new(),
+            "Esc to resume".into(),
+          ],
+          OverlayKind::PauseControls => vec![
+            "WASD / Arrows   move".into(),
+            "Space           use / interact".into(),
+            ".               wait".into(),
+            "?               controls".into(),
+            "Esc             menu / back".into(),
+          ],
+          OverlayKind::Interact(opts) => opts.iter()
+            .enumerate()
+            .map(|(i, o)| format!("{}) {}", i + 1, o))
+            .chain(core::iter::once(String::new()))
+            .chain(core::iter::once("Esc to cancel".into()))
+            .collect(),
+        };
 
-      Some(
         El::<Node>::new()
           .with_node(|mut n| { n.width = Val::Percent(100.); n.height = Val::Percent(100.0); })
           .background_color(BackgroundColor(OVERLAY_DIM))
@@ -469,9 +587,9 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
               .item(static_text(label, FONT_SIZE_TITLE, LIGHT_TEXT))
               .items(lines.into_iter().map(|l| static_text(l, FONT_SIZE_BODY, LIGHT_TEXT)))
           )
-      )
+      })
     })
-}
+  }
 
 #[derive(Resource, Clone, Default)]
 pub struct OverlayData {
@@ -530,9 +648,7 @@ fn sync_ui(
     inv_display.formatted = if inv.0.is_empty() {
       "(empty)".into()
     } else {
-      inv.0.iter()
-        .map(|(item, count)| format!("{}x {}", count, item.name()))
-        .collect::<Vec<_>>()
+      mapv(|(item, count)| format!("{}x {}", count, item.name()), &inv.0)
         .join("\n")
     };
   }
@@ -549,7 +665,7 @@ fn sync_ui(
     crate::PauseMenu::Controls => Some(OverlayKind::PauseControls),
   }.or_else(|| match &ui.interact {
     crate::InteractMenu::Open { options } => {
-      Some(OverlayKind::Interact(options.iter().map(|o| o.label.clone()).collect()))
+      Some(OverlayKind::Interact(mapv(|o| o.label.clone(), options)))
     }
     crate::InteractMenu::Closed => None,
   });
@@ -558,10 +674,10 @@ fn sync_ui(
   dialogue_res.0 = match &ui.dialogue {
     crate::DialogueState::Open { speaker, tree, node_name } => {
       let node = tree.find(node_name);
-      let choices: Vec<String> = node.choices.iter()
-        .enumerate()
-        .map(|(i, c)| format!("{}) {}", i + 1, c.text))
-        .collect();
+      let choices = mapv(
+        |(i, c)| format!("{}) {}", i + 1, c.text),
+        node.choices.iter().enumerate()
+      );
       Some(DialogueData {
         speaker: (*speaker).into(),
         text: node.text.into(),
@@ -581,7 +697,7 @@ fn compute_hover_info(
   index: &crate::combat::TileEntityIndex,
   named_q: &Query<(&Named, Option<&Stats>)>,
 ) -> HoverInfo {
-  let empty = || HoverInfo {
+  let empty = HoverInfo {
     coords: (0, 0),
     tile_name: "—".into(),
     entity_name: None,
@@ -589,55 +705,57 @@ fn compute_hover_info(
     flavor: None,
   };
 
-  let Ok(window) = windows.single() else { return empty(); };
-  let Ok((camera, cam_tf)) = camera_q.single() else { return empty(); };
-  let Ok((pos, _, _)) = player_q.single() else { return empty(); };
+  if let Ok(window) = windows.single()
+    && let Ok((camera, cam_tf)) = camera_q.single()
+    && let Ok((pos, _, _)) = player_q.single()
+    && let Some(cursor) = window.cursor_position()
+    && let Ok(world_pos) = camera.viewport_to_world_2d(cam_tf, cursor)
+  {
+    let (tx, ty) = screen_to_tile(world_pos, ZONE_WIDTH, ZONE_HEIGHT);
+    let (zx, zy) = world_to_zone(pos.x, pos.y);
+    let level = gw.0.zone(zx, zy, pos.z);
 
-  let Some(cursor) = window.cursor_position() else { return empty(); };
-  let Ok(world_pos) = camera.viewport_to_world_2d(cam_tf, cursor) else { return empty(); };
+    if tx < 0 || ty < 0 || tx as usize >= level.width || ty as usize >= level.height {
+      return empty;
+    }
 
-  let (tx, ty) = screen_to_tile(world_pos, ZONE_WIDTH, ZONE_HEIGHT);
-  let (zx, zy) = world_to_zone(pos.x, pos.y);
-  let level = gw.0.zone(zx, zy, pos.z);
+    let visible = fov.0.is_visible(tx as usize, ty as usize);
+    let revealed = fov.0.is_revealed(tx as usize, ty as usize);
+    if !visible && !revealed { return empty; }
 
-  if tx < 0 || ty < 0 || tx as usize >= level.width || ty as usize >= level.height {
-    return empty();
-  }
+    let tile = level.tiles[ty as usize][tx as usize];
+    let tile_name = if revealed && !visible {
+      format!("{} (remembered)", tile.name())
+    } else {
+      tile.name().into()
+    };
 
-  let visible = fov.0.is_visible(tx as usize, ty as usize);
-  let revealed = fov.0.is_revealed(tx as usize, ty as usize);
-  if !visible && !revealed { return empty(); }
+    // Look for entity on this tile
+    let wx = (zx * ZONE_WIDTH) as i32 + tx;
+    let wy = (zy * ZONE_HEIGHT) as i32 + ty;
+    let (entity_name, entity_hp, flavor) = visible.then(|| {
+      index.0.get(&(wx, wy, pos.z))
+        .and_then(|entities| entities.first().copied())
+        .and_then(|e| named_q.get(e).ok())
+        .map(|(named, stats)| {
+          (
+            Some(named.name.into()),
+            stats.map(|s| (s.hp, s.max_hp)),
+            Some(named.flavor.into()),
+          )
+        })
+        .unwrap_or((None, None, None))
+    }).unwrap_or_default();
 
-  let tile = level.tiles[ty as usize][tx as usize];
-  let tile_name = if revealed && !visible {
-    format!("{} (remembered)", tile.name())
+    HoverInfo {
+      coords: (tx, ty),
+      tile_name,
+      entity_name,
+      entity_hp,
+      flavor,
+    }
   } else {
-    tile.name().into()
-  };
-
-  // Look for entity on this tile
-  let wx = (zx * ZONE_WIDTH) as i32 + tx;
-  let wy = (zy * ZONE_HEIGHT) as i32 + ty;
-  let (entity_name, entity_hp, flavor) = visible.then(|| {
-    index.0.get(&(wx, wy, pos.z))
-      .and_then(|entities| entities.first().copied())
-      .and_then(|e| named_q.get(e).ok())
-      .map(|(named, stats)| {
-        (
-          Some(named.name.into()),
-          stats.map(|s| (s.hp, s.max_hp)),
-          Some(named.flavor.into()),
-        )
-      })
-      .unwrap_or((None, None, None))
-  }).unwrap_or_default();
-
-  HoverInfo {
-    coords: (tx, ty),
-    tile_name,
-    entity_name,
-    entity_hp,
-    flavor,
+    empty
   }
 }
 

@@ -20,15 +20,16 @@ pub fn maintain_tile_index(
   player_q: Query<&crate::PlayerPos, With<crate::Player>>,
 ) {
   index.0.clear();
-  let Ok(pos) = player_q.single() else { return };
-  let player_zx = pos.x as usize / crate::level::ZONE_WIDTH;
-  let player_zy = pos.y as usize / crate::level::ZONE_HEIGHT;
-  for (entity, location) in query.iter() {
-    if let Location::Coords { x, y, z, .. } = location {
-      let ezx = *x as usize / crate::level::ZONE_WIDTH;
-      let ezy = *y as usize / crate::level::ZONE_HEIGHT;
-      if ezx == player_zx && ezy == player_zy {
-        index.0.entry((*x, *y, *z)).or_default().push(entity);
+  if let Ok(pos) = player_q.single() {
+    let player_zx = pos.x as usize / crate::level::ZONE_WIDTH;
+    let player_zy = pos.y as usize / crate::level::ZONE_HEIGHT;
+    for (entity, location) in query.iter() {
+      if let Location::Coords { x, y, z, .. } = location {
+        let ezx = *x as usize / crate::level::ZONE_WIDTH;
+        let ezy = *y as usize / crate::level::ZONE_HEIGHT;
+        if ezx == player_zx && ezy == player_zy {
+          index.0.entry((*x, *y, *z)).or_default().push(entity);
+        }
       }
     }
   }
@@ -63,12 +64,22 @@ pub fn resolve_damage(attack: i32, wearing: Option<&Wearing>) -> i32 {
 // Enemy AI
 // ---------------------------------------------------------------------------
 
+/// Assumed 60 display updates per real-time second; maps `Stats` speeds to frame counts.
+const ASSUMED_RENDER_HZ: f32 = 60.0;
+
+fn move_interval_frames(move_speed: f32) -> u32 {
+  ((ASSUMED_RENDER_HZ / move_speed).round() as u32).max(1)
+}
+
+fn attack_interval_frames(attack_speed: f32) -> u32 {
+  ((ASSUMED_RENDER_HZ / attack_speed).round() as u32).max(1)
+}
+
 fn step_toward(ex: i32, ey: i32, px: i32, py: i32) -> (i32, i32) {
   ((px - ex).signum(), (py - ey).signum())
 }
 
 pub fn enemy_ai(
-  time: Res<Time>,
   index: Res<TileEntityIndex>,
   gw: Res<crate::GameWorld>,
   mut player_q: Query<(&crate::PlayerPos, &mut Stats), (With<crate::Player>, Without<Enemy>)>,
@@ -82,12 +93,11 @@ pub fn enemy_ai(
     let player_zx = px as usize / crate::level::ZONE_WIDTH;
     let player_zy = py as usize / crate::level::ZONE_HEIGHT;
     let level = gw.0.zone(player_zx, player_zy, player_pos.z);
-    let dt = time.delta_secs();
 
     let mut claimed: HashSet<(i32, i32)> = HashSet::new();
 
     for (mut location, mut timer, enemy_stats, enemy_wearing) in enemy_q.iter_mut() {
-      timer.0 += dt;
+      timer.0 = timer.0.saturating_add(1);
 
       if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location {
         let ezx = ex as usize / crate::level::ZONE_WIDTH;
@@ -100,15 +110,17 @@ pub fn enemy_ai(
         let _ = (lex, ley); // used implicitly via world coord math below
 
         let dist = (px - ex).abs().max((py - ey).abs());
+        let atk_fr = attack_interval_frames(enemy_stats.attack_speed);
+        let mov_fr = move_interval_frames(enemy_stats.move_speed);
 
-        if dist == 1 && timer.0 >= 1.0 / enemy_stats.attack_speed {
+        if dist == 1 && timer.0 >= atk_fr {
           let dmg = resolve_damage(enemy_stats.attack, enemy_wearing);
           player_stats.hp = (player_stats.hp - dmg).max(0);
           if player_stats.hp == 0 {
             bevy::log::info!("You died.");
           }
-          timer.0 = 0.0;
-        } else if timer.0 >= 1.0 / enemy_stats.move_speed {
+          timer.0 = 0;
+        } else if timer.0 >= mov_fr {
           let (dx, dy) = step_toward(ex, ey, px, py);
           let (nex, ney) = (ex + dx, ey + dy); // world coords
           let nlx = nex as usize % crate::level::ZONE_WIDTH;
@@ -129,7 +141,7 @@ pub fn enemy_ai(
             };
             *location = Location::xyz(nex, ney, nz);
             claimed.insert((nex, ney));
-            timer.0 = 0.0;
+            timer.0 = 0;
           }
         }
       }

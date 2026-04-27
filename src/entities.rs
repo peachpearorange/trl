@@ -82,6 +82,14 @@ impl Location {
   pub fn xyz(x: i32, y: i32, z: usize) -> Self {
     Location::Coords { x, y, z, zx: x as usize / 48, zy: y as usize / 48 }
   }
+
+  /// World-space tile coordinates as Vec2 (for interpolation). Returns None for non-Coords.
+  pub fn as_vec2(&self) -> Option<Vec2> {
+    match self {
+      Location::Coords { x, y, .. } => Some(Vec2::new(*x as f32, *y as f32)),
+      _ => None,
+    }
+  }
 }
 
 // ============ VALUE TYPES ============
@@ -170,6 +178,10 @@ pub struct Enemy;
 #[derive(Component)]
 pub struct Tree;
 
+/// Entity occupies its tile for line-of-sight (like an opaque tile) but need not block movement.
+#[derive(Component)]
+pub struct BlocksSight;
+
 /// ASCII glyph visual: char + RGB color for Text2d rendering.
 #[derive(Component, Clone, Debug)]
 pub struct Glyph {
@@ -202,13 +214,28 @@ pub struct Wielding(pub Option<Item>);
 #[derive(Component, Debug)]
 pub struct Wearing(pub Option<Armor>);
 
-/// Tracks time since the entity last acted (seconds). Used by enemy AI.
+/// Tracks display frames since the entity last acted. Used by enemy AI.
 #[derive(Component, Debug, Default)]
-pub struct TimeSinceAction(pub f32);
+pub struct TimeSinceAction(pub u32);
 
 /// Marker: this entity is affected by gravity and will fall through Air tiles.
 #[derive(Component, Debug)]
 pub struct Gravity;
+
+/// Smooth visual interpolation state for moving entities.
+/// Stores the previous position (at move start) and computes a weighted average
+/// toward the current logical Location each frame, producing fluid tile-to-tile sliding.
+#[derive(Component, Debug)]
+pub struct Visuals {
+  /// Zone-local tile position when the last move began.
+  pub prev: Vec2,
+  /// Monotonic render-frame index when the logical tile position last changed. `None` = no active slide.
+  pub last_move_start_frame: Option<u64>,
+  /// Current interpolated display position (zone-local, recomputed each frame).
+  pub display: Vec2,
+  /// Last known zone-local position from Location (for change detection).
+  pub last_pos: Vec2,
+}
 
 // ============ SPAWNABLE ============
 
@@ -259,11 +286,12 @@ impl Object {
   pub fn physical(blocks: bool) -> Self      { Self::new(Collidable(blocks)) }
   pub fn character(faction: Faction) -> Self  { Self::physical(true).add((Character, FactionComp(faction), Gravity)) }
   pub fn player() -> Self                     { Self::character(Faction::Player).add(Player) }
-  pub fn enemy() -> Self                      { Self::character(Faction::Hostile).add((Enemy, TimeSinceAction(0.0))) }
+  pub fn enemy() -> Self                      { Self::character(Faction::Hostile).add((Enemy, TimeSinceAction(0))) }
   pub fn structure(blocks: bool) -> Self      { Self::physical(blocks) }
   pub fn wall(material: Material) -> Self     { Self::structure(true).add(WallComp { material }) }
-  pub fn tree() -> Self                       { Self::structure(true).add((
+  pub fn tree() -> Self                       { Self::structure(false).add((
     Tree,
+    BlocksSight,
     Glyph { ch: 'T', color: Color::srgb(0.13, 0.55, 0.13) },
     Named { name: "Tree", flavor: "A sturdy tree. Could be chopped for wood." },
   )) }
