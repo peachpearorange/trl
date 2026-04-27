@@ -10,6 +10,7 @@ use {
     Clock, screen_to_tile, world_to_zone, GAME_VIEWPORT_WIDTH_FRAC, STATUS_BAR_HEIGHT,
   },
   bevy::prelude::*,
+  haalka::jonmo::SignalProcessing,
   haalka::prelude::*,
   jonmo::{signal, prelude::*},
   trl::entities::{Stats, Named},
@@ -45,9 +46,15 @@ pub struct HoverInfo {
   pub flavor: Option<String>,
 }
 
-/// Accumulated messages; capped at 100 entries.
+/// Accumulated messages; capped at 100 entries. Updated by game systems in `Update`.
 #[derive(Resource, Clone, Default)]
 pub struct LogEntries(pub Vec<String>);
+
+/// Clone of [`LogEntries`] for Haalka — like [`ClockData`], written in [`sync_ui`] so Jonmo
+/// `from_resource` sees updates **after** `sync_ui` and **before** `SignalProcessing`.
+/// `map_in` must never return `None` to the child builder (empty log used to freeze the log panel).
+#[derive(Resource, Clone, Default)]
+pub struct LogPanelData(pub Vec<String>);
 
 /// Push one line or multiline block; oldest entries are dropped to keep at most 100.
 pub fn log_message(log: &mut LogEntries, line: String) {
@@ -117,10 +124,11 @@ impl Plugin for UiPlugin {
       .init_resource::<PlayerData>()
       .init_resource::<HoverInfo>()
       .init_resource::<LogEntries>()
+      .init_resource::<LogPanelData>()
       .init_resource::<InvDisplayData>()
     .init_resource::<OverlayData>()
     .init_resource::<WorldMapView>()
-      .add_systems(PostUpdate, sync_ui);
+      .add_systems(PostUpdate, sync_ui.before(SignalProcessing));
   }
 }
 
@@ -400,23 +408,30 @@ fn message_log() -> impl Element {
 }
 
 fn log_entries_signal() -> impl Signal<Item = Option<impl Element>> {
-  signal::from_resource::<LogEntries>()
-    .map_in(|entries| {
-      if entries.0.is_empty() {
-        return None;
-      }
-      let lines: Vec<String> = entries.0
+  // Use `LogPanelData` (filled in `sync_ui`) and **always** emit `Some(column)`: `map_in` with
+  // `None` terminates the Jonmo branch; an initially empty log left the child unwired.
+  signal::from_resource::<LogPanelData>().map_in(|data| {
+    let lines: Vec<String> = if data.0.is_empty() {
+      vec![]
+    } else {
+      data.0
         .iter()
         .rev()
         .take(50)
         .flat_map(|s| s.lines().map(String::from))
-        .collect();
-      Some(
-        Column::<Node>::new()
-          .with_node(|mut n| { n.width = Val::Percent(100.); n.column_gap = Val::Px(1.0); })
-          .items(lines.into_iter().map(|line| static_text(line, FONT_SIZE_SMALL, DIM_TEXT)))
-      )
-    })
+        .collect()
+    };
+    let column = if lines.is_empty() {
+      Column::<Node>::new()
+        .with_node(|mut n| { n.width = Val::Percent(100.); n.column_gap = Val::Px(1.0); })
+        .item(static_text("\u{2014}", FONT_SIZE_SMALL, DIM_TEXT))
+    } else {
+      Column::<Node>::new()
+        .with_node(|mut n| { n.width = Val::Percent(100.); n.column_gap = Val::Px(1.0); })
+        .items(lines.into_iter().map(|line| static_text(line, FONT_SIZE_SMALL, DIM_TEXT)))
+    };
+    Some(column)
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -591,6 +606,8 @@ fn sync_ui(
   mut hover_info: ResMut<HoverInfo>,
   mut inv_display: ResMut<InvDisplayData>,
   mut overlay: ResMut<OverlayData>,
+  res_log: Res<LogEntries>,
+  mut log_panel: ResMut<LogPanelData>,
 ) {
   // ── Clock ──
   *clock_data = ClockData {
@@ -637,6 +654,9 @@ fn sync_ui(
     }
     crate::InteractMenu::Closed => None,
   });
+
+  // ── Log: mirror for Haalka (see `LogPanelData` doc) ──
+  log_panel.0 = res_log.0.clone();
 }
 
 fn compute_hover_info(
