@@ -83,7 +83,10 @@ impl Default for WorldMapView {
 pub enum OverlayKind {
   PauseMain,
   PauseControls,
+  /// Numbered option labels, same format as `Interact` (1) text …).
   Interact(Vec<String>),
+  /// While talking: show numbered replies (1) text …) over the playfield.
+  Dialogue { title: String, options: Vec<String> },
 }
 
 /// Formatted inventory string, updated by sync_ui.
@@ -521,8 +524,20 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
           OverlayKind::PauseMain => "Paused",
           OverlayKind::PauseControls => "Controls",
           OverlayKind::Interact(_) => "Use what?",
+          OverlayKind::Dialogue { title, .. } => title,
         };
         let lines: Vec<String> = match kind {
+          OverlayKind::Dialogue { options, .. } => {
+            // Same layout as Interact: numbered options, empty line, Esc.
+            let mut l: Vec<String> = options
+              .iter()
+              .enumerate()
+              .map(|(i, t)| format!("{}) {}", i + 1, t))
+              .collect();
+            l.push(String::new());
+            l.push("Esc to cancel".into());
+            l
+          }
           OverlayKind::PauseMain => vec![
             "1) Resume".into(),
             "2) Controls".into(),
@@ -637,17 +652,24 @@ fn sync_ui(
       Some(OverlayKind::Interact(mapv(|o| o.label.clone(), options)))
     }
     crate::InteractMenu::Closed => None,
+  }).or_else(|| match &ui.dialogue {
+    crate::DialogueState::Open { speaker, tree, node_name } => {
+      let node = tree.find(node_name);
+      let options: Vec<String> = mapv(|c| c.text.to_string(), node.choices);
+      Some(OverlayKind::Dialogue { title: format!("What do you say? ({speaker})"), options })
+    }
+    crate::DialogueState::Closed => None,
   });
 
-  // ── Log: formatted string (same as inventory display) ──
+  // ── Log: oldest at top, newest at bottom; keep last 50 *messages* ──
   {
-    let lines: String = if res_log.0.is_empty() {
+    let n = res_log.0.len();
+    let start = n.saturating_sub(50);
+    let lines: String = if n == 0 {
       String::new()
     } else {
-      res_log.0
+      res_log.0[start..]
         .iter()
-        .rev()
-        .take(50)
         .flat_map(|s| s.lines().map(String::from))
         .collect::<Vec<_>>()
         .join("\n")
