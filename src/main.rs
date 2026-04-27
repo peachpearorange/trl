@@ -163,6 +163,14 @@ fn bump_render_frame(mut frame: ResMut<RenderFrame>) {
   frame.0 = frame.0.saturating_add(1);
 }
 
+/// Aligned with [`advance_realtime`]: one sim step every [`RENDER_FRAMES_PER_SIM_STEP`] display frames.
+fn is_sim_step_frame(frame: Res<RenderFrame>) -> bool {
+  frame.0 > 0 && frame.0 % u64::from(RENDER_FRAMES_PER_SIM_STEP) == 0
+}
+
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
+struct SimStep;
+
 // ---------------------------------------------------------------------------
 // Resources & components
 // ---------------------------------------------------------------------------
@@ -360,6 +368,7 @@ fn main() {
     .insert_resource(TileEntityIndex::default())
     .add_plugins(ui::UiPlugin)
     .add_systems(Startup, (setup, ui::spawn_haalka_root).chain())
+    .configure_sets(Update, SimStep.run_if(is_sim_step_frame))
     .add_systems(
       Update,
       (
@@ -374,8 +383,8 @@ fn main() {
         handle_interact,
         player_input,
         ApplyDeferred,
-        apply_gravity,
-        enemy_ai,
+        apply_gravity.in_set(SimStep),
+        enemy_ai.in_set(SimStep),
         track_movement,
         interpolate_visual_positions,
         sync_entity_positions,

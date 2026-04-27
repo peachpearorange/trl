@@ -97,7 +97,8 @@ pub fn enemy_ai(
     let mut claimed: HashSet<(i32, i32)> = HashSet::new();
 
     for (mut location, mut timer, enemy_stats, enemy_wearing) in enemy_q.iter_mut() {
-      timer.0 = timer.0.saturating_add(1);
+      // `enemy_ai` runs once per sim step; advance in display-frame units to match `attack_interval_frames` / `move_interval_frames`.
+      timer.0 = timer.0.saturating_add(crate::RENDER_FRAMES_PER_SIM_STEP);
 
       if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location {
         let ezx = ex as usize / crate::level::ZONE_WIDTH;
