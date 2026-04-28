@@ -881,6 +881,15 @@ fn camera_follow(
       (ZONE_HEIGHT as f32 / 2.0 - local.y) * TILE_SIZE,
     );
     cam_tf.translation = (world_pos - offset).extend(0.0);
+    println!(
+      "camera local=({:.2}, {:.2}) world=({:.1}, {:.1}) cam=({:.1}, {:.1})",
+      local.x,
+      local.y,
+      world_pos.x,
+      world_pos.y,
+      cam_tf.translation.x,
+      cam_tf.translation.y
+    );
   }
 }
 
