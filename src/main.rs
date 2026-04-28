@@ -1856,7 +1856,6 @@ fn handle_interact(
   mut player_q: Query<(&mut PlayerPos, &mut Inventory), With<Player>>,
   dialogue_q: Query<(&Named, &Dialogue)>,
   tree_q: Query<Entity, With<Tree>>,
-  chest_q: Query<&LootChest>,
   mut pending_chest: ResMut<ChestOpenPending>,
   mut loot_chest_q: Query<(&mut LootChest, &mut Glyph, &Location)>,
   mut log: ResMut<LogEntries>,
@@ -1907,7 +1906,7 @@ fn handle_interact(
               action: InteractionAction::Talk { speaker: named.name, tree: dialogue.0 },
             });
           }
-          if let Ok(chest) = chest_q.get(e)
+          if let Ok((chest, _, _)) = loot_chest_q.get(e)
             && !chest.opened
           {
             let dir = if dx == 0 && dy == 0 { "here".to_string() } else { direction_name(dx, dy) };
