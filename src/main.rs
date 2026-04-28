@@ -232,6 +232,37 @@ struct TileHoverHighlight;
 // Glyph rendering systems
 // ---------------------------------------------------------------------------
 
+/// Zone-local tile (0..ZONE_WIDTH) from world tile, stable for negative `x`/`y`.
+fn zone_local_from_world(x: i32, y: i32) -> Vec2 {
+  Vec2::new(
+    x.rem_euclid(ZONE_WIDTH as i32) as f32,
+    y.rem_euclid(ZONE_HEIGHT as i32) as f32,
+  )
+}
+
+/// `true` if `a` and `b` are the same or orthogonally/diagonally adjacent on the grid.
+/// If the logical local tile jumps further (e.g. zone wrap: 0 → 47), a lerp would cross the
+/// whole zone; we treat that as a **snap** instead of a slide.
+fn is_adjacent_or_same_local(a: Vec2, b: Vec2) -> bool {
+  let d = (a - b).abs();
+  d.x <= 1.0 && d.y <= 1.0
+}
+
+fn apply_visuals_move(vis: &mut Visuals, f: u64, local: Vec2) {
+  if is_adjacent_or_same_local(local, vis.last_pos) {
+    if (local - vis.last_pos).length_squared() > 0.5 {
+      vis.prev = vis.display;
+      vis.last_move_start_frame = Some(f);
+      vis.last_pos = local;
+    }
+  } else {
+    vis.prev = local;
+    vis.display = local;
+    vis.last_pos = local;
+    vis.last_move_start_frame = None;
+  }
+}
+
 /// After movement systems run, snapshot position changes into Visuals.
 /// When an entity's Location changes, `prev` snaps to the current display pos
 /// (so direction changes pivot smoothly) and the move timer resets.
@@ -245,27 +276,15 @@ fn track_movement(
   let f = frame.0;
   for (loc, mut vis) in params.p0().iter_mut() {
     if let Some(world_pos) = loc.as_vec2() {
-      let local = Vec2::new(
-        (world_pos.x as usize % ZONE_WIDTH) as f32,
-        (world_pos.y as usize % ZONE_HEIGHT) as f32,
-      );
-      if (local - vis.last_pos).length_squared() > 0.5 {
-        vis.prev = vis.display;
-        vis.last_move_start_frame = Some(f);
-        vis.last_pos = local;
-      }
+      let wx = world_pos.x.trunc() as i32;
+      let wy = world_pos.y.trunc() as i32;
+      let local = zone_local_from_world(wx, wy);
+      apply_visuals_move(&mut vis, f, local);
     }
   }
   if let Ok((pos, mut vis)) = params.p1().single_mut() {
-    let local = Vec2::new(
-      (pos.x as usize % ZONE_WIDTH) as f32,
-      (pos.y as usize % ZONE_HEIGHT) as f32,
-    );
-    if (local - vis.last_pos).length_squared() > 0.5 {
-      vis.prev = vis.display;
-      vis.last_move_start_frame = Some(f);
-      vis.last_pos = local;
-    }
+    let local = zone_local_from_world(pos.x, pos.y);
+    apply_visuals_move(&mut vis, f, local);
   }
 }
 
@@ -288,18 +307,14 @@ fn interpolate_visual_positions(
   };
   for (loc, mut vis) in params.p0().iter_mut() {
     if let Some(world_pos) = loc.as_vec2() {
-      let local = Vec2::new(
-        (world_pos.x as usize % ZONE_WIDTH) as f32,
-        (world_pos.y as usize % ZONE_HEIGHT) as f32,
-      );
+      let wx = world_pos.x.trunc() as i32;
+      let wy = world_pos.y.trunc() as i32;
+      let local = zone_local_from_world(wx, wy);
       lerp(&mut vis, local);
     }
   }
   if let Ok((pos, mut vis)) = params.p1().single_mut() {
-    let local = Vec2::new(
-      (pos.x as usize % ZONE_WIDTH) as f32,
-      (pos.y as usize % ZONE_HEIGHT) as f32,
-    );
+    let local = zone_local_from_world(pos.x, pos.y);
     lerp(&mut vis, local);
   }
 }
@@ -826,7 +841,6 @@ fn apply_gravity(
 // ---------------------------------------------------------------------------
 
 fn camera_follow(
-  frame: Res<RenderFrame>,
   player_q: Query<&Visuals, With<Player>>,
   mut cam_q: Query<&mut Transform, With<Camera2d>>,
   windows: Query<&Window>,
@@ -847,7 +861,6 @@ fn camera_follow(
       (ZONE_HEIGHT as f32 / 2.0 - local.y) * TILE_SIZE,
     );
     cam_tf.translation = (world_pos - offset).extend(0.0);
-    println!("[frame {}] camera: ({:.1}, {:.1}, {:.1})", frame.0, cam_tf.translation.x, cam_tf.translation.y, cam_tf.translation.z);
   }
 }
 
