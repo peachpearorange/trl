@@ -288,8 +288,35 @@ fn track_movement(
   }
 }
 
+/// One slide spans exactly [`RENDER_FRAMES_PER_SIM_STEP`] *visible* lerp steps.
+/// `progress = (f - start) / 6` + `.min(1)` left progress **stuck at 1** for many frames, so
+/// the camera sat on the same coord for 2+ frames at the end of every tile (and longer idling).
+/// We use elapse `0..5` with `t = e / 5` (0, 0.2, …, 1) and clear the slide the same frame
+/// `t` hits 1 so the idle state is not a second full lerp(…, 1) pass.
+fn interpolate_visual_one(vis: &mut Visuals, f: u64, local: Vec2) {
+  if let Some(start) = vis.last_move_start_frame {
+    let e = f.saturating_sub(start);
+    let n = u64::from(RENDER_FRAMES_PER_SIM_STEP);
+    if e >= n {
+      vis.last_move_start_frame = None;
+      vis.prev = local;
+      vis.display = local;
+    } else {
+      let t = (e as f32 / (n as f32 - 1.0).max(1.0)).min(1.0);
+      vis.display = vis.prev.lerp(local, t);
+      if t >= 1.0 {
+        vis.last_move_start_frame = None;
+        vis.prev = local;
+        vis.display = local;
+      }
+    }
+  } else if (vis.display - local).length_squared() > 1.0e-4 {
+    vis.display = local;
+  }
+}
+
 /// Each frame, compute interpolated display position: lerp from `prev` to current
-/// local tile for [`RENDER_FRAMES_PER_SIM_STEP`] render frames after each move (see [`track_movement`]).
+/// local tile (see [`track_movement`]).
 fn interpolate_visual_positions(
   frame: Res<RenderFrame>,
   mut params: ParamSet<(
@@ -298,24 +325,17 @@ fn interpolate_visual_positions(
   )>,
 ) {
   let f = frame.0;
-  let step = RENDER_FRAMES_PER_SIM_STEP as f32;
-  let lerp = |vis: &mut Visuals, local: Vec2| {
-    let progress = vis
-      .last_move_start_frame
-      .map_or(1.0, |start| (f.saturating_sub(start) as f32 / step).min(1.0));
-    vis.display = vis.prev.lerp(local, progress);
-  };
   for (loc, mut vis) in params.p0().iter_mut() {
     if let Some(world_pos) = loc.as_vec2() {
       let wx = world_pos.x.trunc() as i32;
       let wy = world_pos.y.trunc() as i32;
       let local = zone_local_from_world(wx, wy);
-      lerp(&mut vis, local);
+      interpolate_visual_one(&mut vis, f, local);
     }
   }
   if let Ok((pos, mut vis)) = params.p1().single_mut() {
     let local = zone_local_from_world(pos.x, pos.y);
-    lerp(&mut vis, local);
+    interpolate_visual_one(&mut vis, f, local);
   }
 }
 
