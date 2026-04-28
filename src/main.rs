@@ -7,7 +7,9 @@ mod world_data;
 mod utils;
 
 use {
+  bevy::camera::Viewport,
   bevy::prelude::*,
+  bevy::window::PrimaryWindow,
   combat::{TileEntityIndex, enemy_ai, maintain_tile_index},
   level::{FovGrid, Tile, ZoneWorld, SURFACE_Z, ZONE_WIDTH, ZONE_HEIGHT, WORLD_DEPTH, compute_fov},
   std::collections::HashSet,
@@ -147,9 +149,14 @@ pub struct Clock {
   /// Cumulative sim-time from actions and (in RT) periodic ticks.
   pub time: u64,
   pub mode: TimeMode,
-  /// Renders left before another step is accepted (also drives player slide).
+  /// Renders left before another step is accepted.
   move_cooldown_frames: u32,
 }
+
+/// When `true`, [`update_time_mode`] may switch to turn-based when enemies are near.
+/// `T` sets a manual mode and sets this to `false`; `Shift+T` restores auto.
+#[derive(Resource)]
+pub struct TimeModeAuto(pub bool);
 
 impl Clock {
   fn new() -> Self {
@@ -262,13 +269,10 @@ fn track_movement(
   }
 }
 
-/// Each frame, compute interpolated visual position: weighted average of prev
-/// and current Location. Other entities: progress from wall time since the last tile change.
-/// Player: same duration as the next-move gate (`Clock.move_cooldown_frames`) so the slide
-/// does not sit on the destination before the next step can start.
+/// Each frame, compute interpolated display position: lerp from `prev` to current
+/// local tile for [`RENDER_FRAMES_PER_SIM_STEP`] render frames after each move (see [`track_movement`]).
 fn interpolate_visual_positions(
   frame: Res<RenderFrame>,
-  clock: Res<Clock>,
   mut params: ParamSet<(
     Query<(&Location, &mut Visuals)>,
     Query<(&PlayerPos, &mut Visuals), With<Player>>,
@@ -276,16 +280,19 @@ fn interpolate_visual_positions(
 ) {
   let f = frame.0;
   let step = RENDER_FRAMES_PER_SIM_STEP as f32;
+  let lerp = |vis: &mut Visuals, local: Vec2| {
+    let progress = vis
+      .last_move_start_frame
+      .map_or(1.0, |start| (f.saturating_sub(start) as f32 / step).min(1.0));
+    vis.display = vis.prev.lerp(local, progress);
+  };
   for (loc, mut vis) in params.p0().iter_mut() {
     if let Some(world_pos) = loc.as_vec2() {
       let local = Vec2::new(
         (world_pos.x as usize % ZONE_WIDTH) as f32,
         (world_pos.y as usize % ZONE_HEIGHT) as f32,
       );
-      let progress = vis
-        .last_move_start_frame
-        .map_or(1.0, |start| (f.saturating_sub(start) as f32 / step).min(1.0));
-      vis.display = vis.prev.lerp(local, progress);
+      lerp(&mut vis, local);
     }
   }
   if let Ok((pos, mut vis)) = params.p1().single_mut() {
@@ -293,10 +300,7 @@ fn interpolate_visual_positions(
       (pos.x as usize % ZONE_WIDTH) as f32,
       (pos.y as usize % ZONE_HEIGHT) as f32,
     );
-    let progress = (1.0
-      - clock.move_cooldown_frames as f32 / RENDER_FRAMES_PER_SIM_STEP as f32)
-      .clamp(0.0, 1.0);
-    vis.display = vis.prev.lerp(local, progress);
+    lerp(&mut vis, local);
   }
 }
 
@@ -359,11 +363,13 @@ fn main() {
     .insert_resource(GameWorld(world))
     .init_resource::<RenderFrame>()
     .insert_resource(Clock::new())
+    .insert_resource(TimeModeAuto(true))
     .insert_resource(UiState::default())
     .insert_resource(Fov(fov))
     .insert_resource(TileEntityIndex::default())
     .add_plugins(ui::UiPlugin)
     .add_systems(Startup, (setup, ui::spawn_haalka_root).chain())
+    .add_systems(PreUpdate, sync_game_camera_viewport)
     .configure_sets(Update, SimStep.run_if(is_sim_step_frame))
     .add_systems(
       Update,
@@ -406,9 +412,30 @@ fn tile_screen_pos(x: f32, y: f32, w: usize, h: usize) -> Vec3 {
   )
 }
 
+fn sync_game_camera_viewport(
+  mut q: Query<&mut Camera, With<Camera2d>>,
+  windows: Query<&Window, With<PrimaryWindow>>,
+) {
+  if let (Ok(mut camera), Ok(w)) = (q.single_mut(), windows.single()) {
+    let phys_w = w.resolution.physical_width();
+    let phys_h = w.resolution.physical_height();
+    let scale = w.resolution.scale_factor();
+    let status_px = (STATUS_BAR_HEIGHT * scale).round().max(1.0) as u32;
+    let game_w = ((phys_w as f32) * GAME_VIEWPORT_WIDTH_FRAC).round().max(1.0) as u32;
+    let game_h = phys_h.saturating_sub(status_px).max(1);
+    camera.viewport = Some(Viewport {
+      physical_position: UVec2::ZERO,
+      physical_size: UVec2::new(game_w, game_h),
+      depth: 0.0..1.0,
+    });
+  }
+}
+
 pub fn screen_to_tile(world_pos: Vec2, w: usize, h: usize) -> (i32, i32) {
-  let tx = (world_pos.x / TILE_SIZE + w as f32 / 2.0).floor() as i32;
-  let ty = (h as f32 / 2.0 - world_pos.y / TILE_SIZE).floor() as i32;
+  // Tiny bias avoids float edge cases on tile boundaries.
+  const E: f32 = 1.0e-4;
+  let tx = (world_pos.x / TILE_SIZE + w as f32 * 0.5 - E).floor() as i32;
+  let ty = (h as f32 * 0.5 - world_pos.y / TILE_SIZE - E).floor() as i32;
   (tx, ty)
 }
 
@@ -825,12 +852,10 @@ fn update_tile_hover_highlight(
       && let Ok((camera, cam_transform)) = camera_q.single()
       && let Ok(player_pos) = player_q.single()
     {
-      let w = window.resolution.width();
       let (zx, zy) = world_to_zone(player_pos.x, player_pos.y);
       let level = gw.0.zone(zx, zy, player_pos.z);
       if let Some(cursor) = window.cursor_position()
-        && cursor.x < w * GAME_VIEWPORT_WIDTH_FRAC
-        && cursor.y > STATUS_BAR_HEIGHT
+        && camera.logical_viewport_rect().is_some_and(|r| r.contains(cursor))
         && let Ok(world_pos) = camera.viewport_to_world_2d(cam_transform, cursor)
       {
         let (tx, ty) = screen_to_tile(world_pos, ZONE_WIDTH, ZONE_HEIGHT);
@@ -904,9 +929,13 @@ const ENEMY_ALERT_RADIUS: i32 = 8;
 
 fn update_time_mode(
   mut clock: ResMut<Clock>,
+  time_mode_auto: Res<TimeModeAuto>,
   player_q: Query<&PlayerPos, With<Player>>,
   enemy_q: Query<&Location, With<Enemy>>,
 ) {
+  if !time_mode_auto.0 {
+    return;
+  }
   let enemy_near = player_q.single().is_ok_and(|pos| {
     let (pzx, pzy) = world_to_zone(pos.x, pos.y);
     enemy_q.iter().any(|loc| {
@@ -1075,6 +1104,7 @@ fn spawn_pause_overlay(commands: &mut Commands, ui: &UiState) {
             WASD / Arrows   move (diagonal: hold two)\n\
             Space           use / interact\n\
             .               wait\n\
+            T               toggle time mode (hold Shift+T: auto from enemies)\n\
             ?               controls\n\
             Esc             menu / back"
     }
@@ -1401,6 +1431,7 @@ fn player_input(
   ui: Res<UiState>,
   world_map: Res<WorldMapView>,
   mut clock: ResMut<Clock>,
+  mut time_mode_auto: ResMut<TimeModeAuto>,
   mut fov: ResMut<Fov>,
   index: Res<TileEntityIndex>,
   mut commands: Commands,
@@ -1410,6 +1441,18 @@ fn player_input(
   collidable_q: Query<&Collidable>,
   sight_q: Query<&Location, With<BlocksSight>>,
 ) {
+  if !ui.any_open() && !world_map.open && keys.just_pressed(KeyCode::KeyT) {
+    if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
+      time_mode_auto.0 = true;
+    } else {
+      time_mode_auto.0 = false;
+      clock.mode = match clock.mode {
+        TimeMode::RealTime => TimeMode::TurnBased,
+        TimeMode::TurnBased => TimeMode::RealTime,
+      };
+    }
+  }
+
   if !ui.any_open() && !world_map.open
     && let Ok((mut pos, stats, mut inventory)) = player_query.single_mut()
   {

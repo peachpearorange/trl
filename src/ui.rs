@@ -7,7 +7,7 @@ use {
   crate::{
     level::{ZONE_WIDTH, ZONE_HEIGHT},
     utils::mapv,
-    Clock, screen_to_tile, world_to_zone, GAME_VIEWPORT_WIDTH_FRAC, STATUS_BAR_HEIGHT,
+    Clock, screen_to_tile, world_to_zone,
   },
   bevy::prelude::*,
   haalka::jonmo::SignalProcessing,
@@ -20,10 +20,16 @@ use {
 // Data shapes — written by sync_ui, read by Haalka signals
 // ---------------------------------------------------------------------------
 
-#[derive(Resource, Clone, Default)]
+#[derive(Resource, Clone)]
 pub struct ClockData {
   pub mode: &'static str,
   pub tick: u64,
+}
+
+impl Default for ClockData {
+  fn default() -> Self {
+    Self { mode: "RT", tick: 0 }
+  }
 }
 
 #[derive(Resource, Clone, Default)]
@@ -448,10 +454,20 @@ fn status_bar() -> impl Element {
           signal::from_resource::<HoverInfo>().map_in(|h| format!("({},{})", h.coords.0, h.coords.1)),
           FONT_SIZE_SMALL, DIM_TEXT
         ))
-        .item(reactive_text(
-          signal::from_resource::<ClockData>().map_in(|d| format!("{} T:{}", d.mode, d.tick)),
-          FONT_SIZE_SMALL, DIM_TEXT
-        ))
+        .item(
+          Row::<Node>::new()
+            .with_node(|mut n| { n.column_gap = Val::Px(8.0); n.align_items = AlignItems::Center; })
+            .item(reactive_text(
+              signal::from_resource::<ClockData>().map_in(|d| {
+                (d.mode == "TB").then_some("TURN-BASED MODE").unwrap_or("").to_string()
+              }),
+              FONT_SIZE_SMALL, ACCENT
+            ))
+            .item(reactive_text(
+              signal::from_resource::<ClockData>().map_in(|d| format!("{} T:{}", d.mode, d.tick)),
+              FONT_SIZE_SMALL, DIM_TEXT
+            ))
+        )
     )
 }
 
@@ -699,8 +715,7 @@ fn compute_hover_info(
     && let Ok((camera, cam_tf)) = camera_q.single()
     && let Ok((pos, _, _)) = player_q.single()
     && let Some(cursor) = window.cursor_position()
-    && cursor.x < window.resolution.width() * GAME_VIEWPORT_WIDTH_FRAC
-    && cursor.y > STATUS_BAR_HEIGHT
+    && camera.logical_viewport_rect().is_some_and(|r| r.contains(cursor))
     && let Ok(world_pos) = camera.viewport_to_world_2d(cam_tf, cursor)
   {
     let (tx, ty) = screen_to_tile(world_pos, ZONE_WIDTH, ZONE_HEIGHT);
