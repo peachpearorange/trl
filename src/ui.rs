@@ -7,7 +7,7 @@ use {
   crate::{
     level::{ZONE_WIDTH, ZONE_HEIGHT},
     utils::mapv,
-    Clock, screen_to_tile, world_to_zone,
+    Clock, try_pick_level_tile_at_cursor, world_to_zone,
   },
   bevy::prelude::*,
   haalka::jonmo::SignalProcessing,
@@ -714,58 +714,57 @@ fn compute_hover_info(
   if let Ok(window) = windows.single()
     && let Ok((camera, cam_tf)) = camera_q.single()
     && let Ok((pos, _, _)) = player_q.single()
-    && let Some(cursor) = window.cursor_position()
-    && camera.logical_viewport_rect().is_some_and(|r| r.contains(cursor))
-    && let Ok(world_pos) = camera.viewport_to_world_2d(cam_tf, cursor)
   {
-    let (tx, ty) = screen_to_tile(world_pos, ZONE_WIDTH, ZONE_HEIGHT);
     let (zx, zy) = world_to_zone(pos.x, pos.y);
     let level = gw.0.zone(zx, zy, pos.z);
+    if let Some((tx, ty)) =
+      try_pick_level_tile_at_cursor(window, camera, cam_tf, level.width, level.height)
+    {
+      let visible = fov.0.is_visible(tx as usize, ty as usize);
+      let revealed = fov.0.is_revealed(tx as usize, ty as usize);
+      if visible || revealed {
+        let tile = level.tiles[ty as usize][tx as usize];
+        let tile_name = if revealed && !visible {
+          format!("{} (remembered)", tile.name())
+        } else {
+          tile.name().into()
+        };
 
-    if tx < 0 || ty < 0 || tx as usize >= level.width || ty as usize >= level.height {
-      return empty;
-    }
-
-    let visible = fov.0.is_visible(tx as usize, ty as usize);
-    let revealed = fov.0.is_revealed(tx as usize, ty as usize);
-    if !visible && !revealed { return empty; }
-
-    let tile = level.tiles[ty as usize][tx as usize];
-    let tile_name = if revealed && !visible {
-      format!("{} (remembered)", tile.name())
-    } else {
-      tile.name().into()
-    };
-
-    // Look for entity on this tile
-    let wx = (zx * ZONE_WIDTH) as i32 + tx;
-    let wy = (zy * ZONE_HEIGHT) as i32 + ty;
-    let (entity_name, entity_hp, flavor) = if visible {
-      index
-        .0
-        .get(&(wx, wy, pos.z))
-        .and_then(|entities| {
-          entities.iter().find_map(|&e| {
-            named_q.get(e).ok().map(|(named, stats)| {
-              (
-                Some(named.name.into()),
-                stats.map(|s| (s.hp, s.max_hp)),
-                Some(named.flavor.into()),
-              )
+        // Look for entity on this tile
+        let wx = (zx * ZONE_WIDTH) as i32 + tx;
+        let wy = (zy * ZONE_HEIGHT) as i32 + ty;
+        let (entity_name, entity_hp, flavor) = if visible {
+          index
+            .0
+            .get(&(wx, wy, pos.z))
+            .and_then(|entities| {
+              entities.iter().find_map(|&e| {
+                named_q.get(e).ok().map(|(named, stats)| {
+                  (
+                    Some(named.name.into()),
+                    stats.map(|s| (s.hp, s.max_hp)),
+                    Some(named.flavor.into()),
+                  )
+                })
+              })
             })
-          })
-        })
-        .unwrap_or((None, None, None))
-    } else {
-      (None, None, None)
-    };
+            .unwrap_or((None, None, None))
+        } else {
+          (None, None, None)
+        };
 
-    HoverInfo {
-      coords: (tx, ty),
-      tile_name,
-      entity_name,
-      entity_hp,
-      flavor,
+        HoverInfo {
+          coords: (tx, ty),
+          tile_name,
+          entity_name,
+          entity_hp,
+          flavor,
+        }
+      } else {
+        empty
+      }
+    } else {
+      empty
     }
   } else {
     empty

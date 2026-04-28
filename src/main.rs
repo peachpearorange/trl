@@ -431,12 +431,41 @@ fn sync_game_camera_viewport(
   }
 }
 
-pub fn screen_to_tile(world_pos: Vec2, w: usize, h: usize) -> (i32, i32) {
-  // Tiny bias avoids float edge cases on tile boundaries.
+/// Inverse of [`tile_screen_pos`] for a point in world: which level cell it falls into.
+/// World units use `TILE_SIZE` and the same origin as the camera-facing grid.
+fn world_to_level_cell(world: Vec2, w: usize, h: usize) -> (i32, i32) {
+  // Tiny bias avoids float edge cases on cell boundaries.
   const E: f32 = 1.0e-4;
-  let tx = (world_pos.x / TILE_SIZE + w as f32 * 0.5 - E).floor() as i32;
-  let ty = (h as f32 * 0.5 - world_pos.y / TILE_SIZE - E).floor() as i32;
+  let tx = (world.x / TILE_SIZE + w as f32 * 0.5 - E).floor() as i32;
+  let ty = (h as f32 * 0.5 - world.y / TILE_SIZE - E).floor() as i32;
   (tx, ty)
+}
+
+/// Picks a tile under the cursor: this is the usual Bevy 0.18 pattern
+/// ([`Window::cursor_position`], then [`Camera::viewport_to_world_2d`]), plus a
+/// "cursor in this camera's sub-viewport" check from [`Camera::logical_viewport_rect`]
+/// (needed when the window also shows a Haalka sidebar, etc.).
+pub fn try_pick_level_tile_at_cursor(
+  window: &Window,
+  camera: &Camera,
+  camera_transform: &GlobalTransform,
+  level_w: usize,
+  level_h: usize,
+) -> Option<(i32, i32)> {
+  let cursor = window.cursor_position()?;
+  let in_view = camera
+    .logical_viewport_rect()
+    .is_some_and(|r| r.contains(cursor));
+  if !in_view {
+    return None;
+  }
+  let world = camera.viewport_to_world_2d(camera_transform, cursor).ok()?;
+  let (tx, ty) = world_to_level_cell(world, level_w, level_h);
+  (tx >= 0
+    && ty >= 0
+    && (tx as usize) < level_w
+    && (ty as usize) < level_h)
+    .then_some((tx, ty))
 }
 
 fn world_to_local(wx: i32, wy: i32) -> (usize, usize) {
@@ -854,24 +883,16 @@ fn update_tile_hover_highlight(
     {
       let (zx, zy) = world_to_zone(player_pos.x, player_pos.y);
       let level = gw.0.zone(zx, zy, player_pos.z);
-      if let Some(cursor) = window.cursor_position()
-        && camera.logical_viewport_rect().is_some_and(|r| r.contains(cursor))
-        && let Ok(world_pos) = camera.viewport_to_world_2d(cam_transform, cursor)
+      if let Some((tx, ty)) =
+        try_pick_level_tile_at_cursor(window, camera, cam_transform, level.width, level.height)
       {
-        let (tx, ty) = screen_to_tile(world_pos, ZONE_WIDTH, ZONE_HEIGHT);
-        if tx >= 0
-          && ty >= 0
-          && (tx as usize) < level.width
-          && (ty as usize) < level.height
-        {
-          let visible = fov.0.is_visible(tx as usize, ty as usize);
-          let revealed = fov.0.is_revealed(tx as usize, ty as usize);
-          if visible || revealed {
-            *vis = Visibility::Visible;
-            transform.translation =
-              tile_screen_pos(tx as f32, ty as f32, ZONE_WIDTH, ZONE_HEIGHT)
-                + Vec3::new(0.0, 0.0, 0.25);
-          }
+        let visible = fov.0.is_visible(tx as usize, ty as usize);
+        let revealed = fov.0.is_revealed(tx as usize, ty as usize);
+        if visible || revealed {
+          *vis = Visibility::Visible;
+          transform.translation =
+            tile_screen_pos(tx as f32, ty as f32, ZONE_WIDTH, ZONE_HEIGHT)
+              + Vec3::new(0.0, 0.0, 0.25);
         }
       }
     }
