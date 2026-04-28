@@ -288,11 +288,11 @@ fn track_movement(
   }
 }
 
-/// One slide spans exactly [`RENDER_FRAMES_PER_SIM_STEP`] *visible* lerp steps.
-/// `progress = (f - start) / 6` + `.min(1)` left progress **stuck at 1** for many frames, so
-/// the camera sat on the same coord for 2+ frames at the end of every tile (and longer idling).
-/// We use elapse `0..5` with `t = e / 5` (0, 0.2, …, 1) and clear the slide the same frame
-/// `t` hits 1 so the idle state is not a second full lerp(…, 1) pass.
+/// One slide is [`RENDER_FRAMES_PER_SIM_STEP`] display frames with `t = (e + 1) / n` for
+/// `e` in `0..n` (e.g. 1/6…1). The prior `t = e / (n - 1)` had `t = 0` on the first frame of
+/// each move, which matched the previous move’s `t = 1` (same `display`), so the camera held
+/// one extra frame on every grid integer while walking. First frame of a move now already
+/// moves toward `local` (no zero lerp step).
 fn interpolate_visual_one(vis: &mut Visuals, f: u64, local: Vec2) {
   if let Some(start) = vis.last_move_start_frame {
     let e = f.saturating_sub(start);
@@ -302,7 +302,7 @@ fn interpolate_visual_one(vis: &mut Visuals, f: u64, local: Vec2) {
       vis.prev = local;
       vis.display = local;
     } else {
-      let t = (e as f32 / (n as f32 - 1.0).max(1.0)).min(1.0);
+      let t = ((e + 1) as f32 / n as f32).min(1.0);
       vis.display = vis.prev.lerp(local, t);
       if t >= 1.0 {
         vis.last_move_start_frame = None;
