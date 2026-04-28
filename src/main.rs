@@ -27,8 +27,10 @@ const TILE_SIZE: f32 = 32.0;
 pub const RENDER_FRAMES_PER_SIM_STEP: u32 = 6;
 const FOV_RADIUS: i32 = 99;
 const DIM_FACTOR: f32 = 0.3;
-/// Haalka layout: game view is the left 70% of the window; status bar is 24px along the bottom.
+/// Haalka layout: game view is left of the sidebar (`GAME_VIEWPORT_WIDTH_FRAC`); sidebar is
+/// `SIDEBAR_WIDTH_FRAC`. Status bar is `STATUS_BAR_HEIGHT` along the bottom.
 pub const GAME_VIEWPORT_WIDTH_FRAC: f32 = 0.70;
+pub const SIDEBAR_WIDTH_FRAC: f32 = 1.0 - GAME_VIEWPORT_WIDTH_FRAC;
 pub const STATUS_BAR_HEIGHT: f32 = 24.0;
 
 // ---------------------------------------------------------------------------
@@ -498,7 +500,10 @@ fn sync_game_camera_viewport(
     let phys_h = w.resolution.physical_height();
     let scale = w.resolution.scale_factor();
     let status_px = (STATUS_BAR_HEIGHT * scale).round().max(1.0) as u32;
-    let game_w = ((phys_w as f32) * GAME_VIEWPORT_WIDTH_FRAC).round().max(1.0) as u32;
+    // Match UI: sidebar is SIDEBAR_WIDTH_FRAC of width; game gets the remainder (avoids a black gap
+    // from independent rounding of 0.7*w and 0.3*w).
+    let sidebar_w = ((phys_w as f32) * SIDEBAR_WIDTH_FRAC).round() as u32;
+    let game_w = phys_w.saturating_sub(sidebar_w).max(1);
     let game_h = phys_h.saturating_sub(status_px).max(1);
     camera.viewport = Some(Viewport {
       physical_position: UVec2::ZERO,

@@ -1,5 +1,5 @@
 //! Haalka-based UI layer.  Owns the full window layout: game viewport on the
-//! left, panel UI on the right/bottom, and centred overlays for menus.
+//! left (~70%), sidebar flush right (~30%), status bar along the bottom, and centred overlays for menus.
 //! A single [`sync_ui`] system bridges Bevy game-state into cloneable resources
 //! each frame; Haalka `reactive_text` / [`from_resource`] read those resources.
 
@@ -7,7 +7,7 @@ use {
   crate::{
     level::{ZONE_WIDTH, ZONE_HEIGHT},
     utils::mapv,
-    Clock, try_pick_level_tile_at_cursor, world_to_zone,
+    Clock, try_pick_level_tile_at_cursor, world_to_zone, GAME_VIEWPORT_WIDTH_FRAC,
   },
   bevy::prelude::*,
   haalka::jonmo::SignalProcessing,
@@ -122,6 +122,10 @@ const FONT_SIZE_TITLE: f32 = 16.0;
 const FONT_SIZE_SMALL: f32 = 11.0;
 const PANEL_PAD:      f32 = 8.0;
 
+/// Match `main.rs` Haalka row: sidebar width as a percent of the window width.
+const SIDEBAR_WIDTH_PERCENT: f32 = (1.0 - GAME_VIEWPORT_WIDTH_FRAC) * 100.0;
+const GAME_VIEWPORT_PERCENT: f32 = GAME_VIEWPORT_WIDTH_FRAC * 100.0;
+
 // ---------------------------------------------------------------------------
 // Plugin
 // ---------------------------------------------------------------------------
@@ -164,13 +168,23 @@ fn main_layout() -> impl Element {
     // ── top row: game viewport | sidebar ──
     .item(
       Row::<Node>::new()
-        .with_node(|mut n| { n.width = Val::Percent(100.0); n.height = Val::Percent(100.0); n.flex_grow = 1.0; })
-        // Game viewport (transparent — Camera2d renders behind)
+        .with_node(|mut n| {
+          n.width = Val::Percent(100.0);
+          n.height = Val::Percent(100.0);
+          n.flex_grow = 1.0;
+          n.column_gap = Val::Px(0.0);
+        })
+        // Game viewport (transparent — Camera2d renders behind); flex so it fills space left of sidebar.
         .item(
           El::<Node>::new()
-            .with_node(|mut n| { n.width = Val::Percent(70.); n.height = Val::Percent(100.0); })
+            .with_node(|mut n| {
+              n.flex_grow = 1.0;
+              n.flex_shrink = 1.0;
+              n.min_width = Val::Px(0.0);
+              n.height = Val::Percent(100.0);
+            })
         )
-        // Sidebar column
+        // Sidebar column — fixed fraction of window width, flush right
         .item(sidebar_column())
     )
     // ── bottom: status bar ──
@@ -180,7 +194,8 @@ fn main_layout() -> impl Element {
 fn sidebar_column() -> impl Element {
   Column::<Node>::new()
     .with_node(|mut n| {
-      n.width = Val::Percent(30.);
+      n.width = Val::Percent(SIDEBAR_WIDTH_PERCENT);
+      n.flex_shrink = 0.0;
       n.height = Val::Percent(100.);
       n.border = UiRect::left(Val::Px(1.0));
       n.padding = UiRect::all(Val::Px(PANEL_PAD));
@@ -471,7 +486,7 @@ fn status_bar() -> impl Element {
     )
 }
 
-// World map — same column width as the game view (70%), shows full generated island
+// World map — same column width as the game view, shows full generated island
 // ---------------------------------------------------------------------------
 
 fn world_map_signal() -> impl Signal<Item = Option<impl Element>> {
@@ -489,7 +504,7 @@ fn world_map_signal() -> impl Signal<Item = Option<impl Element>> {
         .child(
           Column::<Node>::new()
             .with_node(|mut n| {
-              n.width = Val::Percent(70.);
+              n.width = Val::Percent(GAME_VIEWPORT_PERCENT);
               n.max_height = Val::Percent(96.);
               n.padding = UiRect::all(Val::Px(14.));
               n.column_gap = Val::Px(8.0);
