@@ -166,13 +166,36 @@ impl Clock {
   fn advance(&mut self, cost: u32) { self.time = self.time.saturating_add(u64::from(cost)); }
 }
 
+/// In turn-based mode, the world only advances in [`SimStep`] after a player spends a turn and
+/// move animation finishes (`move_cooldown_frames == 0`); this flag schedules that one tick.
+/// Cleared at the end of [`combat::enemy_ai`] after that tick runs.
+#[derive(Resource, Default)]
+pub struct TurnBasedWorldState {
+  pub pending_enemy_phase: bool,
+}
+
+fn note_player_turn_moved_world(clock: &Clock, tb: &mut TurnBasedWorldState) {
+  if clock.mode == TimeMode::TurnBased {
+    tb.pending_enemy_phase = true;
+  }
+}
+
 fn bump_render_frame(mut frame: ResMut<RenderFrame>) {
   frame.0 = frame.0.saturating_add(1);
 }
 
-/// Aligned with [`advance_realtime`]: one sim step every [`RENDER_FRAMES_PER_SIM_STEP`] display frames.
-fn is_sim_step_frame(frame: Res<RenderFrame>) -> bool {
-  frame.0 > 0 && frame.0 % u64::from(RENDER_FRAMES_PER_SIM_STEP) == 0
+/// Real-time: one sim step every [`RENDER_FRAMES_PER_SIM_STEP`] display frames. Turn-based: a single
+/// sim tick after the player’s action when animation is done (same as when enemies may act in RT).
+fn should_run_sim_step(
+  frame: Res<RenderFrame>,
+  clock: Res<Clock>,
+  tb: Res<TurnBasedWorldState>,
+) -> bool {
+  if clock.mode == TimeMode::RealTime {
+    frame.0 > 0 && frame.0 % u64::from(RENDER_FRAMES_PER_SIM_STEP) == 0
+  } else {
+    tb.pending_enemy_phase && clock.move_cooldown_frames == 0
+  }
 }
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
@@ -397,6 +420,7 @@ fn main() {
     .insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.05)))
     .insert_resource(GameWorld(world))
     .init_resource::<RenderFrame>()
+    .init_resource::<TurnBasedWorldState>()
     .insert_resource(Clock::new())
     .insert_resource(TimeModeAuto(true))
     .insert_resource(UiState::default())
@@ -405,7 +429,7 @@ fn main() {
     .add_plugins(ui::UiPlugin)
     .add_systems(Startup, (setup, ui::spawn_haalka_root).chain())
     .add_systems(PreUpdate, sync_game_camera_viewport)
-    .configure_sets(Update, SimStep.run_if(is_sim_step_frame))
+    .configure_sets(Update, SimStep.run_if(should_run_sim_step))
     .add_systems(
       Update,
       (
@@ -1042,6 +1066,17 @@ fn any_direction_pressed(keys: &ButtonInput<KeyCode>) -> bool {
     || keys.pressed(KeyCode::ArrowRight)
 }
 
+fn any_direction_just_pressed(keys: &ButtonInput<KeyCode>) -> bool {
+  keys.just_pressed(KeyCode::KeyW)
+    || keys.just_pressed(KeyCode::KeyA)
+    || keys.just_pressed(KeyCode::KeyS)
+    || keys.just_pressed(KeyCode::KeyD)
+    || keys.just_pressed(KeyCode::ArrowUp)
+    || keys.just_pressed(KeyCode::ArrowDown)
+    || keys.just_pressed(KeyCode::ArrowLeft)
+    || keys.just_pressed(KeyCode::ArrowRight)
+}
+
 fn resolve_move(level: &level::Level, px: i32, py: i32, dx: i32, dy: i32) -> (i32, i32) {
   if level.walkable(px + dx, py + dy) {
     (dx, dy)
@@ -1071,6 +1106,7 @@ fn handle_menus(
   pause_overlay_q: Query<Entity, With<PauseOverlay>>,
   mut gw: ResMut<GameWorld>,
   mut clock: ResMut<Clock>,
+  mut tb: ResMut<TurnBasedWorldState>,
   mut fov: ResMut<Fov>,
   mut log: ResMut<LogEntries>,
   tile_query: Query<Entity, With<TileGlyph>>,
@@ -1097,7 +1133,7 @@ fn handle_menus(
       let option = options[idx].clone();
       ui.interact = InteractMenu::Closed;
       execute_interaction(
-        &option.action, &mut gw, &mut clock, &mut fov,
+        &option.action, &mut gw, &mut clock, &mut *tb, &mut fov,
         &mut ui, &mut *log, &mut commands, &asset_server, &tile_query, &sight_q, &mut player_query
       );
     }
@@ -1157,9 +1193,9 @@ fn spawn_pause_overlay(commands: &mut Commands, ui: &UiState) {
       "\
             Controls\n\
             \n\
-            WASD / Arrows   move (diagonal: hold two)\n\
+            WASD / Arrows   move (real-time: hold; turn-based: tap per step)\n\
             Space           use / interact\n\
-            .               wait\n\
+            .               wait (turn-based: pass a turn)\n\
             T               toggle time mode (hold Shift+T: auto from enemies)\n\
             ?               controls\n\
             Esc             menu / back"
@@ -1299,6 +1335,7 @@ fn execute_interaction(
   action: &InteractionAction,
   gw: &mut ResMut<GameWorld>,
   clock: &mut Clock,
+  tb: &mut TurnBasedWorldState,
   fov: &mut ResMut<Fov>,
   ui: &mut UiState,
   log: &mut LogEntries,
@@ -1337,6 +1374,7 @@ fn execute_interaction(
             pos.z,
           );
           clock.advance(PlayerAction::Ascend.time_cost());
+          note_player_turn_moved_world(clock, tb);
         }
       }
       InteractionAction::Descend => {
@@ -1356,6 +1394,7 @@ fn execute_interaction(
             pos.z,
           );
           clock.advance(PlayerAction::Descend.time_cost());
+          note_player_turn_moved_world(clock, tb);
         }
       }
       InteractionAction::OpenDoor(dx, dy) => {
@@ -1373,12 +1412,14 @@ fn execute_interaction(
           pos.z,
         );
         clock.advance(1);
+        note_player_turn_moved_world(clock, tb);
       }
       InteractionAction::Talk { .. } => unreachable!(),
       InteractionAction::ChopTree(entity) => {
         commands.entity(*entity).despawn();
         *inventory.0.entry(level::Item::Wood).or_insert(0) += 1;
         clock.advance(2);
+        note_player_turn_moved_world(clock, tb);
       }
       InteractionAction::PickUpItem(wx, wy) => {
         let (izx, izy) = world_to_zone(*wx, *wy);
@@ -1391,6 +1432,7 @@ fn execute_interaction(
           }
         }
         clock.advance(1);
+        note_player_turn_moved_world(clock, tb);
       }
     }
   }
@@ -1487,6 +1529,7 @@ fn player_input(
   ui: Res<UiState>,
   world_map: Res<WorldMapView>,
   mut clock: ResMut<Clock>,
+  mut tb: ResMut<TurnBasedWorldState>,
   mut time_mode_auto: ResMut<TimeModeAuto>,
   mut fov: ResMut<Fov>,
   index: Res<TileEntityIndex>,
@@ -1504,7 +1547,10 @@ fn player_input(
       time_mode_auto.0 = false;
       clock.mode = match clock.mode {
         TimeMode::RealTime => TimeMode::TurnBased,
-        TimeMode::TurnBased => TimeMode::RealTime,
+        TimeMode::TurnBased => {
+          tb.pending_enemy_phase = false;
+          TimeMode::RealTime
+        }
       };
     }
   }
@@ -1517,12 +1563,22 @@ fn player_input(
       clock.move_cooldown_frames -= 1;
     }
 
-    if keys.just_pressed(KeyCode::Period)
+    let turn_based_block = clock.mode == TimeMode::TurnBased
+      && (clock.move_cooldown_frames > 0 || tb.pending_enemy_phase);
+
+    if !turn_based_block && keys.just_pressed(KeyCode::Period)
       && !keys.pressed(KeyCode::ShiftLeft)
       && !keys.pressed(KeyCode::ShiftRight)
     {
       clock.advance(PlayerAction::Wait.time_cost());
-    } else if any_direction_pressed(&keys) && clock.move_cooldown_frames == 0 {
+      note_player_turn_moved_world(&*clock, &mut *tb);
+    } else if !turn_based_block
+      && (if clock.mode == TimeMode::TurnBased {
+        any_direction_just_pressed(&keys)
+      } else {
+        any_direction_pressed(&keys)
+      }) && clock.move_cooldown_frames == 0
+    {
       let (zx, zy) = world_to_zone(pos.x, pos.y);
       let (lx, ly) = (
         (pos.x as usize % ZONE_WIDTH) as i32,
@@ -1542,6 +1598,7 @@ fn player_input(
       if transitioned {
         clock.advance(PlayerAction::Move { dx: raw_dx, dy: raw_dy }.time_cost());
         clock.move_cooldown_frames = RENDER_FRAMES_PER_SIM_STEP;
+        note_player_turn_moved_world(&*clock, &mut *tb);
       } else {
         let (dx, dy) = resolve_move(level, lx, ly, raw_dx, raw_dy);
 
@@ -1598,6 +1655,7 @@ fn player_input(
 
           clock.advance(PlayerAction::Move { dx, dy }.time_cost());
           clock.move_cooldown_frames = RENDER_FRAMES_PER_SIM_STEP;
+          note_player_turn_moved_world(&*clock, &mut *tb);
         }
       }
     }

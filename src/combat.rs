@@ -82,6 +82,8 @@ fn step_toward(ex: i32, ey: i32, px: i32, py: i32) -> (i32, i32) {
 pub fn enemy_ai(
   index: Res<TileEntityIndex>,
   gw: Res<crate::GameWorld>,
+  clock: Res<crate::Clock>,
+  mut tb: ResMut<crate::TurnBasedWorldState>,
   mut player_q: Query<(&crate::PlayerPos, &mut Stats), (With<crate::Player>, Without<Enemy>)>,
   mut enemy_q: Query<
     (&mut Location, &mut TimeSinceAction, &Stats, Option<&Wearing>),
@@ -147,6 +149,9 @@ pub fn enemy_ai(
         }
       }
     }
+  }
+  if clock.mode == crate::TimeMode::TurnBased {
+    tb.pending_enemy_phase = false;
   }
 }
 
