@@ -377,8 +377,8 @@ fn main() {
         bump_render_frame,
         maintain_tile_index,
         setup_glyph_visuals,
-        advance_realtime,
         update_time_mode,
+        advance_realtime,
         handle_world_map,
         handle_dialogue,
         handle_menus,
@@ -826,6 +826,7 @@ fn apply_gravity(
 // ---------------------------------------------------------------------------
 
 fn camera_follow(
+  frame: Res<RenderFrame>,
   player_q: Query<&Visuals, With<Player>>,
   mut cam_q: Query<&mut Transform, With<Camera2d>>,
   windows: Query<&Window>,
@@ -846,6 +847,7 @@ fn camera_follow(
       (ZONE_HEIGHT as f32 / 2.0 - local.y) * TILE_SIZE,
     );
     cam_tf.translation = (world_pos - offset).extend(0.0);
+    println!("[frame {}] camera: ({:.1}, {:.1}, {:.1})", frame.0, cam_tf.translation.x, cam_tf.translation.y, cam_tf.translation.z);
   }
 }
 
