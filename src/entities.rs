@@ -1,6 +1,6 @@
 //! Entity types and spawnable definitions for the game.
 
-use {crate::tile_loader::Faction,
+use {crate::faction::Faction,
      bevy::prelude::*};
 
 // ============ DIALOGUE ============

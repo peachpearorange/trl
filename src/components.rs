@@ -1,4 +1,4 @@
-use {crate::tile_loader::Faction,
+use {crate::faction::Faction,
      serde::{Deserialize, Serialize}};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
