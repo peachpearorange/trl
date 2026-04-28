@@ -33,7 +33,27 @@ pub enum Item {
   Torch,
   Rock,
   Mushroom,
-  Wood
+  /// Base scrap / crafting: wood (existing chop + recipes).
+  Wood,
+  Steel,
+  Copper,
+  Screws,
+  Crystal,
+  SyntheticMaterial,
+  Glass,
+  OrganicMaterial,
+  IronSword,
+  SteelAxe,
+  CopperKnife,
+  CombatSpear,
+  PipeRevolver,
+  LeatherVest,
+  ChainMail,
+  SteelBoots,
+  SynthHelmet,
+  StimPack,
+  CannedGoods,
+  FilterWater
 }
 
 impl Item {
@@ -44,7 +64,26 @@ impl Item {
       Item::Torch => "Torch",
       Item::Rock => "Rock",
       Item::Mushroom => "Mushroom",
-      Item::Wood => "Wood"
+      Item::Wood => "Wood",
+      Item::Steel => "Steel",
+      Item::Copper => "Copper",
+      Item::Screws => "Screws",
+      Item::Crystal => "Crystal",
+      Item::SyntheticMaterial => "Synthetic Material",
+      Item::Glass => "Glass",
+      Item::OrganicMaterial => "Organic Material",
+      Item::IronSword => "Iron Sword",
+      Item::SteelAxe => "Steel Axe",
+      Item::CopperKnife => "Copper Knife",
+      Item::CombatSpear => "Combat Spear",
+      Item::PipeRevolver => "Pipe Revolver",
+      Item::LeatherVest => "Leather Vest",
+      Item::ChainMail => "Chain Mail",
+      Item::SteelBoots => "Steel Boots",
+      Item::SynthHelmet => "Synth Helmet",
+      Item::StimPack => "Stim Pack",
+      Item::CannedGoods => "Canned Goods",
+      Item::FilterWater => "Filtered Water"
     }
   }
 
@@ -55,7 +94,26 @@ impl Item {
       Item::Torch => "/",
       Item::Rock => "`",
       Item::Mushroom => "%",
-      Item::Wood => "/"
+      Item::Wood => "/",
+      Item::Steel => "]",
+      Item::Copper => "}",
+      Item::Screws => ":",
+      Item::Crystal => "*",
+      Item::SyntheticMaterial => ">",
+      Item::Glass => "=",
+      Item::OrganicMaterial => "~",
+      Item::IronSword => ")",
+      Item::SteelAxe => "(",
+      Item::CopperKnife => "-",
+      Item::CombatSpear => "|",
+      Item::PipeRevolver => "?",
+      Item::LeatherVest => "[",
+      Item::ChainMail => "{",
+      Item::SteelBoots => "b",
+      Item::SynthHelmet => "^",
+      Item::StimPack => "+",
+      Item::CannedGoods => "o",
+      Item::FilterWater => "u"
     }
   }
 
@@ -66,8 +124,54 @@ impl Item {
       Item::Torch => [1.0, 0.6, 0.1],
       Item::Rock => [0.5, 0.5, 0.5],
       Item::Mushroom => [0.6, 0.3, 0.7],
-      Item::Wood => [0.55, 0.35, 0.15]
+      Item::Wood => [0.55, 0.35, 0.15],
+      Item::Steel => [0.75, 0.78, 0.82],
+      Item::Copper => [0.82, 0.55, 0.35],
+      Item::Screws => [0.9, 0.88, 0.85],
+      Item::Crystal => [0.65, 0.85, 1.0],
+      Item::SyntheticMaterial => [0.85, 0.45, 0.75],
+      Item::Glass => [0.75, 0.88, 0.95],
+      Item::OrganicMaterial => [0.45, 0.65, 0.35],
+      Item::IronSword => [0.82, 0.82, 0.88],
+      Item::SteelAxe => [0.7, 0.72, 0.76],
+      Item::CopperKnife => [0.85, 0.6, 0.45],
+      Item::CombatSpear => [0.78, 0.75, 0.65],
+      Item::PipeRevolver => [0.55, 0.55, 0.58],
+      Item::LeatherVest => [0.55, 0.4, 0.22],
+      Item::ChainMail => [0.72, 0.74, 0.78],
+      Item::SteelBoots => [0.68, 0.7, 0.74],
+      Item::SynthHelmet => [0.55, 0.72, 0.62],
+      Item::StimPack => [0.95, 0.35, 0.45],
+      Item::CannedGoods => [0.85, 0.35, 0.12],
+      Item::FilterWater => [0.35, 0.65, 0.95]
     }
+  }
+
+  /// Fallout-style breakdown: gear and some junk salvage into base components.
+  pub fn scrap_yield(self) -> &'static [(Item, u32)] {
+    match self {
+      Item::IronSword => &[(Item::Steel, 2), (Item::Wood, 1), (Item::Screws, 1)],
+      Item::SteelAxe => &[(Item::Steel, 3), (Item::Wood, 2), (Item::Screws, 1)],
+      Item::CopperKnife => &[(Item::Copper, 2), (Item::Screws, 1)],
+      Item::CombatSpear => &[(Item::Wood, 2), (Item::Steel, 1), (Item::Screws, 1)],
+      Item::PipeRevolver => &[(Item::Steel, 2), (Item::Copper, 1), (Item::Screws, 2)],
+      Item::LeatherVest => &[(Item::OrganicMaterial, 3), (Item::Screws, 2)],
+      Item::ChainMail => &[(Item::Steel, 4), (Item::Screws, 3)],
+      Item::SteelBoots => &[(Item::Steel, 2), (Item::OrganicMaterial, 1), (Item::Screws, 1)],
+      Item::SynthHelmet => &[(Item::SyntheticMaterial, 3), (Item::Glass, 1), (Item::Screws, 2)],
+      Item::HealthPotion => &[(Item::Glass, 1), (Item::OrganicMaterial, 2), (Item::Crystal, 1)],
+      Item::StimPack => &[(Item::OrganicMaterial, 2), (Item::Crystal, 1), (Item::Glass, 1)],
+      Item::CannedGoods => &[(Item::Steel, 1), (Item::OrganicMaterial, 2)],
+      Item::FilterWater => &[(Item::Glass, 2), (Item::OrganicMaterial, 1)],
+      Item::Torch => &[(Item::Wood, 1), (Item::OrganicMaterial, 1)],
+      Item::Rock => &[(Item::Crystal, 1)],
+      Item::Mushroom => &[(Item::OrganicMaterial, 2)],
+      _ => &[],
+    }
+  }
+
+  pub fn can_salvage(self) -> bool {
+    !self.scrap_yield().is_empty()
   }
 }
 
@@ -125,6 +229,28 @@ impl Tile {
       Tile::CaveWall => [0.3, 0.28, 0.25],
       Tile::CaveFloor => [0.4, 0.38, 0.35],
       Tile::CrystalFormation => [0.5, 0.8, 0.95],
+    }
+  }
+
+  /// High-contrast sRGB for the full-world minimap (UI); not glyph colours.
+  pub fn minimap_color(self) -> [f32; 3] {
+    match self {
+      Tile::Air => [0.04, 0.06, 0.10],
+      Tile::DeepWater => [0.05, 0.16, 0.42],
+      Tile::ShallowWater => [0.22, 0.55, 0.82],
+      Tile::Sand | Tile::Ash => [0.92, 0.80, 0.52],
+      Tile::Grass => [0.22, 0.62, 0.30],
+      Tile::TallGrass => [0.12, 0.48, 0.20],
+      Tile::Bush => [0.10, 0.38, 0.12],
+      Tile::Lava => [0.95, 0.32, 0.08],
+      Tile::Water => [0.12, 0.28, 0.70],
+      Tile::Road => [0.50, 0.46, 0.40],
+      Tile::WoodFloor => [0.55, 0.42, 0.30],
+      Tile::CobblestoneWall | Tile::BrickWall | Tile::Wall | Tile::WoodWall | Tile::Door | Tile::CaveWall => {
+        [0.38, 0.38, 0.40]
+      }
+      Tile::Floor | Tile::StairsUp | Tile::StairsDown | Tile::CaveFloor => [0.62, 0.55, 0.40],
+      Tile::Fence | Tile::CrystalFormation => [0.45, 0.55, 0.50],
     }
   }
 
@@ -412,10 +538,23 @@ pub const WORLD_COLS:  usize = 10;
 pub const WORLD_ROWS:  usize = 10;
 pub const WORLD_DEPTH: usize = 4;
 
+/// Overworld / island layer (see `worldgen::generate_world`).
+pub const SURFACE_Z: usize = 2;
+
+/// How far below the surface layer ([`SURFACE_Z`]) this z-level is (deeper caves yield larger values).
+#[inline]
+pub fn underground_depth(z: usize) -> u32 {
+  SURFACE_Z.saturating_sub(z) as u32
+}
+
 /// A 10×10×4 grid of zones.  zones[zx][zy][z] is one 48×48 Level.
-/// Surface is z=3; underground levels are z=2, z=1, z=0.
+/// Surface is [`SURFACE_Z`]; z=0 and z=1 are caves, z=3 is extra air/upper.
 pub struct ZoneWorld {
   pub zones: Vec<Vec<Vec<Level>>>,
+  /// Surface ([`SURFACE_Z`]) tree placements from procgen; spawned at startup.
+  pub tree_sites: Vec<(i32, i32)>,
+  /// World tile positions `(wx, wy, z)` for [`crate::entities::Object::loot_chest`] spawns.
+  pub chest_sites: Vec<(i32, i32, usize)>,
 }
 
 impl ZoneWorld {
@@ -432,7 +571,11 @@ impl ZoneWorld {
           .collect()
       })
       .collect();
-    ZoneWorld { zones }
+    ZoneWorld {
+      zones,
+      tree_sites: Vec::new(),
+      chest_sites: Vec::new(),
+    }
   }
 
   pub fn zone(&self, zx: usize, zy: usize, z: usize) -> &Level {
@@ -622,7 +765,19 @@ impl FovGrid {
 /// Uses perimeter flood-fill: expand outward ring by ring; a tile is visible
 /// if any of its parents (one step closer along each axis) are visible and
 /// not opaque.
-pub fn compute_fov(fov: &mut FovGrid, level: &Level, cx: i32, cy: i32, radius: i32) {
+///
+/// `blocks_sight` is checked in **level-local** tile coordinates (same as
+/// `level.get`): extra per-cell opacity for vision (same role as [`Tile::opaque`]
+/// for tiles). The viewer’s own cell is never used as a blocker for *outward*
+/// propagation.
+pub fn compute_fov(
+  fov: &mut FovGrid,
+  level: &Level,
+  cx: i32,
+  cy: i32,
+  radius: i32,
+  mut blocks_sight: impl FnMut(i32, i32) -> bool,
+) {
   fov.clear_visible();
 
   // viewer tile is always visible
@@ -669,12 +824,16 @@ pub fn compute_fov(fov: &mut FovGrid, level: &Level, cx: i32, cy: i32, radius: i
         let visible = parents.iter().any(|&(px, py)| {
           let (pj, pi) = ((dx + px) + radius, (dy + py) + radius);
           let (uj, ui) = (pj as usize, pi as usize);
+          let (lx, ly) = (cx + dx + px, cy + dy + py);
+          // SS13-style: the viewer's own cell never blocks *outward* spread (e.g. standing
+          // on a tree, wall, or "telefragged" into a wall still sees the ring around them).
+          let parent_blocks =
+            (lx, ly) != (cx, cy)
+              && (level.get(lx, ly).is_some_and(|t| t.opaque()) || blocks_sight(lx, ly));
           uj < size
             && ui < size
             && vis[ui][uj]
-            && !level
-              .get(cx + dx + px, cy + dy + py)
-              .is_some_and(|t| t.opaque())
+            && !parent_blocks
         });
 
         if visible {

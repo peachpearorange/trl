@@ -83,3 +83,11 @@ where
 {
     iter.into_iter().collect()
 }
+
+pub fn mapv<I, F, B>(f: F, iter: I) -> Vec<B>
+where
+    I: IntoIterator,
+    F: FnMut(I::Item) -> B,
+{
+    iter.into_iter().map(f).collect()
+}

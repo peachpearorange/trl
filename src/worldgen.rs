@@ -1,7 +1,11 @@
+use std::collections::HashSet;
+
 use noise::{Fbm, NoiseFn, Perlin};
+use rand::{Rng, SeedableRng};
+use rand::rngs::StdRng;
 
 use crate::level::{
-  Tile, ZoneWorld, WORLD_COLS, WORLD_ROWS, ZONE_HEIGHT, ZONE_WIDTH,
+  Tile, ZoneWorld, WORLD_COLS, WORLD_ROWS, SURFACE_Z, ZONE_HEIGHT, ZONE_WIDTH,
 };
 
 pub const WORLD_SEED: u64 = 42;
@@ -55,6 +59,103 @@ fn set_world_tile(world: &mut ZoneWorld, wx: i32, wy: i32, z: usize, tile: Tile)
   world.zone_mut(zx, zy, z).tiles[wy % ZONE_HEIGHT][wx % ZONE_WIDTH] = tile;
 }
 
+fn get_world_tile(world: &ZoneWorld, wx: usize, wy: usize, z: usize) -> Option<Tile> {
+  let zx = wx / ZONE_WIDTH;
+  let zy = wy / ZONE_HEIGHT;
+  if zx >= WORLD_COLS || zy >= WORLD_ROWS {
+    return None;
+  }
+  Some(world.zone(zx, zy, z).tiles[wy % ZONE_HEIGHT][wx % ZONE_WIDTH])
+}
+
+fn land_tile_for_rock(t: Tile) -> bool {
+  matches!(
+    t,
+    Tile::Grass | Tile::TallGrass | Tile::Sand | Tile::Bush | Tile::Ash
+  )
+}
+
+/// Natural rock walls on land, with worm-carved gaps so massifs stay navigable.
+fn place_rock_massifs(world: &mut ZoneWorld, seed: u64) {
+  let rock_n: Fbm<Perlin> = Fbm::new(seed.wrapping_add(999) as u32);
+  let passage_n: Fbm<Perlin> = Fbm::new(seed.wrapping_add(1001) as u32);
+  let worm_n: Fbm<Perlin> = Fbm::new(seed.wrapping_add(1002) as u32);
+  let w = WORLD_COLS * ZONE_WIDTH;
+  let h = WORLD_ROWS * ZONE_HEIGHT;
+
+  for wy in 0..h {
+    for wx in 0..w {
+      let Some(tile) = get_world_tile(world, wx, wy, SURFACE_Z) else { continue };
+      if !land_tile_for_rock(tile) {
+        continue;
+      }
+      if island_mask(wx, wy) < 0.1 {
+        continue;
+      }
+      let r = (rock_n.get([wx as f64 / 36.0, wy as f64 / 36.0]) + 1.0) * 0.5;
+      if r < 0.54 {
+        continue;
+      }
+      let p = (passage_n.get([wx as f64 / 13.0, wy as f64 / 13.0]) + 1.0) * 0.5;
+      if p < 0.17 {
+        continue;
+      }
+      set_world_tile(world, wx as i32, wy as i32, SURFACE_Z, Tile::Wall);
+    }
+  }
+
+  for wy in 0..h {
+    for wx in 0..w {
+      if get_world_tile(world, wx, wy, SURFACE_Z) != Some(Tile::Wall) {
+        continue;
+      }
+      let v = (worm_n.get([wx as f64 / 9.5, wy as f64 / 9.5]) + 1.0) * 0.5;
+      if v < 0.10 {
+        set_world_tile(world, wx as i32, wy as i32, SURFACE_Z, Tile::Grass);
+      }
+    }
+  }
+}
+
+fn tile_ok_for_tree(t: Tile) -> bool {
+  matches!(
+    t,
+    Tile::Grass | Tile::TallGrass | Tile::Sand | Tile::Bush | Tile::Ash
+  )
+}
+
+/// Forest clusters and scattered trees on the final surface (after towns/stairs).
+fn collect_tree_sites(world: &ZoneWorld, seed: u64) -> Vec<(i32, i32)> {
+  let forest_n: Fbm<Perlin> = Fbm::new(seed.wrapping_add(501) as u32);
+  let sparse_n: Fbm<Perlin> = Fbm::new(seed.wrapping_add(502) as u32);
+  let w = WORLD_COLS * ZONE_WIDTH;
+  let h = WORLD_ROWS * ZONE_HEIGHT;
+  let mut out = Vec::new();
+  let mut seen = HashSet::new();
+
+  for wy in 0..h {
+    for wx in 0..w {
+      let Some(t) = get_world_tile(world, wx, wy, SURFACE_Z) else { continue };
+      if !tile_ok_for_tree(t) {
+        continue;
+      }
+      let fv = (forest_n.get([wx as f64 / 26.0, wy as f64 / 26.0]) + 1.0) * 0.5;
+      let sv = (sparse_n.get([wx as f64 / 3.5, wy as f64 / 3.5]) + 1.0) * 0.5;
+      let hash = wx.wrapping_mul(374_761_393).wrapping_add(wy.wrapping_mul(668_265_263));
+      let dense = fv > 0.66 && sv > 0.28 && hash % 5 == 0;
+      let light = fv > 0.52 && fv <= 0.66 && sv > 0.55 && hash % 11 == 0;
+      let grove = fv > 0.72 && hash % 4 == 0;
+      if (dense || light || grove)
+        && seen.insert((wx as i32, wy as i32))
+        && out.len() < 3_200
+      {
+        out.push((wx as i32, wy as i32));
+      }
+    }
+  }
+  out
+}
+
 // ---------------------------------------------------------------------------
 // Town placement
 // ---------------------------------------------------------------------------
@@ -77,7 +178,7 @@ fn town_suitability(world: &ZoneWorld, cx: usize, cy: usize) -> f32 {
       let zx = wx / ZONE_WIDTH;
       let zy = wy / ZONE_HEIGHT;
       if zx >= WORLD_COLS || zy >= WORLD_ROWS { continue; }
-      let tile = world.zone(zx, zy, 2).tiles[wy % ZONE_HEIGHT][wx % ZONE_WIDTH];
+      let tile = world.zone(zx, zy, SURFACE_Z).tiles[wy % ZONE_HEIGHT][wx % ZONE_WIDTH];
       total += 1;
       if matches!(tile, Tile::Grass | Tile::TallGrass | Tile::Sand) { suitable += 1; }
     }
@@ -120,7 +221,15 @@ pub fn find_town_sites(world: &ZoneWorld) -> Vec<(usize, usize)> {
   sites
 }
 
-fn place_building(world: &mut ZoneWorld, wx: i32, wy: i32, w: i32, h: i32) {
+fn place_building(
+  world: &mut ZoneWorld,
+  wx: i32,
+  wy: i32,
+  w: i32,
+  h: i32,
+  seed: u64,
+  chest_sites: &mut Vec<(i32, i32, usize)>,
+) {
   for dy in 0..h {
     for dx in 0..w {
       let tile = if dx == 0 || dx == w - 1 || dy == 0 || dy == h - 1 {
@@ -133,34 +242,98 @@ fn place_building(world: &mut ZoneWorld, wx: i32, wy: i32, w: i32, h: i32) {
         let (uex, uey) = (ex as usize, ey as usize);
         let (zx, zy) = (uex / ZONE_WIDTH, uey / ZONE_HEIGHT);
         if zx < WORLD_COLS && zy < WORLD_ROWS {
-          let existing = world.zone(zx, zy, 2).tiles[uey % ZONE_HEIGHT][uex % ZONE_WIDTH];
+          let existing = world.zone(zx, zy, SURFACE_Z).tiles[uey % ZONE_HEIGHT][uex % ZONE_WIDTH];
           if !matches!(existing, Tile::DeepWater | Tile::ShallowWater | Tile::Lava) {
-            set_world_tile(world, ex, ey, 2, tile);
+            set_world_tile(world, ex, ey, SURFACE_Z, tile);
           }
         }
       }
     }
   }
-  set_world_tile(world, wx + w / 2, wy + h - 1, 2, Tile::Door);
+  set_world_tile(world, wx + w / 2, wy + h - 1, SURFACE_Z, Tile::Door);
+
+  let mut interiors = Vec::new();
+  for dy in 1..h - 1 {
+    for dx in 1..w - 1 {
+      interiors.push((wx + dx, wy + dy));
+    }
+  }
+  let mut rng = StdRng::seed_from_u64(seed ^ (wx as u64).rotate_left(12) ^ (wy as u64).rotate_left(24));
+  if rng.random_bool(0.55) && !interiors.is_empty() {
+    let i = rng.random_range(0..interiors.len());
+    let (ex, ey) = interiors[i];
+    chest_sites.push((ex, ey, SURFACE_Z));
+  }
 }
 
-pub fn place_town(world: &mut ZoneWorld, cx: usize, cy: usize) {
+pub fn place_town(
+  world: &mut ZoneWorld,
+  cx: usize,
+  cy: usize,
+  seed: u64,
+  chest_sites: &mut Vec<(i32, i32, usize)>,
+) {
   const ROAD_HALF: i32 = 12;
   const BLDG_W: i32 = 7;
   const BLDG_H: i32 = 6;
   let (cx, cy) = (cx as i32, cy as i32);
 
-  for dx in -ROAD_HALF..=ROAD_HALF { set_world_tile(world, cx + dx, cy, 2, Tile::Road); }
-  for dy in -ROAD_HALF..=ROAD_HALF { set_world_tile(world, cx, cy + dy, 2, Tile::Road); }
+  for dx in -ROAD_HALF..=ROAD_HALF { set_world_tile(world, cx + dx, cy, SURFACE_Z, Tile::Road); }
+  for dy in -ROAD_HALF..=ROAD_HALF { set_world_tile(world, cx, cy + dy, SURFACE_Z, Tile::Road); }
 
-  for (ox, oy) in [
+  for (i, (ox, oy)) in [
     (2, 2),
     (-(BLDG_W + 2), 2),
     (2, -(BLDG_H + 2)),
     (-(BLDG_W + 2), -(BLDG_H + 2)),
-  ] {
-    place_building(world, cx + ox, cy + oy, BLDG_W, BLDG_H);
+  ]
+  .into_iter()
+  .enumerate()
+  {
+    place_building(
+      world,
+      cx + ox,
+      cy + oy,
+      BLDG_W,
+      BLDG_H,
+      seed.wrapping_add(i as u64 + 1),
+      chest_sites,
+    );
   }
+}
+
+/// Sparse chest spawn sites on cave floors (entities spawned at startup).
+fn append_cave_chest_sites(world: &ZoneWorld, seed: u64, chest_sites: &mut Vec<(i32, i32, usize)>) {
+  for zx in 0..WORLD_COLS {
+    for zy in 0..WORLD_ROWS {
+      for z in [0usize, 1] {
+        for ty in 0..ZONE_HEIGHT {
+          for tx in 0..ZONE_WIDTH {
+            let wx = (zx * ZONE_WIDTH + tx) as i32;
+            let wy = (zy * ZONE_HEIGHT + ty) as i32;
+            let zone = world.zone(zx, zy, z);
+            if zone.tiles[ty][tx] != Tile::CaveFloor {
+              continue;
+            }
+            let h = chest_spawn_hash(wx, wy, z, seed);
+            let thresh = if z == 0 { 7u64 } else { 9 };
+            if h % 12_000 < thresh {
+              chest_sites.push((wx, wy, z));
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+fn chest_spawn_hash(wx: i32, wy: i32, z: usize, seed: u64) -> u64 {
+  let mut x = seed
+    ^ (wx as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+    ^ (wy as u64).wrapping_mul(0xC6BC_2796_92B5_C323);
+  x ^= (z as u64).wrapping_mul(0xD6E8_FEB8_6755_73C2);
+  x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+  x ^ (x >> 32)
 }
 
 // ---------------------------------------------------------------------------
@@ -176,10 +349,10 @@ pub fn place_world_stairs(world: &mut ZoneWorld) {
     for zy in czy.saturating_sub(3)..=(czy + 3).min(WORLD_ROWS - 1) {
       for ty in 5..ZONE_HEIGHT - 5 {
         for tx in 5..ZONE_WIDTH - 5 {
-          let surf  = world.zone(zx, zy, 2).tiles[ty][tx];
+          let surf  = world.zone(zx, zy, SURFACE_Z).tiles[ty][tx];
           let cave1 = world.zone(zx, zy, 1).tiles[ty][tx];
           if matches!(surf, Tile::Grass | Tile::Sand | Tile::TallGrass) && cave1 == Tile::CaveFloor {
-            world.zone_mut(zx, zy, 2).tiles[ty][tx] = Tile::StairsDown;
+            world.zone_mut(zx, zy, SURFACE_Z).tiles[ty][tx] = Tile::StairsDown;
             world.zone_mut(zx, zy, 1).tiles[ty][tx] = Tile::StairsUp;
             break 'outer;
           }
@@ -215,11 +388,12 @@ pub fn generate_world(seed: u64) -> ZoneWorld {
   let cave_noise:    Fbm<Perlin> = Fbm::new(seed.wrapping_add(1) as u32);
 
   let mut world = ZoneWorld::new(Tile::Air);
+  let mut chest_sites = Vec::new();
 
-  // z=2: surface
+  // Surface
   for zx in 0..WORLD_COLS {
     for zy in 0..WORLD_ROWS {
-      let zone = world.zone_mut(zx, zy, 2);
+      let zone = world.zone_mut(zx, zy, SURFACE_Z);
       for ty in 0..ZONE_HEIGHT {
         for tx in 0..ZONE_WIDTH {
           let (wx, wy) = (zx * ZONE_WIDTH + tx, zy * ZONE_HEIGHT + ty);
@@ -228,6 +402,8 @@ pub fn generate_world(seed: u64) -> ZoneWorld {
       }
     }
   }
+
+  place_rock_massifs(&mut world, seed);
 
   // z=0, z=1: underground caves
   for zx in 0..WORLD_COLS {
@@ -247,11 +423,16 @@ pub fn generate_world(seed: u64) -> ZoneWorld {
   // Towns
   let sites = find_town_sites(&world);
   for (cx, cy) in sites {
-    place_town(&mut world, cx, cy);
+    place_town(&mut world, cx, cy, seed, &mut chest_sites);
   }
 
   // Stairs
   place_world_stairs(&mut world);
+
+  append_cave_chest_sites(&world, seed, &mut chest_sites);
+
+  world.tree_sites = collect_tree_sites(&world, seed);
+  world.chest_sites = chest_sites;
 
   world
 }
@@ -312,7 +493,7 @@ mod tests {
   #[test]
   fn surface_center_is_mostly_land() {
     let world = generate_world(WORLD_SEED);
-    let zone = world.zone(WORLD_COLS / 2, WORLD_ROWS / 2, 2);
+    let zone = world.zone(WORLD_COLS / 2, WORLD_ROWS / 2, SURFACE_Z);
     let land = zone.tiles.iter().flatten()
       .filter(|&&t| matches!(t, Tile::Grass | Tile::TallGrass | Tile::Sand | Tile::Ash | Tile::Bush | Tile::Lava))
       .count();
@@ -334,7 +515,7 @@ mod tests {
     let world = generate_world(WORLD_SEED);
     let count: usize = (0..WORLD_COLS)
       .flat_map(|zx| (0..WORLD_ROWS).map(move |zy| (zx, zy)))
-      .map(|(zx, zy)| world.zone(zx, zy, 2).tiles.iter().flatten().filter(|&&t| t == Tile::StairsDown).count())
+      .map(|(zx, zy)| world.zone(zx, zy, SURFACE_Z).tiles.iter().flatten().filter(|&&t| t == Tile::StairsDown).count())
       .sum();
     assert!(count > 0, "world should have at least one StairsDown");
   }

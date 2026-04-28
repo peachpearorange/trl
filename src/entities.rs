@@ -178,6 +178,12 @@ pub struct Enemy;
 #[derive(Component)]
 pub struct Tree;
 
+/// Placed loot container; blocks the tile until emptied.
+#[derive(Component, Debug)]
+pub struct LootChest {
+  pub opened: bool,
+}
+
 /// Entity occupies its tile for line-of-sight (like an opaque tile) but need not block movement.
 #[derive(Component)]
 pub struct BlocksSight;
@@ -295,6 +301,19 @@ impl Object {
     Glyph { ch: 'T', color: Color::srgb(0.13, 0.55, 0.13) },
     Named { name: "Tree", flavor: "A sturdy tree. Could be chopped for wood." },
   )) }
+  pub fn loot_chest() -> Self {
+    Self::structure(true).add((
+        LootChest { opened: false },
+      Glyph {
+        ch: '&',
+        color: Color::srgb(0.72, 0.52, 0.28),
+      },
+      Named {
+        name: "Chest",
+        flavor: "Someone stashed supplies here.",
+      },
+    ))
+  }
   pub fn door(open: bool) -> Self             { Self::structure(!open).add(Door { open }) }
   pub fn ground_item(item: Item) -> Self      { Self::new(GroundItem(item)) }
   pub fn torch(radius: u32) -> Self           { Self::new(LightSource { radius }) }

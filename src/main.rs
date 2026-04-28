@@ -5,18 +5,20 @@ mod dialogue;
 mod worldgen;
 mod world_data;
 mod utils;
+mod loot;
+mod crafting;
 
 use {
   bevy::camera::Viewport,
   bevy::prelude::*,
   bevy::window::PrimaryWindow,
   combat::{TileEntityIndex, enemy_ai, maintain_tile_index},
-  level::{FovGrid, Tile, ZoneWorld, SURFACE_Z, ZONE_WIDTH, ZONE_HEIGHT, WORLD_DEPTH, compute_fov},
-  std::collections::HashSet,
+  level::{FovGrid, Item, Tile, ZoneWorld, ZONE_HEIGHT, ZONE_WIDTH, SURFACE_Z, WORLD_DEPTH, compute_fov},
+  std::collections::{HashMap, HashSet},
   ui::{log_message, LogEntries, WorldMapView},
   trl::entities::{
-    BlocksSight, Collidable, Dialogue, DialogueNode, DialogueTree, Enemy, Glyph, Gravity, Location, Named, Object, Stats,
-    Tree, Visuals,
+    BlocksSight, Collidable, Dialogue, DialogueNode, DialogueTree, Enemy, Glyph, Gravity, Location, LootChest, Named,
+    Object, Stats, Tree, Visuals,
   },
 };
 
@@ -80,6 +82,9 @@ enum InteractionAction {
   Talk { speaker: &'static str, tree: &'static DialogueTree },
   ChopTree(Entity),
   PickUpItem(i32, i32),
+  OpenChest(Entity),
+  Salvage(Item),
+  Craft(usize),
 }
 
 #[derive(Default)]
@@ -174,14 +179,26 @@ pub struct TurnBasedWorldState {
   pub pending_enemy_phase: bool,
 }
 
+/// Set when the player picks "Open chest" from the interact menu; applied next frame.
+#[derive(Resource, Default)]
+struct ChestOpenPending(pub Option<Entity>);
+
 fn note_player_turn_moved_world(clock: &Clock, tb: &mut TurnBasedWorldState) {
   if clock.mode == TimeMode::TurnBased {
     tb.pending_enemy_phase = true;
   }
 }
 
-fn bump_render_frame(mut frame: ResMut<RenderFrame>) {
+/// Increments the display frame and, in real-time mode, advances the sim clock every
+/// [`RENDER_FRAMES_PER_SIM_STEP`] frames (same ordering as the former separate systems).
+fn bump_render_frame(mut frame: ResMut<RenderFrame>, mut clock: ResMut<Clock>) {
   frame.0 = frame.0.saturating_add(1);
+  if clock.mode == TimeMode::RealTime
+    && frame.0 > 0
+    && frame.0 % u64::from(RENDER_FRAMES_PER_SIM_STEP) == 0
+  {
+    clock.time = clock.time.saturating_add(1);
+  }
 }
 
 /// Real-time: one sim step every [`RENDER_FRAMES_PER_SIM_STEP`] display frames. Turn-based: a single
@@ -241,7 +258,7 @@ struct ItemGlyph {
 struct PauseOverlay;
 
 #[derive(Component, Default)]
-pub struct Inventory(std::collections::HashMap<level::Item, u32>);
+pub struct Inventory(pub HashMap<Item, u32>);
 
 /// Marker for entities that have had their Text2d visual set up.
 #[derive(Component)]
@@ -423,6 +440,7 @@ fn main() {
     .init_resource::<TurnBasedWorldState>()
     .insert_resource(Clock::new())
     .insert_resource(TimeModeAuto(true))
+    .init_resource::<ChestOpenPending>()
     .insert_resource(UiState::default())
     .insert_resource(Fov(fov))
     .insert_resource(TileEntityIndex::default())
@@ -437,11 +455,11 @@ fn main() {
         maintain_tile_index,
         setup_glyph_visuals,
         update_time_mode,
-        advance_realtime,
         handle_world_map,
         handle_dialogue,
         handle_menus,
         handle_interact,
+        handle_utility_menus,
         player_input,
         ApplyDeferred,
         apply_gravity.in_set(SimStep),
@@ -692,6 +710,10 @@ fn setup(
       continue;
     }
     Object::tree().spawn_at(&mut commands, wx, wy, START_Z);
+  }
+
+  for &(wx, wy, z) in &gw.0.chest_sites {
+    Object::loot_chest().spawn_at(&mut commands, wx, wy, z);
   }
 
   compute_fov_with_prespawned_sight_coords(
@@ -996,15 +1018,6 @@ fn update_fov_visuals(
 // ---------------------------------------------------------------------------
 
 /// In real-time mode, one abstract time tick every [`RENDER_FRAMES_PER_SIM_STEP`] display frames.
-fn advance_realtime(frame: Res<RenderFrame>, mut clock: ResMut<Clock>) {
-  if clock.mode == TimeMode::RealTime
-    && frame.0 > 0
-    && frame.0 % u64::from(RENDER_FRAMES_PER_SIM_STEP) == 0
-  {
-    clock.time = clock.time.saturating_add(1);
-  }
-}
-
 const ENEMY_ALERT_RADIUS: i32 = 8;
 
 fn update_time_mode(
@@ -1112,7 +1125,8 @@ fn handle_menus(
   tile_query: Query<Entity, With<TileGlyph>>,
   sight_q: Query<&Location, With<BlocksSight>>,
   mut player_query: Query<(&mut PlayerPos, &mut Inventory), With<Player>>,
-  mut exit: MessageWriter<AppExit>
+  mut pending_chest: ResMut<ChestOpenPending>,
+  mut exit: MessageWriter<AppExit>,
 ) {
   if keys.just_pressed(KeyCode::Escape) && world_map.open {
     world_map.open = false;
@@ -1132,10 +1146,24 @@ fn handle_menus(
     {
       let option = options[idx].clone();
       ui.interact = InteractMenu::Closed;
-      execute_interaction(
-        &option.action, &mut gw, &mut clock, &mut *tb, &mut fov,
-        &mut ui, &mut *log, &mut commands, &asset_server, &tile_query, &sight_q, &mut player_query
-      );
+      if let InteractionAction::OpenChest(ent) = option.action {
+        pending_chest.0 = Some(ent);
+      } else {
+        execute_interaction(
+          &option.action,
+          &mut gw,
+          &mut clock,
+          &mut *tb,
+          &mut fov,
+          &mut ui,
+          &mut *log,
+          &mut commands,
+          &asset_server,
+          &tile_query,
+          &sight_q,
+          &mut player_query,
+        );
+      }
     }
   } else {
   // 2. Pause menu
@@ -1331,6 +1359,129 @@ fn show_interact_menu(ui: &mut UiState, options: Vec<InteractionOption>) {
   }
 }
 
+fn apply_open_chest(
+  entity: Entity,
+  player_query: &mut Query<(&mut PlayerPos, &mut Inventory), With<Player>>,
+  loot_chest_q: &mut Query<(&mut LootChest, &mut Glyph, &Location)>,
+  log: &mut LogEntries,
+  clock: &mut Clock,
+  tb: &mut TurnBasedWorldState,
+) {
+  let Ok((mut chest, mut glyph, loc)) = loot_chest_q.get_mut(entity) else {
+    return;
+  };
+  if chest.opened {
+    return;
+  }
+  let Ok((_, mut inventory)) = player_query.single_mut() else {
+    return;
+  };
+  let Location::Coords {
+    x: cx,
+    y: cy,
+    z: cz,
+    ..
+  } = loc
+  else {
+    return;
+  };
+  let bundles = loot::roll_chest_loot(worldgen::WORLD_SEED, *cx, *cy, *cz);
+  let kinds = bundles.len();
+  for (item, qty) in bundles {
+    *inventory.0.entry(item).or_insert(0) += qty;
+  }
+  chest.opened = true;
+  glyph.ch = '□';
+  glyph.color = Color::srgb(0.45, 0.38, 0.32);
+  log_message(
+    log,
+    format!(
+      "You empty the chest ({} stack{}).",
+      kinds,
+      if kinds == 1 { "" } else { "s" }
+    ),
+  );
+  clock.advance(1);
+  note_player_turn_moved_world(clock, tb);
+}
+
+fn salvage_label(item: Item) -> String {
+  let y = item.scrap_yield();
+  let preview = y
+    .iter()
+    .take(4)
+    .map(|&(i, q)| format!("{}× {}", q, i.name()))
+    .collect::<Vec<_>>()
+    .join(", ");
+  let tail = if y.len() > 4 { ", …" } else { "" };
+  format!("Salvage {} → {}{}", item.name(), preview, tail)
+}
+
+fn format_recipe_ingredients(r: &crafting::Recipe) -> String {
+  r.ingredients
+    .iter()
+    .map(|&(i, q)| format!("{}× {}", q, i.name()))
+    .collect::<Vec<_>>()
+    .join(", ")
+}
+
+fn build_salvage_options(inv: &HashMap<Item, u32>) -> Vec<InteractionOption> {
+  let mut items: Vec<Item> = inv
+    .iter()
+    .filter(|(k, n)| **n > 0 && k.can_salvage())
+    .map(|(&k, _)| k)
+    .collect();
+  items.sort_by(|a, b| a.name().cmp(b.name()));
+  items
+    .into_iter()
+    .map(|item| InteractionOption {
+      label: salvage_label(item),
+      action: InteractionAction::Salvage(item),
+    })
+    .collect()
+}
+
+fn build_craft_options(inv: &HashMap<Item, u32>) -> Vec<InteractionOption> {
+  crafting::RECIPES
+    .iter()
+    .enumerate()
+    .filter(|(_, r)| crafting::can_craft(inv, r))
+    .map(|(i, r)| InteractionOption {
+      label: format!("Craft {} ({})", r.output.name(), format_recipe_ingredients(r)),
+      action: InteractionAction::Craft(i),
+    })
+    .collect()
+}
+
+fn handle_utility_menus(
+  keys: Res<ButtonInput<KeyCode>>,
+  world_map: Res<WorldMapView>,
+  player_q: Query<(&PlayerPos, &Inventory), With<Player>>,
+  mut ui: ResMut<UiState>,
+  mut log: ResMut<LogEntries>,
+) {
+  if ui.any_open() || world_map.open {
+    return;
+  }
+  if let Ok((_, inv)) = player_q.single() {
+    if keys.just_pressed(KeyCode::KeyG) {
+      let opts = build_salvage_options(&inv.0);
+      if opts.is_empty() {
+        log_message(&mut *log, "Nothing to salvage (gear, consumables, some junk).".into());
+      } else {
+        show_interact_menu(&mut ui, opts);
+      }
+    } else if keys.just_pressed(KeyCode::KeyC) {
+      let opts = build_craft_options(&inv.0);
+      if opts.is_empty() {
+        log_message(&mut *log, "No recipes available — gather base components.".into());
+      } else {
+        show_interact_menu(&mut ui, opts);
+      }
+    }
+  }
+}
+
 fn execute_interaction(
   action: &InteractionAction,
   gw: &mut ResMut<GameWorld>,
@@ -1343,7 +1494,7 @@ fn execute_interaction(
   asset_server: &AssetServer,
   tile_query: &Query<Entity, With<TileGlyph>>,
   sight_q: &Query<&Location, With<BlocksSight>>,
-  player_query: &mut Query<(&mut PlayerPos, &mut Inventory), With<Player>>
+  player_query: &mut Query<(&mut PlayerPos, &mut Inventory), With<Player>>,
 ) {
   // No player/position needed; must not sit behind `player_query` or logging can be skipped.
   if let InteractionAction::Talk { speaker, tree } = action {
@@ -1417,7 +1568,7 @@ fn execute_interaction(
       InteractionAction::Talk { .. } => unreachable!(),
       InteractionAction::ChopTree(entity) => {
         commands.entity(*entity).despawn();
-        *inventory.0.entry(level::Item::Wood).or_insert(0) += 1;
+        *inventory.0.entry(Item::Wood).or_insert(0) += 1;
         clock.advance(2);
         note_player_turn_moved_world(clock, tb);
       }
@@ -1428,10 +1579,43 @@ fn execute_interaction(
         if ily < level.height && ilx < level.width {
           if let Some(item) = level.items[ily][ilx] {
             *inventory.0.entry(item).or_insert(0) += 1;
-            gw.0.zone_mut(izx, izy, pos.z).set_item(*wx, *wy, None);
+            gw.0
+              .zone_mut(izx, izy, pos.z)
+              .set_item(ilx as i32, ily as i32, None);
           }
         }
         clock.advance(1);
+        note_player_turn_moved_world(clock, tb);
+      }
+      InteractionAction::OpenChest(_) => {}
+      InteractionAction::Salvage(item) => {
+        let Some(n) = inventory.0.get_mut(item) else {
+          return;
+        };
+        if *n == 0 {
+          return;
+        }
+        *n -= 1;
+        if *n == 0 {
+          inventory.0.remove(item);
+        }
+        for &(comp, q) in item.scrap_yield() {
+          *inventory.0.entry(comp).or_insert(0) += q;
+        }
+        log_message(log, format!("Salvaged {} into scrap.", item.name()));
+        clock.advance(1);
+        note_player_turn_moved_world(clock, tb);
+      }
+      InteractionAction::Craft(recipe_idx) => {
+        let Some(recipe) = crafting::RECIPES.get(*recipe_idx) else {
+          return;
+        };
+        if !crafting::can_craft(&inventory.0, recipe) {
+          return;
+        }
+        crafting::apply_craft(&mut inventory.0, recipe);
+        log_message(log, format!("Crafted {}.", recipe.output.name()));
+        clock.advance(2);
         note_player_turn_moved_world(clock, tb);
       }
     }
@@ -1669,16 +1853,33 @@ fn handle_interact(
   mut ui: ResMut<UiState>,
   world_map: Res<WorldMapView>,
   index: Res<TileEntityIndex>,
-  player_q: Query<&PlayerPos, With<Player>>,
+  mut player_q: Query<(&mut PlayerPos, &mut Inventory), With<Player>>,
   dialogue_q: Query<(&Named, &Dialogue)>,
   tree_q: Query<Entity, With<Tree>>,
+  chest_q: Query<&LootChest>,
+  mut pending_chest: ResMut<ChestOpenPending>,
+  mut loot_chest_q: Query<(&mut LootChest, &mut Glyph, &Location)>,
+  mut log: ResMut<LogEntries>,
+  mut clock: ResMut<Clock>,
+  mut tb: ResMut<TurnBasedWorldState>,
 ) {
+  if let Some(ent) = pending_chest.0.take() {
+    apply_open_chest(
+      ent,
+      &mut player_q,
+      &mut loot_chest_q,
+      &mut *log,
+      &mut *clock,
+      &mut *tb,
+    );
+  }
+
   if ui.any_open() || world_map.open || !keys.just_pressed(KeyCode::Space)
   {
     return;
   }
 
-  if let Ok(pos) = player_q.single() {
+  if let Ok((pos, _)) = player_q.single() {
     let (zx, zy) = world_to_zone(pos.x, pos.y);
     let (lx, ly) = (
       (pos.x as usize % ZONE_WIDTH) as i32,
@@ -1704,6 +1905,15 @@ fn handle_interact(
             options.push(InteractionOption {
               label: format!("Talk to {}", named.name),
               action: InteractionAction::Talk { speaker: named.name, tree: dialogue.0 },
+            });
+          }
+          if let Ok(chest) = chest_q.get(e)
+            && !chest.opened
+          {
+            let dir = if dx == 0 && dy == 0 { "here".to_string() } else { direction_name(dx, dy) };
+            options.push(InteractionOption {
+              label: format!("Open chest ({dir})"),
+              action: InteractionAction::OpenChest(e),
             });
           }
         }
