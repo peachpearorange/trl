@@ -1,7 +1,18 @@
-//! Haalka-based UI layer.  Owns the full window layout: game viewport on the
-//! left (~70%), sidebar flush right (~30%), status bar along the bottom, and centred overlays for menus.
+//! Haalka-based UI layer.  Owns the full window layout and centred overlays for menus.
 //! A single [`sync_ui`] system bridges Bevy game-state into cloneable resources
 //! each frame; Haalka `reactive_text` / [`from_resource`] read those resources.
+//!
+//! # Layout tree (bottom → top)
+//!
+//! - **`Stack`** (full window): Haalka implements this as a CSS grid with one cell; each `.layer` is a
+//!   stack child stacked in that cell.
+//! - **Layer 1 — [`main_layout`]**: [`Column`] with [`PositionType::Absolute`] and zero inset so it
+//!   **fills the window**. Without a definite width, `%` widths on the row (game \| sidebar) can
+//!   shrink-wrap and leave empty strips at the right edge (you see the scene clear colour: dark blue‑black).
+//!   - **Row** (`flex_grow` 1): transparent game pane (`flex_grow`) \| [`sidebar_column`] (~30%).
+//!   - **Status bar** (fixed height).
+//! - **Layer 2 — [`overlay_signal`]**: fullscreen dim when pause / interact / dialogue is open.
+//! - **Layer 3 — [`world_map_signal`]**: fullscreen dim + map panel when the world map is open.
 
 use {
   crate::{
@@ -152,7 +163,16 @@ impl Plugin for UiPlugin {
 
 fn build_ui_root() -> impl Element {
   Stack::<Node>::new()
-    .with_node(|mut n| { n.width = Val::Percent(100.0); n.height = Val::Percent(100.0); })
+    .with_node(|mut n| {
+      n.width = Val::Percent(100.0);
+      n.height = Val::Percent(100.0);
+      // Pin the stack to the viewport so inner grid cells get a definite size (see module docs).
+      n.position_type = PositionType::Absolute;
+      n.left = Val::Px(0.);
+      n.right = Val::Px(0.);
+      n.top = Val::Px(0.);
+      n.bottom = Val::Px(0.);
+    })
     .layer(main_layout())
     .layer_signal(overlay_signal())
     .layer_signal(world_map_signal())
@@ -164,7 +184,15 @@ pub fn spawn_haalka_root(world: &mut World) {
 
 fn main_layout() -> impl Element {
   Column::<Node>::new()
-    .with_node(|mut n| { n.width = Val::Percent(100.0); n.height = Val::Percent(100.0); })
+    .with_node(|mut n| {
+      n.position_type = PositionType::Absolute;
+      n.left = Val::Px(0.);
+      n.right = Val::Px(0.);
+      n.top = Val::Px(0.);
+      n.bottom = Val::Px(0.);
+      n.width = Val::Percent(100.0);
+      n.height = Val::Percent(100.0);
+    })
     // ── top row: game viewport | sidebar ──
     .item(
       Row::<Node>::new()
@@ -173,6 +201,8 @@ fn main_layout() -> impl Element {
           n.height = Val::Percent(100.0);
           n.flex_grow = 1.0;
           n.column_gap = Val::Px(0.0);
+          // Default Haalka Row uses AlignItems::Center — stretch so panes fill the row height.
+          n.align_items = AlignItems::Stretch;
         })
         // Game viewport (transparent — Camera2d renders behind); flex so it fills space left of sidebar.
         .item(
