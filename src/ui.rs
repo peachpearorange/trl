@@ -464,7 +464,6 @@ fn message_log() -> impl Element {
   Column::<Node>::new()
     .with_node(|mut n| {
       n.width = Val::Percent(100.);
-      n.flex_grow = 1.;
       n.border = UiRect::all(Val::Px(1.0));
       n.border_radius = BorderRadius::all(Val::Px(4.0));
       n.padding = UiRect::all(Val::Px(PANEL_PAD));
