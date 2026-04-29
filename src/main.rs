@@ -31,7 +31,7 @@ const DIM_FACTOR: f32 = 0.3;
 /// `SIDEBAR_WIDTH_FRAC`. Status bar is `STATUS_BAR_HEIGHT` along the bottom.
 pub const GAME_VIEWPORT_WIDTH_FRAC: f32 = 0.70;
 pub const SIDEBAR_WIDTH_FRAC: f32 = 1.0 - GAME_VIEWPORT_WIDTH_FRAC;
-pub const STATUS_BAR_HEIGHT: f32 = 24.0;
+pub const STATUS_BAR_HEIGHT: f32 = 32.0;
 
 // ---------------------------------------------------------------------------
 // Player actions
@@ -923,7 +923,7 @@ fn camera_follow(
     let w = win.resolution.width();
     let h = win.resolution.height();
     let screen_center = Vec2::new(w / 2.0, h / 2.0);
-    let viewport_center = Vec2::new(w * 0.35, (h - 24.0) / 2.0);
+    let viewport_center = Vec2::new(w * 0.35, (h - STATUS_BAR_HEIGHT) / 2.0);
     let offset = viewport_center - screen_center;
 
     let local = vis.display;

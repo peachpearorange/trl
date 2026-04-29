@@ -18,9 +18,10 @@ use {
   crate::{
     level::{ZONE_WIDTH, ZONE_HEIGHT},
     utils::mapv,
-    Clock, try_pick_level_tile_at_cursor, world_to_zone, GAME_VIEWPORT_WIDTH_FRAC,
+    Clock, try_pick_level_tile_at_cursor, world_to_zone, GAME_VIEWPORT_WIDTH_FRAC, STATUS_BAR_HEIGHT,
   },
   bevy::prelude::*,
+  bevy::text::FontWeight,
   haalka::jonmo::SignalProcessing,
   haalka::prelude::*,
   jonmo::{signal, prelude::*},
@@ -119,18 +120,29 @@ pub struct InvDisplayData {
 const DARK_BG:     Color = Color::srgb(0.10, 0.10, 0.18);
 const PANEL_BG:    Color = Color::srgb(0.12, 0.12, 0.20);
 const BORDER:      Color = Color::srgb(0.20, 0.20, 0.33);
-const LIGHT_TEXT:  Color = Color::srgb(0.88, 0.88, 0.88);
-const DIM_TEXT:    Color = Color::srgb(0.55, 0.55, 0.60);
-const ACCENT:      Color = Color::srgb(0.40, 0.65, 0.45);
+const LIGHT_TEXT:  Color = Color::srgb(0.94, 0.94, 0.97);
+const DIM_TEXT:    Color = Color::srgb(0.78, 0.80, 0.86);
+const ACCENT:      Color = Color::srgb(0.55, 0.88, 0.65);
+/// Real-time / turn line in sidebar (mode name + tick).
+const MODE_LINE:   Color = Color::srgb(0.65, 0.95, 0.78);
+/// “TURN-BASED MODE” banner in the status bar (high contrast).
+const TURN_BASED_BADGE: Color = Color::srgb(1.0, 0.88, 0.35);
 const HP_GREEN:    Color = Color::srgb(0.35, 0.75, 0.35);
 const HP_YELLOW:   Color = Color::srgb(0.85, 0.75, 0.25);
 const HP_RED:      Color = Color::srgb(0.85, 0.30, 0.30);
 const OVERLAY_DIM: Color = Color::srgba(0.0, 0.0, 0.0, 0.50);
 
-const FONT_SIZE_LABEL: f32 = 13.0;
-const FONT_SIZE_BODY:  f32 = 14.0;
-const FONT_SIZE_TITLE: f32 = 16.0;
-const FONT_SIZE_SMALL: f32 = 11.0;
+const FONT_SIZE_LABEL: f32 = 15.0;
+const FONT_SIZE_BODY:  f32 = 17.0;
+const FONT_SIZE_TITLE: f32 = 18.0;
+const FONT_SIZE_SMALL: f32 = 14.0;
+/// Sidebar clock mode + TB banner (slightly larger than body elsewhere).
+const FONT_SIZE_MODE: f32 = 15.5;
+
+const W_UI: FontWeight = FontWeight::SEMIBOLD;
+const W_STRONG: FontWeight = FontWeight::BOLD;
+const W_OVERLAY: FontWeight = FontWeight::MEDIUM;
+
 const PANEL_PAD:      f32 = 8.0;
 
 /// Match `main.rs` Haalka row: sidebar width as a percent of the window width.
@@ -270,13 +282,13 @@ fn hp_bar_row() -> impl Element {
       n.column_gap = Val::Px(6.0);
     })
     // "HP:" label
-    .item(static_text("HP:", FONT_SIZE_SMALL, LIGHT_TEXT))
+    .item(static_text("HP:", FONT_SIZE_SMALL, LIGHT_TEXT, W_UI))
     // Bar background
     .item(
       El::<Node>::new()
         .with_node(|mut n| {
           n.flex_grow = 1.;
-          n.height = Val::Px(14.0);
+          n.height = Val::Px(20.0);
           n.border_radius = BorderRadius::all(Val::Px(3.0));
           n.overflow = Overflow::hidden();
         })
@@ -299,7 +311,7 @@ fn hp_bar_row() -> impl Element {
     // "HP/max" text
     .item(reactive_text(
       signal::from_resource::<PlayerData>().map_in(|d| format!("{}/{}", d.hp, d.max_hp)),
-      FONT_SIZE_SMALL, LIGHT_TEXT
+      FONT_SIZE_SMALL, LIGHT_TEXT, W_UI
     ))
 }
 
@@ -310,8 +322,8 @@ fn stat_row(label: &str, value_sig: impl Signal<Item = String> + Clone + 'static
       n.align_items = AlignItems::Center;
       n.justify_content = JustifyContent::SpaceBetween;
     })
-    .item(static_text(label, FONT_SIZE_SMALL, DIM_TEXT))
-    .item(reactive_text(value_sig, FONT_SIZE_SMALL, LIGHT_TEXT))
+    .item(static_text(label, FONT_SIZE_SMALL, DIM_TEXT, W_UI))
+    .item(reactive_text(value_sig, FONT_SIZE_SMALL, LIGHT_TEXT, W_UI))
 }
 
 fn z_level_label() -> impl Element {
@@ -326,7 +338,7 @@ fn z_level_label() -> impl Element {
       };
       format!("{} (z={})", name, d.z)
     }),
-    FONT_SIZE_SMALL, DIM_TEXT
+    FONT_SIZE_SMALL, DIM_TEXT, W_UI
   )
 }
 
@@ -340,7 +352,7 @@ fn time_mode_label() -> impl Element {
       };
       format!("{} T:{:.0}", icon, d.tick)
     }),
-    FONT_SIZE_SMALL, ACCENT
+    FONT_SIZE_MODE, MODE_LINE, W_STRONG
   )
 }
 
@@ -366,7 +378,9 @@ fn inventory_panel() -> impl Element {
 fn inventory_list() -> impl Element {
   reactive_text(
     signal::from_resource::<InvDisplayData>().map_in(|d| d.formatted.clone()),
-    FONT_SIZE_BODY, Color::srgb(0.80, 0.75, 0.50)
+    FONT_SIZE_BODY,
+    Color::srgb(0.92, 0.86, 0.58),
+    W_UI
   )
 }
 
@@ -394,14 +408,14 @@ fn hover_panel() -> impl Element {
 fn hover_coords_line() -> impl Element {
   reactive_text(
     signal::from_resource::<HoverInfo>().map_in(|h| format!("({}, {})", h.coords.0, h.coords.1)),
-    FONT_SIZE_SMALL, DIM_TEXT
+    FONT_SIZE_SMALL, DIM_TEXT, W_UI
   )
 }
 
 fn hover_tile_line() -> impl Element {
   reactive_text(
     signal::from_resource::<HoverInfo>().map_in(|h| h.tile_name.clone()),
-    FONT_SIZE_BODY, LIGHT_TEXT
+    FONT_SIZE_BODY, LIGHT_TEXT, W_UI
   )
 }
 
@@ -410,7 +424,8 @@ fn hover_entity_lines() -> impl Element {
   reactive_text(
     signal::from_resource::<HoverInfo>().map_in(|h| format_entity_hover_block(&h)),
     FONT_SIZE_BODY,
-    Color::srgb(0.9, 0.75, 0.45),
+    Color::srgb(0.96, 0.84, 0.55),
+    W_UI
   )
 }
 
@@ -466,7 +481,7 @@ fn message_log() -> impl Element {
         .child(
           reactive_text(
             signal::from_resource::<LogDisplayData>().map_in(|d| d.text.clone()),
-            FONT_SIZE_SMALL, DIM_TEXT,
+            FONT_SIZE_SMALL, DIM_TEXT, W_UI
           )
         )
     )
@@ -480,9 +495,9 @@ fn status_bar() -> impl Element {
   El::<Node>::new()
     .with_node(|mut n| {
       n.width = Val::Percent(100.);
-      n.height = Val::Px(24.0);
+      n.height = Val::Px(STATUS_BAR_HEIGHT);
       n.border = UiRect::top(Val::Px(1.0));
-      n.padding = UiRect::horizontal(Val::Px(8.0));
+      n.padding = UiRect::horizontal(Val::Px(10.0));
     })
     .background_color(BackgroundColor(DARK_BG))
     .border_color(BorderColor::all(BORDER))
@@ -493,24 +508,24 @@ fn status_bar() -> impl Element {
         .with_node(|mut n| { n.align_items = AlignItems::Center; n.column_gap = Val::Px(16.0); })
         .item(reactive_text(
           signal::from_resource::<HoverInfo>().map_in(|h| h.tile_name.clone()),
-          FONT_SIZE_SMALL, DIM_TEXT
+          FONT_SIZE_SMALL, DIM_TEXT, W_UI
         ))
         .item(reactive_text(
           signal::from_resource::<HoverInfo>().map_in(|h| format!("({},{})", h.coords.0, h.coords.1)),
-          FONT_SIZE_SMALL, DIM_TEXT
+          FONT_SIZE_SMALL, DIM_TEXT, W_UI
         ))
         .item(
           Row::<Node>::new()
-            .with_node(|mut n| { n.column_gap = Val::Px(8.0); n.align_items = AlignItems::Center; })
+            .with_node(|mut n| { n.column_gap = Val::Px(10.0); n.align_items = AlignItems::Center; })
             .item(reactive_text(
               signal::from_resource::<ClockData>().map_in(|d| {
                 (d.mode == "TB").then_some("TURN-BASED MODE").unwrap_or("").to_string()
               }),
-              FONT_SIZE_SMALL, ACCENT
+              FONT_SIZE_MODE, TURN_BASED_BADGE, W_STRONG
             ))
             .item(reactive_text(
               signal::from_resource::<ClockData>().map_in(|d| format!("{} T:{}", d.mode, d.tick)),
-              FONT_SIZE_SMALL, DIM_TEXT
+              FONT_SIZE_SMALL, MODE_LINE, W_STRONG
             ))
         )
     )
@@ -542,7 +557,7 @@ fn world_map_signal() -> impl Signal<Item = Option<impl Element>> {
             })
             .background_color(BackgroundColor(DARK_BG))
             .border_color(BorderColor::all(BORDER))
-            .item(static_text("World map", FONT_SIZE_TITLE, ACCENT))
+            .item(static_text("World map", FONT_SIZE_TITLE, ACCENT, W_STRONG))
             .item(
               // Square region: the texture is 1:1; avoid non-square flex slots (they caused Stretch to flatten).
               El::<Node>::new()
@@ -568,7 +583,7 @@ fn world_map_signal() -> impl Signal<Item = Option<impl Element>> {
                     })
                 )
             )
-            .item(static_text("M  or  Esc  to close  ·  one pixel = one world tile", FONT_SIZE_SMALL, DIM_TEXT))
+            .item(static_text("M  or  Esc  to close  ·  one pixel = one world tile", FONT_SIZE_SMALL, DIM_TEXT, W_OVERLAY))
         )
     )
   })
@@ -635,8 +650,8 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
               })
               .background_color(BackgroundColor(DARK_BG))
               .border_color(BorderColor::all(BORDER))
-              .item(static_text(label, FONT_SIZE_TITLE, LIGHT_TEXT))
-              .items(lines.into_iter().map(|l| static_text(l, FONT_SIZE_BODY, LIGHT_TEXT)))
+              .item(static_text(label, FONT_SIZE_TITLE, LIGHT_TEXT, W_STRONG))
+              .items(lines.into_iter().map(|l| static_text(l, FONT_SIZE_BODY, LIGHT_TEXT, W_OVERLAY)))
           )
       })
     })
@@ -821,19 +836,24 @@ fn compute_hover_info(
 // ---------------------------------------------------------------------------
 
 fn panel_label(text: &str) -> impl Element {
-  static_text(text, FONT_SIZE_LABEL, ACCENT)
+  static_text(text, FONT_SIZE_LABEL, ACCENT, W_STRONG)
 }
 
-fn static_text(text: impl Into<String>, size: f32, color: Color) -> impl Element {
+fn static_text(text: impl Into<String>, size: f32, color: Color, weight: FontWeight) -> impl Element {
   El::<Text>::new()
     .text(Text::new(text))
-    .text_font(TextFont { font_size: size, ..default() })
+    .text_font(TextFont { font_size: size, weight, ..default() })
     .text_color(TextColor(color))
 }
 
-fn reactive_text(sig: impl Signal<Item = String> + Clone + 'static, size: f32, color: Color) -> impl Element {
+fn reactive_text(
+  sig: impl Signal<Item = String> + Clone + 'static,
+  size: f32,
+  color: Color,
+  weight: FontWeight,
+) -> impl Element {
   El::<Text>::new()
-    .text_font(TextFont { font_size: size, ..default() })
+    .text_font(TextFont { font_size: size, weight, ..default() })
     .text_color(TextColor(color))
     .with_builder(|b| b.component_signal::<Text>(
       sig.map_in(|s| Some(Text::new(s)))
