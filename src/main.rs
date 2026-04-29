@@ -9,9 +9,7 @@ mod loot;
 mod crafting;
 
 use {
-  bevy::camera::Viewport,
   bevy::prelude::*,
-  bevy::window::PrimaryWindow,
   combat::{TileEntityIndex, enemy_ai, maintain_tile_index},
   level::{FovGrid, Item, Tile, ZoneWorld, ZONE_HEIGHT, ZONE_WIDTH, SURFACE_Z, WORLD_DEPTH, compute_fov},
   std::collections::{HashMap, HashSet},
@@ -448,7 +446,6 @@ fn main() {
     .insert_resource(TileEntityIndex::default())
     .add_plugins(ui::UiPlugin)
     .add_systems(Startup, (setup, ui::spawn_haalka_root).chain())
-    .add_systems(PreUpdate, sync_game_camera_viewport)
     .configure_sets(Update, SimStep.run_if(should_run_sim_step))
     .add_systems(
       Update,
@@ -491,26 +488,15 @@ fn tile_screen_pos(x: f32, y: f32, w: usize, h: usize) -> Vec3 {
   )
 }
 
-fn sync_game_camera_viewport(
-  mut q: Query<&mut Camera, With<Camera2d>>,
-  windows: Query<&Window, With<PrimaryWindow>>,
-) {
-  if let (Ok(mut camera), Ok(w)) = (q.single_mut(), windows.single()) {
-    let phys_w = w.resolution.physical_width();
-    let phys_h = w.resolution.physical_height();
-    let scale = w.resolution.scale_factor();
-    let status_px = (STATUS_BAR_HEIGHT * scale).round().max(1.0) as u32;
-    // Match UI: sidebar is SIDEBAR_WIDTH_FRAC of width; game gets the remainder (avoids a black gap
-    // from independent rounding of 0.7*w and 0.3*w).
-    let sidebar_w = ((phys_w as f32) * SIDEBAR_WIDTH_FRAC).round() as u32;
-    let game_w = phys_w.saturating_sub(sidebar_w).max(1);
-    let game_h = phys_h.saturating_sub(status_px).max(1);
-    camera.viewport = Some(Viewport {
-      physical_position: UVec2::ZERO,
-      physical_size: UVec2::new(game_w, game_h),
-      depth: 0.0..1.0,
-    });
-  }
+/// Game pane logical bounds (left portion of window, above status bar).
+/// Camera renders full-window so UI isn't viewport-clipped; this is used for cursor picking.
+fn game_pane_rect(w: &Window) -> Rect {
+  Rect::new(
+    0.0,
+    0.0,
+    w.resolution.width() * GAME_VIEWPORT_WIDTH_FRAC,
+    w.resolution.height() - STATUS_BAR_HEIGHT,
+  )
 }
 
 /// Inverse of [`tile_screen_pos`] for a point in world: which level cell it falls into.
@@ -523,10 +509,8 @@ fn world_to_level_cell(world: Vec2, w: usize, h: usize) -> (i32, i32) {
   (tx, ty)
 }
 
-/// Picks a tile under the cursor: this is the usual Bevy 0.18 pattern
-/// ([`Window::cursor_position`], then [`Camera::viewport_to_world_2d`]), plus a
-/// "cursor in this camera's sub-viewport" check from [`Camera::logical_viewport_rect`]
-/// (needed when the window also shows a Haalka sidebar, etc.).
+/// Picks a tile under the cursor.  The camera renders full-window (no sub-viewport) so
+/// the UI isn't clipped; we manually check if the cursor falls within the game pane.
 pub fn try_pick_level_tile_at_cursor(
   window: &Window,
   camera: &Camera,
@@ -535,10 +519,7 @@ pub fn try_pick_level_tile_at_cursor(
   level_h: usize,
 ) -> Option<(i32, i32)> {
   let cursor = window.cursor_position()?;
-  let in_view = camera
-    .logical_viewport_rect()
-    .is_some_and(|r| r.contains(cursor));
-  if !in_view {
+  if !game_pane_rect(window).contains(cursor) {
     return None;
   }
   let world = camera.viewport_to_world_2d(camera_transform, cursor).ok()?;

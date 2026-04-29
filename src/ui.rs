@@ -176,14 +176,12 @@ impl Plugin for UiPlugin {
 fn build_ui_root() -> impl Element {
   Stack::<Node>::new()
     .with_node(|mut n| {
-      n.width = Val::Percent(100.0);
-      n.height = Val::Percent(100.0);
-      // Pin the stack to the viewport so inner grid cells get a definite size (see module docs).
+      // Vw/Vh resolve against the window, not parent — immune to Haalka wrappers.
+      n.width = Val::Vw(100.0);
+      n.height = Val::Vh(100.0);
       n.position_type = PositionType::Absolute;
       n.left = Val::Px(0.);
-      n.right = Val::Px(0.);
       n.top = Val::Px(0.);
-      n.bottom = Val::Px(0.);
     })
     .layer(main_layout())
     .layer_signal(overlay_signal())
@@ -197,20 +195,15 @@ pub fn spawn_haalka_root(world: &mut World) {
 fn main_layout() -> impl Element {
   Column::<Node>::new()
     .with_node(|mut n| {
-      n.position_type = PositionType::Absolute;
-      n.left = Val::Px(0.);
-      n.right = Val::Px(0.);
-      n.top = Val::Px(0.);
-      n.bottom = Val::Px(0.);
-      n.width = Val::Percent(100.0);
-      n.height = Val::Percent(100.0);
+      // Vw/Vh give a definite size so children's `%` widths resolve correctly.
+      n.width = Val::Vw(100.0);
+      n.height = Val::Vh(100.0);
     })
     // ── top row: game viewport | sidebar ──
     .item(
       Row::<Node>::new()
         .with_node(|mut n| {
           n.width = Val::Percent(100.0);
-          n.height = Val::Percent(100.0);
           n.flex_grow = 1.0;
           n.column_gap = Val::Px(0.0);
           // Default Haalka Row uses AlignItems::Center — stretch so panes fill the row height.
@@ -223,7 +216,6 @@ fn main_layout() -> impl Element {
               n.flex_grow = 1.0;
               n.flex_shrink = 1.0;
               n.min_width = Val::Px(0.0);
-              n.height = Val::Percent(100.0);
             })
         )
         // Sidebar column — fixed fraction of window width, flush right
@@ -238,7 +230,6 @@ fn sidebar_column() -> impl Element {
     .with_node(|mut n| {
       n.width = Val::Percent(SIDEBAR_WIDTH_PERCENT);
       n.flex_shrink = 0.0;
-      n.height = Val::Percent(100.);
       n.border = UiRect::left(Val::Px(1.0));
       n.padding = UiRect::all(Val::Px(PANEL_PAD));
       n.column_gap = Val::Px(6.0);
