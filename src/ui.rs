@@ -238,7 +238,7 @@ fn sidebar_column() -> impl Element {
     .with_node(|mut n| {
       n.width = Val::Percent(SIDEBAR_WIDTH_PERCENT);
       n.flex_shrink = 0.0;
-      n.height = Val::Percent(100.);
+      n.align_self = AlignSelf::FlexStart;
       n.border = UiRect::left(Val::Px(1.0));
       n.padding = UiRect::all(Val::Px(PANEL_PAD));
       n.column_gap = Val::Px(6.0);
