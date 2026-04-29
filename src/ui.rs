@@ -238,7 +238,7 @@ fn sidebar_column() -> impl Element {
     .with_node(|mut n| {
       n.width = Val::Percent(SIDEBAR_WIDTH_PERCENT);
       n.flex_shrink = 0.0;
-      n.align_self = AlignSelf::FlexStart;
+      n.height = Val::Percent(100.);
       n.border = UiRect::left(Val::Px(1.0));
       n.padding = UiRect::all(Val::Px(PANEL_PAD));
       n.column_gap = Val::Px(6.0);
@@ -464,14 +464,15 @@ fn message_log() -> impl Element {
   Column::<Node>::new()
     .with_node(|mut n| {
       n.width = Val::Percent(100.);
+      n.flex_grow = 1.;
       n.border = UiRect::all(Val::Px(1.0));
       n.border_radius = BorderRadius::all(Val::Px(4.0));
       n.padding = UiRect::all(Val::Px(PANEL_PAD));
       n.overflow = Overflow::scroll_y();
       n.column_gap = Val::Px(1.0);
     })
-    .background_color(BackgroundColor(PANEL_BG))
-    .border_color(BorderColor::all(BORDER))
+    .background_color(BackgroundColor(Color::NONE))
+    .border_color(BorderColor::all(Color::NONE))
     .item(panel_label("Log"))
     .item(
       // Same pattern as `inventory_list`: one `reactive_text` driven by a sync-only resource.
