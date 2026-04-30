@@ -1,7 +1,7 @@
 mod ui;
 mod level;
 mod combat;
-mod dialogue;
+mod npcs;
 mod worldgen;
 mod world_data;
 mod utils;
@@ -687,9 +687,7 @@ fn setup(
 
   Object::rat_soldier().spawn_at(&mut commands, ex1, ey1, START_Z);
   Object::armored_rat_soldier().spawn_at(&mut commands, ex2, ey2, START_Z);
-  Object::catgirl()
-    .add(Dialogue(&dialogue::MIRA))
-    .spawn_at(&mut commands, cx1, cy1, START_Z);
+  npcs::mira::mira().spawn_at(&mut commands, cx1, cy1, START_Z);
 
   for &(wx, wy) in &gw.0.tree_sites {
     if (wx - px).abs() <= 1 && (wy - py).abs() <= 1 {

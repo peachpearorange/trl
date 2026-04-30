@@ -1,13 +1,7 @@
-//! Static dialogue trees.  Each NPC's conversation is a single `DialogueTree`
-//! containing all its nodes inline, referenced by name string.
+use bevy::prelude::Color;
+use trl::entities::*;
 
-use trl::entities::{DialogueTree, end, go, node, tree};
-
-// ---------------------------------------------------------------------------
-// Mira — catgirl cartographer
-// ---------------------------------------------------------------------------
-
-pub static MIRA: DialogueTree = tree(&[
+static DIALOGUE: DialogueTree = tree(&[
   node("root", "Oh— you're not a rat person. That's... refreshing. What do you want?", &[
     go("Who are you?",                     "who"),
     go("What is this place?",              "place"),
@@ -83,3 +77,17 @@ pub static MIRA: DialogueTree = tree(&[
     &[end("Goodbye.")],
   ),
 ]);
+
+pub fn mira() -> Object {
+  Object::defined_npc(
+    Named {
+      name: "Mira",
+      flavor: "She eyes you warily, ears flat against her head.",
+    },
+    Stats { hp: 8, max_hp: 8, attack: 2, move_speed: 4.0, attack_speed: 1.2 },
+    None,
+    None,
+    Glyph { ch: 'c', color: Color::srgb(0.9, 0.7, 0.9) },
+    &DIALOGUE,
+  )
+}

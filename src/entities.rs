@@ -364,17 +364,4 @@ impl Object {
       ))
   }
 
-  pub fn catgirl() -> Self {
-    Self::npc()
-      .add((
-        Named {
-          name: "Catgirl",
-          flavor: "She eyes you warily, ears flat against her head.",
-        },
-        Stats { hp: 8, max_hp: 8, attack: 2, move_speed: 4.0, attack_speed: 1.2 },
-        Wielding(None),
-        Wearing(None),
-        Glyph { ch: 'c', color: Color::srgb(0.9, 0.7, 0.9) },
-      ))
-  }
 }
