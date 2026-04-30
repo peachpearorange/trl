@@ -1259,12 +1259,7 @@ fn despawn_overlays(commands: &mut Commands, query: &Query<Entity, With<PauseOve
 }
 
 fn log_dialogue_node_block(log: &mut LogEntries, speaker: &str, node: &DialogueNode) {
-  let mut s = format!("{speaker}: {}", node.text);
-  for (i, c) in node.choices.iter().enumerate() {
-    s.push('\n');
-    s.push_str(&format!("  {}) {}", i + 1, c.text));
-  }
-  log_message(log, s);
+  log_message(log, format!("{speaker}: {}", node.text));
 }
 
 fn handle_dialogue(
