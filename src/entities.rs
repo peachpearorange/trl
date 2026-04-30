@@ -273,6 +273,24 @@ impl Object {
     Self::new((Collidable(false), Character, FactionComp(Faction::Neutral), Gravity))
   }
 
+  /// Fully-defined NPC: named, statted, equipped, visible, conversable.
+  pub fn defined_npc(
+    named: Named,
+    stats: Stats,
+    wielding: Option<Item>,
+    wearing: Option<Armor>,
+    glyph: Glyph,
+    dialogue: &'static DialogueTree,
+  ) -> Self {
+    Self::npc()
+      .add(named)
+      .add(stats)
+      .add(Wielding(wielding))
+      .add(Wearing(wearing))
+      .add(glyph)
+      .add(Dialogue(dialogue))
+  }
+
   /// Spawn this entity at tile coordinates, inserting Location::Coords.
   pub fn spawn_at(self, commands: &mut Commands, x: i32, y: i32, z: usize) -> Entity {
     let mut e = commands.spawn_empty();
