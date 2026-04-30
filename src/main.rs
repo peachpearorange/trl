@@ -689,6 +689,34 @@ fn setup(
   Object::armored_rat_soldier().spawn_at(&mut commands, ex2, ey2, START_Z);
   npcs::mira::mira().spawn_at(&mut commands, cx1, cy1, START_Z);
 
+  let (lnpc2x, lnpc2y) = find_walkable(level, lx.saturating_sub(6), ly.saturating_sub(3));
+  let (npc2x, npc2y) = (
+    (START_ZX * ZONE_WIDTH) as i32 + lnpc2x as i32,
+    (START_ZY * ZONE_HEIGHT) as i32 + lnpc2y as i32,
+  );
+  npcs::chronos::chronos().spawn_at(&mut commands, npc2x, npc2y, START_Z);
+
+  let (lnpc3x, lnpc3y) = find_walkable(level, lx + 7, ly.saturating_sub(2));
+  let (npc3x, npc3y) = (
+    (START_ZX * ZONE_WIDTH) as i32 + lnpc3x as i32,
+    (START_ZY * ZONE_HEIGHT) as i32 + lnpc3y as i32,
+  );
+  npcs::unit7::unit7().spawn_at(&mut commands, npc3x, npc3y, START_Z);
+
+  let (lnpc4x, lnpc4y) = find_walkable(level, lx + 2, ly + 6);
+  let (npc4x, npc4y) = (
+    (START_ZX * ZONE_WIDTH) as i32 + lnpc4x as i32,
+    (START_ZY * ZONE_HEIGHT) as i32 + lnpc4y as i32,
+  );
+  npcs::kong::kong().spawn_at(&mut commands, npc4x, npc4y, START_Z);
+
+  let (lnpc5x, lnpc5y) = find_walkable(level, lx.saturating_sub(2), ly.saturating_sub(5));
+  let (npc5x, npc5y) = (
+    (START_ZX * ZONE_WIDTH) as i32 + lnpc5x as i32,
+    (START_ZY * ZONE_HEIGHT) as i32 + lnpc5y as i32,
+  );
+  npcs::guard::guard().spawn_at(&mut commands, npc5x, npc5y, START_Z);
+
   for &(wx, wy) in &gw.0.tree_sites {
     if (wx - px).abs() <= 1 && (wy - py).abs() <= 1 {
       continue;
