@@ -446,7 +446,11 @@ fn main() {
 
   App::new()
     .add_plugins(haalka::HaalkaPlugin::default())
-    .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()).set(WindowPlugin {
+    .add_plugins(
+      DefaultPlugins
+        // Bilinear filtering: artwork is scaled to TILE_SIZE and looks harsh with nearest.
+        .set(ImagePlugin::default_linear())
+        .set(WindowPlugin {
       primary_window: Some(Window {
         title: "trl".into(),
         resolution: (1200u32, 800u32).into(),
