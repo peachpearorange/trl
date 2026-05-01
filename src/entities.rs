@@ -188,11 +188,27 @@ pub struct LootChest {
 #[derive(Component)]
 pub struct BlocksSight;
 
-/// ASCII glyph visual: char + RGB color for Text2d rendering.
+/// Visual for a grid entity: optional PNG (tile-sized sprite) or [`Text2d`] from `ch` + `color`.
 #[derive(Component, Clone, Debug)]
 pub struct Glyph {
   pub ch: char,
   pub color: Color,
+  /// Asset path relative to `assets/` (e.g. `textures/catgirl.png`).
+  pub texture: Option<&'static str>,
+}
+
+impl Glyph {
+  pub fn ascii(ch: char, color: Color) -> Self {
+    Self { ch, color, texture: None }
+  }
+
+  pub fn sprite(path: &'static str, ch: char, color: Color) -> Self {
+    Self {
+      ch,
+      color,
+      texture: Some(path),
+    }
+  }
 }
 
 /// Identity and SS13-style flavor text shown on hover.
@@ -316,16 +332,21 @@ impl Object {
   pub fn tree() -> Self                       { Self::structure(false).add((
     Tree,
     BlocksSight,
-    Glyph { ch: 'T', color: Color::srgb(0.13, 0.55, 0.13) },
+    Glyph::sprite(
+      "textures/a_tree.png",
+      'T',
+      Color::srgb(0.13, 0.55, 0.13),
+    ),
     Named { name: "Tree", flavor: "A sturdy tree. Could be chopped for wood." },
   )) }
   pub fn loot_chest() -> Self {
     Self::structure(true).add((
         LootChest { opened: false },
-      Glyph {
-        ch: '&',
-        color: Color::srgb(0.72, 0.52, 0.28),
-      },
+      Glyph::sprite(
+        "textures/a_wreck_of_a_sci-fi_flying_vehicle.png",
+        '&',
+        Color::srgb(0.72, 0.52, 0.28),
+      ),
       Named {
         name: "Chest",
         flavor: "Someone stashed supplies here.",
@@ -346,7 +367,11 @@ impl Object {
         Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 3.0, attack_speed: 1.0 },
         Wielding(Some(Item::Spear)),
         Wearing(None),
-        Glyph { ch: 'r', color: Color::srgb(0.9, 0.6, 0.4) },
+        Glyph::sprite(
+          "textures/shady_looking_guy_in_clothes_meant_for_a_hot_desert.png",
+          'r',
+          Color::srgb(0.9, 0.6, 0.4),
+        ),
       ))
   }
 
@@ -360,7 +385,11 @@ impl Object {
         Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 3.0, attack_speed: 1.0 },
         Wielding(Some(Item::Spear)),
         Wearing(Some(Armor::Leather)),
-        Glyph { ch: 'r', color: Color::srgb(0.7, 0.5, 0.3) },
+        Glyph::sprite(
+          "textures/retro-future_post-apocalyptic_settlement_guard.png",
+          'r',
+          Color::srgb(0.7, 0.5, 0.3),
+        ),
       ))
   }
 

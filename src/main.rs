@@ -260,7 +260,7 @@ struct PauseOverlay;
 #[derive(Component, Default)]
 pub struct Inventory(pub HashMap<Item, u32>);
 
-/// Marker for entities that have had their Text2d visual set up.
+/// Marker for entities that use [`Glyph`] visuals (tile sprite or [`Text2d`]).
 #[derive(Component)]
 struct GlyphVisual;
 
@@ -381,6 +381,7 @@ fn interpolate_visual_positions(
 
 fn setup_glyph_visuals(
   mut commands: Commands,
+  asset_server: Res<AssetServer>,
   query: Query<(Entity, &Glyph, &Location), (Added<Glyph>, Without<GlyphVisual>)>,
 ) {
   for (entity, glyph, location) in query.iter() {
@@ -389,19 +390,38 @@ fn setup_glyph_visuals(
       let local = Vec2::new(lx as f32, ly as f32);
       let pos = tile_screen_pos(lx as f32, ly as f32, ZONE_WIDTH, ZONE_HEIGHT)
         + Vec3::new(0.0, 0.0, 2.0);
-      commands.entity(entity).insert((
-        Text2d::new(glyph.ch.to_string()),
-        TextFont { font_size: TILE_SIZE, ..default() },
-        TextColor(glyph.color),
-        Transform::from_translation(pos),
-        GlyphVisual,
-        Visuals {
-          prev: local,
-          last_move_start_frame: None,
-          display: local,
-          last_pos: local,
-        },
-      ));
+      if let Some(path) = glyph.texture {
+        commands.entity(entity).insert((
+          Sprite {
+            image: asset_server.load(path),
+            custom_size: Some(Vec2::splat(TILE_SIZE)),
+            color: Color::WHITE,
+            ..default()
+          },
+          Transform::from_translation(pos),
+          GlyphVisual,
+          Visuals {
+            prev: local,
+            last_move_start_frame: None,
+            display: local,
+            last_pos: local,
+          },
+        ));
+      } else {
+        commands.entity(entity).insert((
+          Text2d::new(glyph.ch.to_string()),
+          TextFont { font_size: TILE_SIZE, ..default() },
+          TextColor(glyph.color),
+          Transform::from_translation(pos),
+          GlyphVisual,
+          Visuals {
+            prev: local,
+            last_move_start_frame: None,
+            display: local,
+            last_pos: local,
+          },
+        ));
+      }
     }
   }
 }
@@ -649,9 +669,12 @@ fn setup(
 
   let start_local = Vec2::new(lx as f32, ly as f32);
   commands.spawn((
-    Text2d::new("@"),
-    TextFont { font_size: TILE_SIZE, ..default() },
-    TextColor(Color::srgb(1.0, 1.0, 0.0)),
+    Sprite {
+      image: asset_server.load("textures/retro-future_post-apocalyptic_settlement_guard.png"),
+      custom_size: Some(Vec2::splat(TILE_SIZE)),
+      color: Color::WHITE,
+      ..default()
+    },
     Transform::from_translation(
       tile_screen_pos(lx as f32, ly as f32, ZONE_WIDTH, ZONE_HEIGHT) + Vec3::Z
     ),
@@ -1367,6 +1390,7 @@ fn show_interact_menu(ui: &mut UiState, options: Vec<InteractionOption>) {
 }
 
 fn apply_open_chest(
+  commands: &mut Commands,
   entity: Entity,
   player_query: &mut Query<(&mut PlayerPos, &mut Inventory), With<Player>>,
   loot_chest_q: &mut Query<(&mut LootChest, &mut Glyph, &Location)>,
@@ -1379,7 +1403,7 @@ fn apply_open_chest(
   };
   if chest.opened {
     return;
-  }
+  };
   let Ok((_, mut inventory)) = player_query.single_mut() else {
     return;
   };
@@ -1398,8 +1422,15 @@ fn apply_open_chest(
     *inventory.0.entry(item).or_insert(0) += qty;
   }
   chest.opened = true;
+  glyph.texture = None;
   glyph.ch = '□';
   glyph.color = Color::srgb(0.45, 0.38, 0.32);
+  commands.entity(entity).remove::<Sprite>();
+  commands.entity(entity).insert((
+    Text2d::new(glyph.ch.to_string()),
+    TextFont { font_size: TILE_SIZE, ..default() },
+    TextColor(glyph.color),
+  ));
   log_message(
     log,
     format!(
@@ -1860,6 +1891,7 @@ fn handle_interact(
   mut ui: ResMut<UiState>,
   world_map: Res<WorldMapView>,
   index: Res<TileEntityIndex>,
+  mut commands: Commands,
   mut player_q: Query<(&mut PlayerPos, &mut Inventory), With<Player>>,
   dialogue_q: Query<(&Named, &Dialogue)>,
   tree_q: Query<Entity, With<Tree>>,
@@ -1871,6 +1903,7 @@ fn handle_interact(
 ) {
   if let Some(ent) = pending_chest.0.take() {
     apply_open_chest(
+      &mut commands,
       ent,
       &mut player_q,
       &mut loot_chest_q,

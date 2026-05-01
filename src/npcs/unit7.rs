@@ -116,7 +116,11 @@ pub fn unit7() -> Object {
     Stats { hp: 20, max_hp: 20, attack: 4, move_speed: 2.0, attack_speed: 0.8 },
     None,
     None,
-    Glyph { ch: 'R', color: Color::srgb(0.3, 0.9, 0.9) },
+    Glyph::sprite(
+      "textures/robot_with_screws_loose.png",
+      'R',
+      Color::srgb(0.3, 0.9, 0.9),
+    ),
     &DIALOGUE,
   )
 }

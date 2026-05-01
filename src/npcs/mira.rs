@@ -87,7 +87,7 @@ pub fn mira() -> Object {
     Stats { hp: 8, max_hp: 8, attack: 2, move_speed: 4.0, attack_speed: 1.2 },
     None,
     None,
-    Glyph { ch: 'c', color: Color::srgb(0.9, 0.7, 0.9) },
+    Glyph::sprite("textures/catgirl.png", 'c', Color::srgb(0.9, 0.7, 0.9)),
     &DIALOGUE,
   )
 }

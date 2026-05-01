@@ -111,7 +111,11 @@ pub fn chronos() -> Object {
     Stats { hp: 12, max_hp: 12, attack: 3, move_speed: 1.0, attack_speed: 1.0 },
     None,
     None,
-    Glyph { ch: 'W', color: Color::srgb(0.6, 0.2, 0.9) },
+    Glyph::sprite(
+      "textures/crazy_looking_wizard_from_the_future.png",
+      'W',
+      Color::srgb(0.6, 0.2, 0.9),
+    ),
     &DIALOGUE,
   )
 }
