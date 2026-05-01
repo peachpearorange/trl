@@ -20,7 +20,7 @@ use {
   },
 };
 
-const TILE_SIZE: f32 = 32.0;
+const TILE_SIZE: f32 = 64.0;
 /// Simulated 60Hz display: one grid step / one input gate spans this many render updates.
 pub const RENDER_FRAMES_PER_SIM_STEP: u32 = 6;
 const FOV_RADIUS: i32 = 99;
