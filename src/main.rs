@@ -9,6 +9,7 @@ mod loot;
 mod crafting;
 
 use {
+  bevy::anti_alias::fxaa::Fxaa,
   bevy::prelude::*,
   combat::{TileEntityIndex, enemy_ai, maintain_tile_index},
   level::{FovGrid, Item, Tile, ZoneWorld, ZONE_HEIGHT, ZONE_WIDTH, SURFACE_Z, WORLD_DEPTH, compute_fov},
@@ -647,7 +648,8 @@ fn setup(
   const START_ZY: usize = 4;
   const START_Z:  usize = SURFACE_Z;
 
-  commands.spawn(Camera2d);
+  // FXAA softens edges on upscaled sprites; MSAA off avoids stacking cost (Bevy AA example pattern).
+  commands.spawn((Camera2d, Fxaa::default(), Msaa::Off));
 
   spawn_level_tiles(&mut commands, &asset_server, &gw.0, START_ZX, START_ZY, START_Z);
 
