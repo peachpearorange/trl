@@ -501,9 +501,22 @@ fn fantasy_main() {
         handle_interact,
         handle_utility_menus,
         player_input,
+      )
+        .chain()
+    )
+    .add_systems(
+      Update,
+      (
         ApplyDeferred,
+        enemy_death_check.in_set(SimStep),
         apply_gravity.in_set(SimStep),
         enemy_ai.in_set(SimStep),
+      )
+        .chain()
+    )
+    .add_systems(
+      Update,
+      (
         track_movement,
         interpolate_visual_positions,
         sync_entity_positions,
@@ -909,6 +922,19 @@ fn should_fall(gw: &ZoneWorld, wx: i32, wy: i32, z: usize) -> bool {
   let here = gw.zone(zx, zy, z).tiles[ly][lx];
   let below = z.checked_sub(1).map(|z1| gw.zone(zx, zy, z1).tiles[ly][lx]);
   here.causes_falling() || below.is_some_and(|t| t.causes_falling())
+}
+
+/// Despawn enemies with 0 or fewer HP. Runs in SimStep so dead enemies
+/// are removed before the next frame's rendering and AI.
+fn enemy_death_check(
+  mut commands: Commands,
+  enemy_q: Query<(Entity, &Stats), With<Enemy>>,
+) {
+  for (entity, stats) in enemy_q.iter() {
+    if stats.hp <= 0 {
+      commands.entity(entity).despawn();
+    }
+  }
 }
 
 /// Drop entities with Gravity standing on open space or over a void.
@@ -2123,9 +2149,14 @@ fn space_main() {
             handle_interact,
             handle_utility_menus,
             space_player_input,
+        ).chain())
+        .add_systems(Update, (
             ApplyDeferred,
+            enemy_death_check.in_set(SimStep),
             apply_gravity.in_set(SimStep),
             enemy_ai.in_set(SimStep),
+        ).chain())
+        .add_systems(Update, (
             track_movement,
             interpolate_visual_positions,
             sync_entity_positions,
