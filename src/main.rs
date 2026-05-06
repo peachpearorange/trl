@@ -1,5 +1,5 @@
 mod ui;
-mod level;
+use trl::level;
 mod combat;
 mod npcs;
 mod worldgen;

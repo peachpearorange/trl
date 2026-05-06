@@ -443,6 +443,7 @@ impl Tile {
   }
 }
 
+#[derive(Clone, Debug)]
 pub struct Level {
   pub tiles: Vec<Vec<Tile>>,
   pub items: Vec<Vec<Option<Item>>>,
