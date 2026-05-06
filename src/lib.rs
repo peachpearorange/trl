@@ -6,3 +6,4 @@ pub mod level;
 pub mod galaxy;
 pub mod ship;
 pub mod active_zone;
+pub mod docking;
