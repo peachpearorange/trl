@@ -1,3 +1,15 @@
+/// What kind of place a Location is. Determines atmosphere, procgen strategy, and flavor.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LocationType {
+    ShipInterior,
+    SpaceStation,
+    DerelictShip,
+    AsteroidField,
+    PlanetSurface { breathable: bool },
+    DeepSpace,
+    Ruins,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Tile {
   Air,
