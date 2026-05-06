@@ -21,6 +21,8 @@ use {
   },
 };
 
+use trl::{galaxy, ship, active_zone};
+
 const TILE_SIZE: f32 = 64.0;
 /// Simulated 60Hz display: one grid step / one input gate spans this many render updates.
 pub const RENDER_FRAMES_PER_SIM_STEP: u32 = 6;
@@ -227,6 +229,9 @@ struct SimStep;
 pub struct GameWorld(pub ZoneWorld);
 
 #[derive(Resource)]
+pub struct CurrentZone(pub active_zone::ActiveZone);
+
+#[derive(Resource)]
 pub struct Fov(pub FovGrid);
 
 #[derive(Component)]
@@ -237,6 +242,13 @@ pub struct PlayerPos {
   pub x: i32,
   pub y: i32,
   pub z: usize,
+}
+
+#[derive(Component)]
+struct SpacePlayerPos {
+    x: i32,
+    y: i32,
+    z: usize,
 }
 
 #[derive(Component)]
@@ -442,6 +454,10 @@ fn sync_entity_positions(
 // ---------------------------------------------------------------------------
 
 fn main() {
+    space_main();
+}
+
+fn fantasy_main() {
   let world = worldgen::generate_world(worldgen::WORLD_SEED);
   let fov = FovGrid::new(ZONE_WIDTH, ZONE_HEIGHT);
 
@@ -2035,4 +2051,358 @@ fn handle_world_map(
   } else if !ui.any_open() {
     world_map.open = true;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Space game entry point
+// ---------------------------------------------------------------------------
+
+fn space_main() {
+    let mut galaxy = galaxy::Galaxy::new();
+    let ship_id: galaxy::LocationId = (-1, -1, -1);
+
+    let ship_location = ship::build_ship_interior();
+    galaxy.insert(ship_id, ship_location.clone());
+
+    let ship_res = ship::Ship::new(ship_id);
+    let active = active_zone::ActiveZone::ship_only(&ship_location);
+
+    let _start_z: usize = 0;
+    let fov = level::FovGrid::new(active.width, active.height);
+
+    App::new()
+        .add_plugins(haalka::HaalkaPlugin::default())
+        .add_plugins(DefaultPlugins
+            .set(ImagePlugin::default_linear())
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "trl — space".into(),
+                    resolution: (1200u32, 800u32).into(),
+                    ..default()
+                }),
+                ..default()
+            }))
+        .insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.05)))
+        .insert_resource(galaxy)
+        .insert_resource(ship_res)
+        .insert_resource(CurrentZone(active))
+        .init_resource::<RenderFrame>()
+        .init_resource::<TurnBasedWorldState>()
+        .insert_resource(Clock::new())
+        .insert_resource(TimeModeAuto(true))
+        .init_resource::<ChestOpenPending>()
+        .insert_resource(UiState::default())
+        .insert_resource(Fov(fov))
+        .insert_resource(TileEntityIndex::default())
+        .add_plugins(ui::UiPlugin)
+        .add_systems(Startup, (space_setup, ui::spawn_haalka_root).chain())
+        .configure_sets(Update, SimStep.run_if(should_run_sim_step))
+        .add_systems(Update, (
+            bump_render_frame,
+            maintain_tile_index,
+            setup_glyph_visuals,
+            update_time_mode,
+            handle_world_map,
+            handle_dialogue,
+            handle_menus,
+            handle_interact,
+            handle_utility_menus,
+            space_player_input,
+            ApplyDeferred,
+            apply_gravity.in_set(SimStep),
+            enemy_ai.in_set(SimStep),
+            track_movement,
+            interpolate_visual_positions,
+            sync_entity_positions,
+            update_entity_visibility,
+            space_camera_follow,
+            update_fov_visuals,
+            update_tile_hover_highlight,
+        ).chain())
+        .run();
+}
+
+fn space_setup(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    current: Res<CurrentZone>,
+    mut fov: ResMut<Fov>,
+    mut images: ResMut<Assets<Image>>,
+    mut world_map: ResMut<WorldMapView>,
+) {
+    commands.spawn((Camera2d, Fxaa::default(), Msaa::Off));
+
+    spawn_level_tiles_space(&mut commands, &asset_server, &current.0);
+
+    let hover_img = white_pixel_image(&mut images);
+    commands.spawn((
+        TileHoverHighlight,
+        Sprite {
+            image: hover_img,
+            custom_size: Some(Vec2::splat(TILE_SIZE)),
+            color: Color::srgba(0.95, 0.92, 0.45, 0.28),
+            ..default()
+        },
+        Transform::from_translation(Vec3::new(0.0, 0.0, 0.25)),
+        Visibility::Hidden,
+    ));
+
+    let start_x: i32 = ship::SHIP_WIDTH as i32 / 2;
+    let start_y: i32 = ship::SHIP_HEIGHT as i32 / 2;
+    let (sox, soy) = current.0.ship_origin;
+    let local_x = sox + start_x;
+    let local_y = soy + start_y;
+
+    let start_local = Vec2::new(local_x as f32, local_y as f32);
+
+    commands.spawn((
+        Sprite {
+            image: asset_server.load("textures/retro-future_post-apocalyptic_settlement_guard.png"),
+            custom_size: Some(Vec2::splat(TILE_SIZE)),
+            color: Color::WHITE,
+            ..default()
+        },
+        Transform::from_translation(
+            tile_screen_pos(local_x as f32, local_y as f32, current.0.width, current.0.height) + Vec3::Z
+        ),
+        Player,
+        SpacePlayerPos { x: local_x, y: local_y, z: 0 },
+        Stats { hp: 20, max_hp: 20, attack: 5, move_speed: 3.0, attack_speed: 1.0 },
+        Inventory::default(),
+        GlyphVisual,
+        Visuals {
+            prev: start_local,
+            last_move_start_frame: None,
+            display: start_local,
+            last_pos: start_local,
+        },
+    ));
+
+    let lvl = current.0.level(0);
+    compute_fov_space(&mut fov.0, lvl, local_x, local_y, FOV_RADIUS);
+    world_map.image = generate_map_from_active_zone(&current.0, &mut images);
+}
+
+fn spawn_level_tiles_space(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    zone: &active_zone::ActiveZone,
+) {
+    for z in 0..zone.depth {
+        let level = zone.level(z);
+        for y in 0..level.height {
+            for x in 0..level.width {
+                let tile = level.tiles[y][x];
+                if tile == Tile::Air || tile == Tile::Vacuum {
+                    continue;
+                }
+                let pos = tile_screen_pos(x as f32, y as f32, zone.width, zone.height);
+                if let Some(path) = tile.texture_path() {
+                    commands.spawn((
+                        Sprite {
+                            image: asset_server.load(path),
+                            custom_size: Some(Vec2::splat(TILE_SIZE)),
+                            color: Color::srgba(0.0, 0.0, 0.0, 0.0),
+                            ..default()
+                        },
+                        Transform::from_translation(pos),
+                        TileGlyph { x, y },
+                        TilePng,
+                    ));
+                } else {
+                    let [r, g, b] = tile.color();
+                    commands.spawn((
+                        Text2d::new(tile.glyph()),
+                        TextFont { font_size: TILE_SIZE, ..default() },
+                        TextColor(Color::srgba(r, g, b, 0.0)),
+                        Transform::from_translation(pos),
+                        TileGlyph { x, y },
+                    ));
+                }
+
+                if let Some(item) = level.items[y][x] {
+                    let [r, g, b] = item.color();
+                    commands.spawn((
+                        Text2d::new(item.glyph()),
+                        TextFont { font_size: TILE_SIZE, ..default() },
+                        TextColor(Color::srgba(r, g, b, 0.0)),
+                        Transform::from_translation(
+                            tile_screen_pos(x as f32, y as f32, zone.width, zone.height)
+                                + Vec3::new(0.0, 0.0, 1.0)
+                        ),
+                        ItemGlyph { x, y },
+                    ));
+                }
+            }
+        }
+    }
+}
+
+fn space_camera_follow(
+    player_q: Query<&Visuals, With<Player>>,
+    current: Res<CurrentZone>,
+    mut cam_q: Query<&mut Transform, With<Camera2d>>,
+    windows: Query<&Window>,
+) {
+    if let Ok(vis) = player_q.single()
+        && let Ok(mut cam_tf) = cam_q.single_mut()
+        && let Ok(win) = windows.single()
+    {
+        let w = win.resolution.width();
+        let h = win.resolution.height();
+        let screen_center = Vec2::new(w / 2.0, h / 2.0);
+        let viewport_center = Vec2::new(w * 0.35, (h - STATUS_BAR_HEIGHT) / 2.0);
+        let offset = viewport_center - screen_center;
+
+        let local = vis.display;
+        let world_pos = Vec2::new(
+            (local.x - current.0.width as f32 / 2.0) * TILE_SIZE,
+            (current.0.height as f32 / 2.0 - local.y) * TILE_SIZE,
+        );
+        cam_tf.translation = (world_pos - offset).extend(0.0);
+    }
+}
+
+fn compute_fov_space(fov: &mut level::FovGrid, level: &level::Level, lx: i32, ly: i32, radius: i32) {
+    compute_fov(fov, level, lx, ly, radius, |_, _| false);
+}
+
+fn generate_map_from_active_zone(
+    zone: &active_zone::ActiveZone,
+    images: &mut Assets<Image>,
+) -> Handle<Image> {
+    use bevy::asset::RenderAssetUsages;
+    use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+
+    let w = zone.width;
+    let h = zone.height;
+    let mut data = vec![0u8; w * h * 4];
+
+    let level = zone.level(0);
+    for ty in 0..h {
+        for tx in 0..w {
+            let [r, g, b] = level.tiles[ty][tx].minimap_color();
+            let idx = (ty * w + tx) * 4;
+            data[idx]     = (r * 255.0) as u8;
+            data[idx + 1] = (g * 255.0) as u8;
+            data[idx + 2] = (b * 255.0) as u8;
+            data[idx + 3] = 255;
+        }
+    }
+
+    images.add(Image::new(
+        Extent3d {
+            width: w as u32,
+            height: h as u32,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        data,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD,
+    ))
+}
+
+fn space_player_input(
+    keys: Res<ButtonInput<KeyCode>>,
+    current: Res<CurrentZone>,
+    ui: Res<UiState>,
+    world_map: Res<WorldMapView>,
+    mut clock: ResMut<Clock>,
+    mut tb: ResMut<TurnBasedWorldState>,
+    mut time_mode_auto: ResMut<TimeModeAuto>,
+    mut fov: ResMut<Fov>,
+    index: Res<TileEntityIndex>,
+    mut player_query: Query<(&mut SpacePlayerPos, &Stats, &mut Inventory), With<Player>>,
+    mut enemy_query: Query<&mut Stats, (With<Enemy>, Without<Player>)>,
+    collidable_q: Query<&Collidable>,
+) {
+    if !ui.any_open() && !world_map.open && keys.just_pressed(KeyCode::KeyT) {
+        if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
+            time_mode_auto.0 = true;
+        } else {
+            time_mode_auto.0 = false;
+            clock.mode = match clock.mode {
+                TimeMode::RealTime => TimeMode::TurnBased,
+                TimeMode::TurnBased => {
+                    tb.pending_enemy_phase = false;
+                    TimeMode::RealTime
+                }
+            };
+        }
+    }
+
+    if !ui.any_open() && !world_map.open
+        && let Ok((mut pos, stats, mut inventory)) = player_query.single_mut()
+    {
+        let player_attack = stats.attack;
+        if clock.move_cooldown_frames > 0 {
+            clock.move_cooldown_frames -= 1;
+        }
+
+        let turn_based_block = clock.mode == TimeMode::TurnBased
+            && (clock.move_cooldown_frames > 0 || tb.pending_enemy_phase);
+
+        if !turn_based_block && keys.just_pressed(KeyCode::Period)
+            && !keys.pressed(KeyCode::ShiftLeft)
+            && !keys.pressed(KeyCode::ShiftRight)
+        {
+            clock.advance(PlayerAction::Wait.time_cost());
+            note_player_turn_moved_world(&*clock, &mut *tb);
+        } else if !turn_based_block
+            && (if clock.mode == TimeMode::TurnBased {
+                any_direction_just_pressed(&keys)
+            } else {
+                any_direction_pressed(&keys)
+            }) && clock.move_cooldown_frames == 0
+        {
+            let level = current.0.level(pos.z);
+            let dir = read_direction(&keys);
+            let (raw_dx, raw_dy) = (dir.0, dir.1);
+
+            let (dx, dy) = resolve_move(level, pos.x, pos.y, raw_dx, raw_dy);
+
+            if (dx, dy) != (0, 0) {
+                let target_x = pos.x + dx;
+                let target_y = pos.y + dy;
+
+                let enemy_hit = index.0.get(&(target_x, target_y, pos.z))
+                    .and_then(|entities| entities.iter().find(|&&e| enemy_query.get(e).is_ok()).copied());
+
+                if let Some(hostile) = enemy_hit {
+                    if let Ok(mut es) = enemy_query.get_mut(hostile) {
+                        es.hp -= player_attack;
+                    }
+                } else {
+                    let blocked = index.0.get(&(target_x, target_y, pos.z))
+                        .is_some_and(|entities| entities.iter().any(|&e| {
+                            collidable_q.get(e).is_ok_and(|c| c.0)
+                        }));
+
+                    if !blocked {
+                        pos.x = target_x;
+                        pos.y = target_y;
+                        compute_fov_space(
+                            &mut fov.0,
+                            current.0.level(pos.z),
+                            pos.x,
+                            pos.y,
+                            FOV_RADIUS,
+                        );
+
+                        let lvl = current.0.level(pos.z);
+                        if (pos.y as usize) < lvl.height && (pos.x as usize) < lvl.width {
+                            if let Some(item) = lvl.items[pos.y as usize][pos.x as usize] {
+                                *inventory.0.entry(item).or_insert(0) += 1;
+                            }
+                        }
+                    }
+                }
+
+                clock.advance(PlayerAction::Move { dx, dy }.time_cost());
+                clock.move_cooldown_frames = RENDER_FRAMES_PER_SIM_STEP;
+                note_player_turn_moved_world(&*clock, &mut *tb);
+            }
+        }
+    }
 }

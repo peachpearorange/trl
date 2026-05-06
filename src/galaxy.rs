@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use bevy::prelude::*;
 use crate::level::{Level, LocationType};
 
 /// Unique identifier for a Location in the Galaxy.
@@ -54,7 +55,7 @@ impl Location {
 }
 
 /// The sparse galaxy map. Locations are lazily generated when first visited.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Resource)]
 pub struct Galaxy {
     pub locations: HashMap<LocationId, Location>,
 }

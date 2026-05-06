@@ -1,3 +1,4 @@
+use bevy::prelude::*;
 use crate::galaxy::LocationId;
 use crate::level::{LocationType, Tile};
 
@@ -14,7 +15,7 @@ pub const CONSOLE_X: i32 = 10;
 pub const CONSOLE_Y: i32 = 2;
 
 /// Ship state resource.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Resource)]
 pub struct Ship {
     pub location_id: LocationId,
     pub docked_at: Option<LocationId>,
