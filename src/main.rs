@@ -21,7 +21,7 @@ use {
   },
 };
 
-use trl::{galaxy, ship, active_zone};
+use trl::{galaxy, ship, active_zone, galaxy_gen, docking};
 
 const TILE_SIZE: f32 = 64.0;
 /// Simulated 60Hz display: one grid step / one input gate spans this many render updates.
@@ -2064,10 +2064,25 @@ fn space_main() {
     let ship_location = ship::build_ship_interior();
     galaxy.insert(ship_id, ship_location.clone());
 
-    let ship_res = ship::Ship::new(ship_id);
-    let active = active_zone::ActiveZone::ship_only(&ship_location);
+    // Add starter planet at origin
+    let origin: galaxy::LocationId = (0, 0, 0);
+    let starter_planet = galaxy_gen::generate_starter_planet();
+    galaxy.insert(origin, starter_planet.clone());
 
-    let _start_z: usize = 0;
+    // Ship starts docked at the starter planet
+    let active = active_zone::ActiveZone::docked(
+        &ship_location,
+        &starter_planet,
+        0, // first landing spot
+    ).expect("ship should dock at starter planet");
+
+    let ship_res = ship::Ship {
+        location_id: ship_id,
+        docked_at: Some(origin),
+        fuel: 500,
+        max_fuel: 500,
+    };
+
     let fov = level::FovGrid::new(active.width, active.height);
 
     App::new()
@@ -2177,6 +2192,35 @@ fn space_setup(
             last_pos: start_local,
         },
     ));
+
+    // Spawn flight console on the ship
+    let console_x = sox + ship::CONSOLE_X;
+    let console_y = soy + ship::CONSOLE_Y;
+    Object::flight_console().spawn_at(&mut commands, console_x, console_y, 0);
+
+    // Spawn starter planet NPCs at destination-local coords mapped into the active zone
+    if let Some((dox, doy)) = current.0.dest_origin {
+        for &(lx, ly) in galaxy_gen::STARTER_NPC_COORDS {
+            let wx = dox + lx;
+            let wy = doy + ly;
+            let (obj, _dx, _dy) = match (lx, ly) {
+                (22, 25) => (npcs::mira::mira(), 0, 0),
+                (20, 23) => (npcs::chronos::chronos(), 0, 0),
+                (26, 22) => (npcs::unit7::unit7(), 0, 0),
+                (22, 21) => (npcs::kong::kong(), 0, 0),
+                (24, 23) => (npcs::guard::guard(), 0, 0),
+                _ => continue,
+            };
+            obj.spawn_at(&mut commands, wx, wy, 0);
+        }
+
+        // Spawn trees as entities at destination coords
+        for &(lx, ly) in &[(5, 5), (8, 12), (40, 8), (38, 30)] {
+            let wx = dox + lx;
+            let wy = doy + ly;
+            Object::tree().spawn_at(&mut commands, wx, wy, 0);
+        }
+    }
 
     let lvl = current.0.level(0);
     compute_fov_space(&mut fov.0, lvl, local_x, local_y, FOV_RADIUS);

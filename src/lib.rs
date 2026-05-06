@@ -7,3 +7,7 @@ pub mod galaxy;
 pub mod ship;
 pub mod active_zone;
 pub mod docking;
+pub mod galaxy_gen;
+pub mod navigation;
+pub mod atmosphere;
+pub mod crew;

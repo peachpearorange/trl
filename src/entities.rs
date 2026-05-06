@@ -244,6 +244,10 @@ pub struct TimeSinceAction(pub u32);
 #[derive(Component, Debug)]
 pub struct Gravity;
 
+/// Marker component for the flight console entity.
+#[derive(Component)]
+pub struct FlightConsole;
+
 /// Smooth visual interpolation state for moving entities.
 /// Stores the previous position (at move start) and computes a weighted average
 /// toward the current logical Location each frame, producing fluid tile-to-tile sliding.
@@ -339,6 +343,16 @@ impl Object {
     ),
     Named { name: "Tree", flavor: "A sturdy tree. Could be chopped for wood." },
   )) }
+  pub fn flight_console() -> Self {
+    Self::structure(true).add((
+        Glyph::ascii('C', Color::srgb(0.3, 0.9, 0.4)),
+        Named {
+            name: "Flight Console",
+            flavor: "Navigation computer. Plot a course to a destination.",
+        },
+        FlightConsole,
+    ))
+  }
   pub fn loot_chest() -> Self {
     Self::structure(true).add((
         LootChest { opened: false },
