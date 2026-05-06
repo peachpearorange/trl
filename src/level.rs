@@ -24,6 +24,26 @@ pub enum Tile {
   CaveWall,
   CaveFloor,
   CrystalFormation,
+  // --- Space tiles ---
+  DeckPlate,
+  Bulkhead,
+  Window,
+  AirlockDoor,
+  StationFloor,
+  StationWall,
+  DerelictFloor,
+  DerelictWall,
+  Conduit,
+  AsteroidRock,
+  AsteroidFloor,
+  Regolith,
+  Vacuum,
+  IceFloor,
+  IceWall,
+  AlienSoil,
+  AlienGrass,
+  CrystalGrowth,
+  AlienFluid,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -200,6 +220,18 @@ impl Tile {
       Tile::CaveWall => "#",
       Tile::CaveFloor => ".",
       Tile::CrystalFormation => "*",
+      Tile::DeckPlate | Tile::StationFloor | Tile::DerelictFloor
+      | Tile::AsteroidFloor => ".",
+      Tile::Bulkhead | Tile::StationWall | Tile::DerelictWall
+      | Tile::AsteroidRock | Tile::IceWall => "#",
+      Tile::Window => "o",
+      Tile::AirlockDoor => "+",
+      Tile::Conduit => "=",
+      Tile::Regolith | Tile::IceFloor | Tile::AlienSoil => ",",
+      Tile::Vacuum => " ",
+      Tile::AlienGrass => "\"",
+      Tile::CrystalGrowth => "*",
+      Tile::AlienFluid => "~",
     }
   }
 
@@ -229,6 +261,24 @@ impl Tile {
       Tile::CaveWall => [0.3, 0.28, 0.25],
       Tile::CaveFloor => [0.4, 0.38, 0.35],
       Tile::CrystalFormation => [0.5, 0.8, 0.95],
+      Tile::DeckPlate | Tile::StationFloor => [0.55, 0.58, 0.62],
+      Tile::Bulkhead => [0.45, 0.47, 0.50],
+      Tile::Window => [0.2, 0.25, 0.7],
+      Tile::AirlockDoor => [0.7, 0.65, 0.3],
+      Tile::StationWall => [0.5, 0.52, 0.55],
+      Tile::DerelictFloor => [0.35, 0.33, 0.3],
+      Tile::DerelictWall => [0.3, 0.28, 0.25],
+      Tile::Conduit => [0.6, 0.55, 0.2],
+      Tile::AsteroidRock => [0.4, 0.35, 0.3],
+      Tile::AsteroidFloor => [0.5, 0.45, 0.4],
+      Tile::Regolith => [0.55, 0.5, 0.45],
+      Tile::Vacuum => [0.0, 0.0, 0.0],
+      Tile::IceFloor => [0.7, 0.75, 0.85],
+      Tile::IceWall => [0.5, 0.55, 0.7],
+      Tile::AlienSoil => [0.45, 0.35, 0.55],
+      Tile::AlienGrass => [0.3, 0.55, 0.3],
+      Tile::CrystalGrowth => [0.5, 0.8, 0.95],
+      Tile::AlienFluid => [0.5, 0.3, 0.7],
     }
   }
 
@@ -251,6 +301,19 @@ impl Tile {
       }
       Tile::Floor | Tile::StairsUp | Tile::StairsDown | Tile::CaveFloor => [0.62, 0.55, 0.40],
       Tile::Fence | Tile::CrystalFormation => [0.45, 0.55, 0.50],
+      Tile::DeckPlate | Tile::StationFloor => [0.45, 0.47, 0.5],
+      Tile::Bulkhead | Tile::StationWall => [0.35, 0.37, 0.4],
+      Tile::AsteroidRock | Tile::AsteroidFloor => [0.42, 0.38, 0.33],
+      Tile::Regolith | Tile::IceFloor => [0.6, 0.62, 0.68],
+      Tile::AlienSoil | Tile::AlienGrass => [0.35, 0.45, 0.3],
+      Tile::AlienFluid => [0.4, 0.25, 0.6],
+      Tile::Vacuum => [0.02, 0.03, 0.06],
+      Tile::DerelictFloor | Tile::DerelictWall => [0.28, 0.26, 0.22],
+      Tile::IceWall => [0.45, 0.5, 0.62],
+      Tile::Conduit => [0.5, 0.45, 0.15],
+      Tile::AirlockDoor => [0.6, 0.55, 0.2],
+      Tile::Window => [0.15, 0.2, 0.55],
+      Tile::CrystalGrowth => [0.4, 0.65, 0.8],
     }
   }
 
@@ -277,6 +340,17 @@ impl Tile {
         | Tile::WoodFloor
         | Tile::CaveFloor
         | Tile::ShallowWater
+        | Tile::DeckPlate
+        | Tile::StationFloor
+        | Tile::DerelictFloor
+        | Tile::AsteroidFloor
+        | Tile::Regolith
+        | Tile::IceFloor
+        | Tile::AlienSoil
+        | Tile::AlienGrass
+        | Tile::Conduit
+        | Tile::Vacuum
+        | Tile::AlienFluid
     )
   }
 }
@@ -291,6 +365,11 @@ impl Tile {
         | Tile::WoodWall
         | Tile::CaveWall
         | Tile::Door
+        | Tile::Bulkhead
+        | Tile::StationWall
+        | Tile::DerelictWall
+        | Tile::AsteroidRock
+        | Tile::IceWall
     )
   }
 
@@ -323,7 +402,32 @@ impl Tile {
       Tile::CaveWall => "Cave Wall",
       Tile::CaveFloor => "Cave Floor",
       Tile::CrystalFormation => "Crystal Formation",
+      Tile::DeckPlate => "Deck Plate",
+      Tile::Bulkhead => "Bulkhead",
+      Tile::Window => "Window",
+      Tile::AirlockDoor => "Airlock Door",
+      Tile::StationFloor => "Station Floor",
+      Tile::StationWall => "Station Wall",
+      Tile::DerelictFloor => "Derelict Floor",
+      Tile::DerelictWall => "Derelict Wall",
+      Tile::Conduit => "Conduit",
+      Tile::AsteroidRock => "Asteroid Rock",
+      Tile::AsteroidFloor => "Asteroid Floor",
+      Tile::Regolith => "Regolith",
+      Tile::Vacuum => "Vacuum",
+      Tile::IceFloor => "Ice Floor",
+      Tile::IceWall => "Ice Wall",
+      Tile::AlienSoil => "Alien Soil",
+      Tile::AlienGrass => "Alien Grass",
+      Tile::CrystalGrowth => "Crystal Growth",
+      Tile::AlienFluid => "Alien Fluid",
     }
+  }
+
+  /// Whether this tile provides breathable atmosphere.
+  /// Returns false for Vacuum and Air; true for everything else.
+  pub fn has_atmosphere(self) -> bool {
+    !matches!(self, Tile::Vacuum | Tile::Air)
   }
 }
 
