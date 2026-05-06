@@ -1,10 +1,11 @@
+use bevy::prelude::*;
 use crate::galaxy::Location;
 use crate::level::Level;
 use crate::ship::{AIRLOCK_X, AIRLOCK_Y};
 
 /// The currently rendered tile grid. Holds the merged tiles of the ship
 /// and (when docked) the destination location.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Resource)]
 pub struct ActiveZone {
     pub levels: Vec<Level>,
     pub width: usize,
