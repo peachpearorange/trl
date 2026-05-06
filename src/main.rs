@@ -2111,6 +2111,11 @@ fn space_main() {
 
     let fov = level::FovGrid::new(active.width, active.height);
 
+    // Stub GameWorld so shared systems (menus, gravity, etc.) don't panic.
+    // These systems operate on zone data that doesn't exist in space mode;
+    // they silently no-op on the empty vacuum world.
+    let stub_world = GameWorld(level::ZoneWorld::new(Tile::Vacuum));
+
     App::new()
         .add_plugins(haalka::HaalkaPlugin::default())
         .add_plugins(DefaultPlugins
@@ -2124,6 +2129,7 @@ fn space_main() {
                 ..default()
             }))
         .insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.05)))
+        .insert_resource(stub_world)
         .insert_resource(galaxy)
         .insert_resource(ship_res)
         .insert_resource(CurrentZone(active))
