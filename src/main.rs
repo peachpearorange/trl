@@ -1,26 +1,23 @@
 mod ui;
 use trl::level;
 mod combat;
+mod crafting;
+mod loot;
 mod npcs;
 mod utils;
-mod loot;
-mod crafting;
 
-use {
-  bevy::anti_alias::fxaa::Fxaa,
-  bevy::prelude::*,
+use {bevy::{anti_alias::fxaa::Fxaa, prelude::*},
   combat::{TileEntityIndex, enemy_ai, maintain_tile_index},
   level::{FovGrid, Item, Tile, ZONE_HEIGHT, ZONE_WIDTH, compute_fov},
   std::collections::{HashMap, HashSet},
-  ui::{log_message, LogEntries, WorldMapView},
-  trl::entities::{
-    BlocksSight, Collidable, Dialogue, DialogueNode, DialogueTree, Door, Enemy, Glyph, Location, LootChest,
-    Named, Object, Stats, Tree, Visuals,
-  },
-};
+     trl::entities::{BlocksSight, Collidable, Dialogue, DialogueNode, DialogueTree, Door,
+                     Enemy, Glyph, Location, LootChest, Named, Object, Stats, Tree,
+                     Visuals},
+     ui::{LogEntries, WorldMapView, log_message}};
 
-use trl::{galaxy, ship, active_zone, galaxy_gen};
-use trl::active_zone::ActiveZone;
+use trl::{active_zone::{self, ActiveZone},
+          galaxy, galaxy_gen, ship,
+          sprites::{palette_sprite_handle, PaletteImageCache}};
 
 const TILE_SIZE: f32 = 64.0;
 /// Simulated 60Hz display: one grid step / one input gate spans this many render updates.
@@ -81,7 +78,7 @@ enum InteractionAction {
   PickUpItem(i32, i32),
   OpenChest(Entity),
   Salvage(Item),
-  Craft(usize),
+  Craft(usize)
 }
 
 #[derive(Default)]
@@ -113,20 +110,22 @@ enum PauseMenu {
 enum DialogueState {
   #[default]
   Closed,
-  Open { speaker: &'static str, tree: &'static DialogueTree, node_name: &'static str },
+  Open {
+    speaker: &'static str,
+    tree: &'static DialogueTree,
+    node_name: &'static str
+  }
 }
 
 #[derive(Component)]
-
 // ---------------------------------------------------------------------------
 // Merged UI state
 // ---------------------------------------------------------------------------
-
 #[derive(Resource, Default)]
 struct UiState {
   pause: PauseMenu,
   interact: InteractMenu,
-  dialogue: DialogueState,
+  dialogue: DialogueState
 }
 
 impl UiState {
@@ -151,7 +150,7 @@ pub struct Clock {
   pub time: u64,
   pub mode: TimeMode,
   /// Renders left before another step is accepted.
-  move_cooldown_frames: u32,
+  move_cooldown_frames: u32
 }
 
 /// When `true`, [`update_time_mode`] may switch to turn-based when enemies are near.
@@ -160,9 +159,7 @@ pub struct Clock {
 pub struct TimeModeAuto(pub bool);
 
 impl Clock {
-  fn new() -> Self {
-    Clock { time: 0, mode: TimeMode::RealTime, move_cooldown_frames: 0 }
-  }
+  fn new() -> Self { Clock { time: 0, mode: TimeMode::RealTime, move_cooldown_frames: 0 } }
 
   fn advance(&mut self, cost: u32) { self.time = self.time.saturating_add(u64::from(cost)); }
 }
@@ -172,7 +169,7 @@ impl Clock {
 /// Cleared at the end of [`combat::enemy_ai`] after that tick runs.
 #[derive(Resource, Default)]
 pub struct TurnBasedWorldState {
-  pub pending_enemy_phase: bool,
+  pub pending_enemy_phase: bool
 }
 
 /// Set when the player picks "Open chest" from the interact menu; applied next frame.
@@ -202,7 +199,7 @@ fn bump_render_frame(mut frame: ResMut<RenderFrame>, mut clock: ResMut<Clock>) {
 fn should_run_sim_step(
   frame: Res<RenderFrame>,
   clock: Res<Clock>,
-  tb: Res<TurnBasedWorldState>,
+  tb: Res<TurnBasedWorldState>
 ) -> bool {
   if clock.mode == TimeMode::RealTime {
     frame.0 > 0 && frame.0 % u64::from(RENDER_FRAMES_PER_SIM_STEP) == 0
@@ -231,7 +228,7 @@ pub struct Player;
 pub struct PlayerPos {
     pub x: i32,
     pub y: i32,
-    pub z: usize,
+  pub z: usize
 }
 
 #[derive(Component)]
@@ -249,9 +246,6 @@ struct ItemGlyph {
   x: usize,
   y: usize
 }
-
-#[derive(Component)]
-struct PauseOverlay;
 
 #[derive(Component, Default)]
 pub struct Inventory(pub HashMap<Item, u32>);
@@ -298,8 +292,8 @@ fn track_movement(
   frame: Res<RenderFrame>,
   mut params: ParamSet<(
     Query<(&Location, &mut Visuals)>,
-    Query<(&PlayerPos, &mut Visuals), With<Player>>,
-  )>,
+    Query<(&PlayerPos, &mut Visuals), With<Player>>
+  )>
 ) {
   let f = frame.0;
   for (loc, mut vis) in params.p0().iter_mut() {
@@ -347,8 +341,8 @@ fn interpolate_visual_positions(
   frame: Res<RenderFrame>,
   mut params: ParamSet<(
     Query<(&Location, &mut Visuals)>,
-    Query<(&PlayerPos, &mut Visuals), With<Player>>,
-  )>,
+    Query<(&PlayerPos, &mut Visuals), With<Player>>
+  )>
 ) {
   let f = frame.0;
   for (loc, mut vis) in params.p0().iter_mut() {
@@ -366,7 +360,9 @@ fn interpolate_visual_positions(
 fn setup_glyph_visuals(
   mut commands: Commands,
   asset_server: Res<AssetServer>,
-  query: Query<(Entity, &Glyph, &Location), (Added<Glyph>, Without<GlyphVisual>)>,
+  mut images: ResMut<Assets<Image>>,
+  mut palette_cache: ResMut<PaletteImageCache>,
+  query: Query<(Entity, &Glyph, &Location), (Added<Glyph>, Without<GlyphVisual>)>
 ) {
   for (entity, glyph, location) in query.iter() {
     if let Location::Coords { x, y, .. } = location {
@@ -376,9 +372,14 @@ fn setup_glyph_visuals(
       let pos = tile_screen_pos(lx as f32, ly as f32, ZONE_WIDTH, ZONE_HEIGHT)
         + Vec3::new(0.0, 0.0, 2.0);
       if let Some(path) = glyph.texture {
+        let img = if let Some((primary, secondary)) = glyph.sprite_palette {
+          palette_sprite_handle(path, primary, secondary, &mut palette_cache, &mut images)
+        } else {
+          asset_server.load(path)
+        };
         commands.entity(entity).insert((
           Sprite {
-            image: asset_server.load(path),
+            image: img,
             custom_size: Some(Vec2::splat(TILE_SIZE)),
             color: Color::WHITE,
             ..default()
@@ -389,8 +390,8 @@ fn setup_glyph_visuals(
             prev: local,
             last_move_start_frame: None,
             display: local,
-            last_pos: local,
-          },
+            last_pos: local
+          }
         ));
       } else {
         commands.entity(entity).insert((
@@ -403,17 +404,15 @@ fn setup_glyph_visuals(
             prev: local,
             last_move_start_frame: None,
             display: local,
-            last_pos: local,
-          },
+            last_pos: local
+          }
         ));
       }
     }
   }
 }
 
-fn sync_entity_positions(
-  mut query: Query<(&Visuals, &mut Transform), With<GlyphVisual>>,
-) {
+fn sync_entity_positions(mut query: Query<(&Visuals, &mut Transform), With<GlyphVisual>>) {
   for (vis, mut transform) in query.iter_mut() {
     transform.translation =
       tile_screen_pos(vis.display.x, vis.display.y, ZONE_WIDTH, ZONE_HEIGHT)
@@ -441,15 +440,12 @@ fn main() {
     let active = active_zone::ActiveZone::docked(
         &ship_location,
         &starter_planet,
-        0, // first landing spot
-    ).expect("ship should dock at starter planet");
+    0 // first landing spot
+  )
+  .expect("ship should dock at starter planet");
 
-    let ship_res = ship::Ship {
-        location_id: ship_id,
-        docked_at: Some(origin),
-        fuel: 500,
-        max_fuel: 500,
-    };
+  let ship_res =
+    ship::Ship { location_id: ship_id, docked_at: Some(origin), fuel: 500, max_fuel: 500 };
 
     let fov = level::FovGrid::new(active.width, active.height);
 
@@ -457,9 +453,7 @@ fn main() {
 
     App::new()
         .add_plugins(haalka::HaalkaPlugin::default())
-        .add_plugins(DefaultPlugins
-            .set(ImagePlugin::default_linear())
-            .set(WindowPlugin {
+    .add_plugins(DefaultPlugins.set(ImagePlugin::default_linear()).set(WindowPlugin {
                 primary_window: Some(Window {
                     title: "trl — space".into(),
                     resolution: (1200u32, 800u32).into(),
@@ -476,13 +470,16 @@ fn main() {
         .insert_resource(Clock::new())
         .insert_resource(TimeModeAuto(true))
         .init_resource::<ChestOpenPending>()
+        .init_resource::<PaletteImageCache>()
         .insert_resource(UiState::default())
         .insert_resource(Fov(fov))
         .insert_resource(TileEntityIndex::default())
         .add_plugins(ui::UiPlugin)
         .add_systems(Startup, (setup, ui::spawn_haalka_root).chain())
         .configure_sets(Update, SimStep.run_if(should_run_sim_step))
-        .add_systems(Update, (
+    .add_systems(
+      Update,
+      (
             bump_render_frame,
             maintain_tile_index,
             setup_glyph_visuals,
@@ -492,23 +489,32 @@ fn main() {
             handle_menus,
             handle_interact,
             handle_utility_menus,
-            player_input,
-        ).chain())
-        .add_systems(Update, (
+        player_input
+      )
+        .chain()
+    )
+    .add_systems(
+      Update,
+      (
             ApplyDeferred,
             enemy_death_check.in_set(SimStep),
             enemy_ai.in_set(SimStep),
-            update_fov.in_set(SimStep),
-        ).chain())
-        .add_systems(Update, (
+        update_fov.in_set(SimStep)
+      )
+        .chain()
+    )
+    .add_systems(
+      Update,
+      (
             track_movement,
             interpolate_visual_positions,
             sync_entity_positions,
-            update_entity_visibility,
             camera_follow,
             update_fov_visuals,
-            update_tile_hover_highlight,
-        ).chain())
+        update_tile_hover_highlight
+      )
+        .chain()
+    )
         .run();
 }
 
@@ -517,27 +523,23 @@ fn main() {
 // ---------------------------------------------------------------------------
 
 fn tile_screen_pos(x: f32, y: f32, w: usize, h: usize) -> Vec3 {
-  Vec3::new(
-    (x - w as f32 / 2.0) * TILE_SIZE,
-    (h as f32 / 2.0 - y) * TILE_SIZE,
-    0.0
-  )
+  Vec3::new((x - w as f32 / 2.0) * TILE_SIZE, (h as f32 / 2.0 - y) * TILE_SIZE, 0.0)
 }
 
 /// Game pane logical bounds (left portion of window, above status bar).
 /// Camera renders full-window so UI isn't viewport-clipped; this is used for cursor picking.
-fn game_pane_rect(w: &Window) -> Rect {
+pub(crate) fn game_pane_rect(w: &Window) -> Rect {
   Rect::new(
     0.0,
     0.0,
     w.resolution.width() * GAME_VIEWPORT_WIDTH_FRAC,
-    w.resolution.height() - STATUS_BAR_HEIGHT,
+    w.resolution.height() - STATUS_BAR_HEIGHT
   )
 }
 
 /// Inverse of [`tile_screen_pos`] for a point in world: which level cell it falls into.
 /// World units use `TILE_SIZE` and the same origin as the camera-facing grid.
-fn world_to_level_cell(world: Vec2, w: usize, h: usize) -> (i32, i32) {
+pub(crate) fn world_to_level_cell(world: Vec2, w: usize, h: usize) -> (i32, i32) {
   // Tiny bias avoids float edge cases on cell boundaries.
   const E: f32 = 1.0e-4;
   let tx = (world.x / TILE_SIZE + w as f32 * 0.5 - E).floor() as i32;
@@ -545,58 +547,13 @@ fn world_to_level_cell(world: Vec2, w: usize, h: usize) -> (i32, i32) {
   (tx, ty)
 }
 
-/// Picks a tile under the cursor.  The camera renders full-window (no sub-viewport) so
-/// the UI isn't clipped; we manually check if the cursor falls within the game pane.
-pub fn try_pick_level_tile_at_cursor(
-  window: &Window,
-  camera: &Camera,
-  camera_transform: &GlobalTransform,
-  level_w: usize,
-  level_h: usize,
-) -> Option<(i32, i32)> {
-  let cursor = window.cursor_position()?;
-  if !game_pane_rect(window).contains(cursor) {
-    return None;
-  }
-  let world = camera.viewport_to_world_2d(camera_transform, cursor).ok()?;
-  let (tx, ty) = world_to_level_cell(world, level_w, level_h);
-  (tx >= 0
-    && ty >= 0
-    && (tx as usize) < level_w
-    && (ty as usize) < level_h)
-    .then_some((tx, ty))
-}
-
 // ---------------------------------------------------------------------------
 // Gravity
 // ---------------------------------------------------------------------------
 
-/// Show entities on the current z-level only if their tile is in the FoV.
-fn update_entity_visibility(
-  player_q: Query<&PlayerPos, With<Player>>,
-  fov: Res<Fov>,
-  mut entity_q: Query<(&Location, &mut Visibility), With<GlyphVisual>>,
-) {
-  if let Ok(pos) = player_q.single() {
-    for (location, mut vis) in entity_q.iter_mut() {
-      *vis = if let Location::Coords { x, y, z, .. } = location
-        && *z == pos.z
-        && fov.0.is_visible(*x as usize, *y as usize)
-      {
-        Visibility::Visible
-      } else {
-        Visibility::Hidden
-      };
-    }
-  }
-}
-
 /// Despawn enemies with 0 or fewer HP. Runs in SimStep so dead enemies
 /// are removed before the next frame's rendering and AI.
-fn enemy_death_check(
-  mut commands: Commands,
-  enemy_q: Query<(Entity, &Stats), With<Enemy>>,
-) {
+fn enemy_death_check(mut commands: Commands, enemy_q: Query<(Entity, &Stats), With<Enemy>>) {
   for (entity, stats) in enemy_q.iter() {
     if stats.hp <= 0 {
       commands.entity(entity).despawn();
@@ -613,14 +570,14 @@ fn enemy_death_check(
 // ---------------------------------------------------------------------------
 
 fn white_pixel_image(images: &mut Assets<Image>) -> Handle<Image> {
-  use bevy::asset::RenderAssetUsages;
-  use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+  use bevy::{asset::RenderAssetUsages,
+             render::render_resource::{Extent3d, TextureDimension, TextureFormat}};
   images.add(Image::new(
     Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
     TextureDimension::D2,
     vec![255, 255, 255, 255],
     TextureFormat::Rgba8UnormSrgb,
-    RenderAssetUsages::RENDER_WORLD,
+    RenderAssetUsages::RENDER_WORLD
   ))
 }
 
@@ -631,7 +588,7 @@ fn update_tile_hover_highlight(
   fov: Res<Fov>,
   player_q: Query<&PlayerPos, With<Player>>,
   world_map: Res<WorldMapView>,
-  mut q: Query<(&mut Transform, &mut Visibility), With<TileHoverHighlight>>,
+  mut q: Query<(&mut Transform, &mut Visibility), With<TileHoverHighlight>>
 ) {
   if let Ok((mut transform, mut vis)) = q.single_mut() {
     *vis = Visibility::Hidden;
@@ -641,8 +598,21 @@ fn update_tile_hover_highlight(
       && let Ok(player_pos) = player_q.single()
     {
       let level = current.0.level(player_pos.z);
-      if let Some((tx, ty)) =
-        try_pick_level_tile_at_cursor(window, camera, cam_transform, level.width, level.height)
+      let pick = |w: &Window,
+                  c: &Camera,
+                  ct: &GlobalTransform,
+                  lw: usize,
+                  lh: usize|
+       -> Option<(i32, i32)> {
+        let cursor = w.cursor_position()?;
+        game_pane_rect(w)
+          .contains(cursor)
+          .then(|| c.viewport_to_world_2d(ct, cursor).ok())
+          .flatten()
+          .map(|world| world_to_level_cell(world, lw, lh))
+          .filter(|&(tx, ty)| tx >= 0 && ty >= 0 && (tx as usize) < lw && (ty as usize) < lh)
+      };
+      if let Some((tx, ty)) = pick(window, camera, cam_transform, level.width, level.height)
       {
         let visible = fov.0.is_visible(tx as usize, ty as usize);
         let revealed = fov.0.is_revealed(tx as usize, ty as usize);
@@ -663,6 +633,7 @@ fn update_fov_visuals(
   player_q: Query<&PlayerPos, With<Player>>,
   mut glyph_tiles: Query<(&TileGlyph, &mut TextColor), Without<TilePng>>,
   mut sprite_tiles: Query<(&TileGlyph, &mut Sprite), With<TilePng>>,
+  mut entity_q: Query<(&Location, &mut Visibility), With<GlyphVisual>>
 ) {
   if let Ok(pos) = player_q.single() {
     let level = current.0.level(pos.z);
@@ -686,6 +657,16 @@ fn update_fov_visuals(
         Color::srgba(0.0, 0.0, 0.0, 0.0)
       };
     }
+    for (location, mut vis) in entity_q.iter_mut() {
+      *vis = if let Location::Coords { x, y, z, .. } = location
+        && *z == pos.z
+        && fov.0.is_visible(*x as usize, *y as usize)
+      {
+        Visibility::Visible
+      } else {
+        Visibility::Hidden
+      };
+    }
   }
 }
 
@@ -700,7 +681,7 @@ fn update_time_mode(
   mut clock: ResMut<Clock>,
   time_mode_auto: Res<TimeModeAuto>,
   player_q: Query<&PlayerPos, With<Player>>,
-  enemy_q: Query<&Location, With<Enemy>>,
+  enemy_q: Query<&Location, With<Enemy>>
 ) {
   if !time_mode_auto.0 {
     return;
@@ -789,7 +770,6 @@ fn handle_menus(
   mut ui: ResMut<UiState>,
   mut world_map: ResMut<WorldMapView>,
   mut commands: Commands,
-  pause_overlay_q: Query<Entity, With<PauseOverlay>>,
   mut gw: ResMut<CurrentZone>,
   mut clock: ResMut<Clock>,
   mut tb: ResMut<TurnBasedWorldState>,
@@ -797,22 +777,29 @@ fn handle_menus(
   mut player_query: Query<(&mut PlayerPos, &mut Inventory), With<Player>>,
   mut door_q: Query<(&mut Door, &mut Glyph, &mut Collidable)>,
   mut pending_chest: ResMut<ChestOpenPending>,
-  mut exit: MessageWriter<AppExit>,
+  mut exit: MessageWriter<AppExit>
 ) {
   if keys.just_pressed(KeyCode::Escape) && world_map.open {
     world_map.open = false;
     return;
   }
 
-  // 1. Interact menu takes priority over pause menu
   if let InteractMenu::Open { options } = &ui.interact {
     if keys.just_pressed(KeyCode::Escape) {
       ui.interact = InteractMenu::Closed;
     } else if let Some(idx) = [
-        KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3,
-        KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6,
-        KeyCode::Digit7, KeyCode::Digit8, KeyCode::Digit9,
-      ].iter().position(|k| keys.just_pressed(*k))
+      KeyCode::Digit1,
+      KeyCode::Digit2,
+      KeyCode::Digit3,
+      KeyCode::Digit4,
+      KeyCode::Digit5,
+      KeyCode::Digit6,
+      KeyCode::Digit7,
+      KeyCode::Digit8,
+      KeyCode::Digit9
+    ]
+    .iter()
+    .position(|k| keys.just_pressed(*k))
       && idx < options.len()
     {
       let option = options[idx].clone();
@@ -830,7 +817,7 @@ fn handle_menus(
             commands.entity(entity).insert((
               Text2d::new("/"),
               TextFont { font_size: TILE_SIZE, ..default() },
-              TextColor(Color::srgb(0.3, 0.5, 0.3)),
+              TextColor(Color::srgb(0.3, 0.5, 0.3))
             ));
           } else {
             commands.entity(entity).insert((Collidable(true), BlocksSight));
@@ -840,7 +827,7 @@ fn handle_menus(
             commands.entity(entity).insert((
               Text2d::new("+"),
               TextFont { font_size: TILE_SIZE, ..default() },
-              TextColor(door.closed_color),
+              TextColor(door.closed_color)
             ));
           }
         }
@@ -855,12 +842,11 @@ fn handle_menus(
           &mut ui,
           &mut *log,
           &mut commands,
-          &mut player_query,
+          &mut player_query
         );
       }
     }
   } else {
-  // 2. Pause menu
   match ui.pause {
     PauseMenu::Closed => {
       let open = keys.just_pressed(KeyCode::Escape)
@@ -873,70 +859,23 @@ fn handle_menus(
         } else {
           PauseMenu::Main
         };
-        spawn_pause_overlay(&mut commands, &ui);
       }
     }
     PauseMenu::Main => {
       if keys.just_pressed(KeyCode::Escape) || keys.just_pressed(KeyCode::Digit1) {
         ui.pause = PauseMenu::Closed;
-        despawn_overlays(&mut commands, &pause_overlay_q);
       } else if keys.just_pressed(KeyCode::Digit2) {
-        despawn_overlays(&mut commands, &pause_overlay_q);
         ui.pause = PauseMenu::Controls;
-        spawn_pause_overlay(&mut commands, &ui);
       } else if keys.just_pressed(KeyCode::Digit3) {
         exit.write(AppExit::Success);
       }
     }
     PauseMenu::Controls => {
       if keys.just_pressed(KeyCode::Escape) {
-        despawn_overlays(&mut commands, &pause_overlay_q);
         ui.pause = PauseMenu::Main;
-        spawn_pause_overlay(&mut commands, &ui);
       }
     }
   }
-  } // end else (pause menu)
-}
-
-fn spawn_pause_overlay(commands: &mut Commands, ui: &UiState) {
-  let text = match ui.pause {
-    PauseMenu::Main => {
-      "\
-            Paused\n\
-            \n\
-            1) Resume\n\
-            2) Controls\n\
-            3) Quit Game\n\
-            \n\
-            Esc to resume"
-    }
-    PauseMenu::Controls => {
-      "\
-            Controls\n\
-            \n\
-            WASD / Arrows   move (real-time: hold; turn-based: tap per step)\n\
-            Space           use / interact\n\
-            .               wait (turn-based: pass a turn)\n\
-            T               toggle time mode (hold Shift+T: auto from enemies)\n\
-            ?               controls\n\
-            Esc             menu / back"
-    }
-    PauseMenu::Closed => return
-  };
-
-  commands.spawn((
-    Text2d::new(text),
-    TextFont { font_size: 16.0, ..default() },
-    TextColor(Color::srgb(0.9, 0.9, 0.9)),
-    Transform::from_xyz(0.0, 0.0, 20.0),
-    PauseOverlay
-  ));
-}
-
-fn despawn_overlays(commands: &mut Commands, query: &Query<Entity, With<PauseOverlay>>) {
-  for entity in query.iter() {
-    commands.entity(entity).despawn();
   }
 }
 
@@ -948,7 +887,7 @@ fn handle_dialogue(
   keys: Res<ButtonInput<KeyCode>>,
   world_map: Res<WorldMapView>,
   mut ui: ResMut<UiState>,
-  mut log: ResMut<LogEntries>,
+  mut log: ResMut<LogEntries>
 ) {
   // Digit keys are shared with the interact list; `handle_menus` runs after us. While the
   // interact overlay is up, that same key would otherwise apply to dialogue the same frame.
@@ -962,10 +901,18 @@ fn handle_dialogue(
     if keys.just_pressed(KeyCode::Escape) {
       ui.dialogue = DialogueState::Closed;
     } else if let Some(idx) = [
-        KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3,
-        KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6,
-        KeyCode::Digit7, KeyCode::Digit8, KeyCode::Digit9,
-      ].iter().position(|k| keys.just_pressed(*k))
+      KeyCode::Digit1,
+      KeyCode::Digit2,
+      KeyCode::Digit3,
+      KeyCode::Digit4,
+      KeyCode::Digit5,
+      KeyCode::Digit6,
+      KeyCode::Digit7,
+      KeyCode::Digit8,
+      KeyCode::Digit9
+    ]
+    .iter()
+    .position(|k| keys.just_pressed(*k))
       && idx < node.choices.len()
     {
       let choice = &node.choices[idx];
@@ -1000,12 +947,6 @@ fn direction_name(dx: i32, dy: i32) -> String {
   .to_string()
 }
 
-fn show_interact_menu(ui: &mut UiState, options: Vec<InteractionOption>) {
-  if !options.is_empty() {
-    ui.interact = InteractMenu::Open { options };
-  }
-}
-
 fn apply_open_chest(
   commands: &mut Commands,
   entity: Entity,
@@ -1013,33 +954,21 @@ fn apply_open_chest(
   loot_chest_q: &mut Query<(&mut LootChest, &mut Glyph, &Location)>,
   log: &mut LogEntries,
   clock: &mut Clock,
-  tb: &mut TurnBasedWorldState,
+  tb: &mut TurnBasedWorldState
 ) {
-  let Ok((mut chest, mut glyph, loc)) = loot_chest_q.get_mut(entity) else {
-    return;
-  };
-  if chest.opened {
-    return;
-  };
-  let Ok((_, mut inventory)) = player_query.single_mut() else {
-    return;
-  };
-  let Location::Coords {
-    x: cx,
-    y: cy,
-    z: cz,
-    ..
-  } = loc
-  else {
-    return;
-  };
-  let bundles = loot::roll_chest_loot(42u64, *cx, *cy, *cz);
+  if let Ok((mut chest, mut glyph, loc)) = loot_chest_q.get_mut(entity)
+    && !chest.opened
+    && let Ok((_, mut inventory)) = player_query.single_mut()
+    && let &Location::Coords { x: cx, y: cy, z: cz, .. } = loc
+  {
+    let bundles = loot::roll_chest_loot(42u64, cx, cy, cz);
   let kinds = bundles.len();
   for (item, qty) in bundles {
     *inventory.0.entry(item).or_insert(0) += qty;
   }
   chest.opened = true;
   glyph.texture = None;
+  glyph.sprite_palette = None;
   glyph.ch = '□';
   glyph.color = Color::srgb(0.45, 0.38, 0.32);
   commands.entity(entity).remove::<Sprite>();
@@ -1058,6 +987,7 @@ fn apply_open_chest(
   );
   clock.advance(1);
   note_player_turn_moved_world(clock, tb);
+}
 }
 
 fn salvage_label(item: Item) -> String {
@@ -1081,19 +1011,16 @@ fn format_recipe_ingredients(r: &crafting::Recipe) -> String {
 }
 
 fn build_salvage_options(inv: &HashMap<Item, u32>) -> Vec<InteractionOption> {
-  let mut items: Vec<Item> = inv
-    .iter()
-    .filter(|(k, n)| **n > 0 && k.can_salvage())
-    .map(|(&k, _)| k)
-    .collect();
+  let mut items =
+    utils::mapv(|(&k, _)| k, utils::filter(|(k, n)| **n > 0 && k.can_salvage(), inv));
   items.sort_by(|a, b| a.name().cmp(b.name()));
-  items
-    .into_iter()
-    .map(|item| InteractionOption {
+  utils::mapv(
+    |item| InteractionOption {
       label: salvage_label(item),
-      action: InteractionAction::Salvage(item),
-    })
-    .collect()
+      action: InteractionAction::Salvage(item)
+    },
+    items
+  )
 }
 
 fn build_craft_options(inv: &HashMap<Item, u32>) -> Vec<InteractionOption> {
@@ -1103,7 +1030,7 @@ fn build_craft_options(inv: &HashMap<Item, u32>) -> Vec<InteractionOption> {
     .filter(|(_, r)| crafting::can_craft(inv, r))
     .map(|(i, r)| InteractionOption {
       label: format!("Craft {} ({})", r.output.name(), format_recipe_ingredients(r)),
-      action: InteractionAction::Craft(i),
+      action: InteractionAction::Craft(i)
     })
     .collect()
 }
@@ -1113,7 +1040,7 @@ fn handle_utility_menus(
   world_map: Res<WorldMapView>,
   player_q: Query<(&PlayerPos, &Inventory), With<Player>>,
   mut ui: ResMut<UiState>,
-  mut log: ResMut<LogEntries>,
+  mut log: ResMut<LogEntries>
 ) {
   if ui.any_open() || world_map.open {
     return;
@@ -1124,14 +1051,14 @@ fn handle_utility_menus(
       if opts.is_empty() {
         log_message(&mut *log, "Nothing to salvage (gear, consumables, some junk).".into());
       } else {
-        show_interact_menu(&mut ui, opts);
+        ui.interact = InteractMenu::Open { options: opts };
       }
     } else if keys.just_pressed(KeyCode::KeyC) {
       let opts = build_craft_options(&inv.0);
       if opts.is_empty() {
         log_message(&mut *log, "No recipes available — gather base components.".into());
       } else {
-        show_interact_menu(&mut ui, opts);
+        ui.interact = InteractMenu::Open { options: opts };
       }
     }
   }
@@ -1145,7 +1072,7 @@ fn execute_interaction(
   ui: &mut UiState,
   log: &mut LogEntries,
   commands: &mut Commands,
-  player_query: &mut Query<(&mut PlayerPos, &mut Inventory), With<Player>>,
+  player_query: &mut Query<(&mut PlayerPos, &mut Inventory), With<Player>>
 ) {
   // No player/position needed; must not sit behind `player_query` or logging can be skipped.
   if let InteractionAction::Talk { speaker, tree } = action {
@@ -1236,7 +1163,7 @@ fn handle_interact(
   named_q: Query<&Named>,
   mut log: ResMut<LogEntries>,
   mut clock: ResMut<Clock>,
-  mut tb: ResMut<TurnBasedWorldState>,
+  mut tb: ResMut<TurnBasedWorldState>
 ) {
   if let Some(ent) = pending_chest.0.take() {
     apply_open_chest(
@@ -1246,78 +1173,79 @@ fn handle_interact(
       &mut loot_chest_q,
       &mut *log,
       &mut *clock,
-      &mut *tb,
+      &mut *tb
     );
   }
 
-  if ui.any_open() || world_map.open || !keys.just_pressed(KeyCode::Space)
-  {
+  if ui.any_open() || world_map.open || !keys.just_pressed(KeyCode::Space) {
     return;
   }
 
   if let Ok((pos, _)) = player_q.single() {
     let level = current.0.level(pos.z);
-    let mut options = Vec::new();
-
-    // Entity-based interactions: trees, dialogue, items
-    for (dx, dy) in (-1i32..=1).flat_map(|dy| (-1i32..=1).map(move |dx| (dx, dy))) {
+    let options: Vec<_> = (-1i32..=1)
+      .flat_map(|dy| (-1i32..=1).map(move |dx| (dx, dy)))
+      .flat_map(|(dx, dy)| {
       let wx = pos.x + dx;
       let wy = pos.y + dy;
+        let dir =
+          if dx == 0 && dy == 0 { "here".to_string() } else { direction_name(dx, dy) };
+        let mut tile_opts = Vec::new();
       if let Some(entities) = index.0.get(&(wx, wy, pos.z)) {
         for &e in entities.iter() {
           if tree_q.get(e).is_ok() {
-            let dir = if dx == 0 && dy == 0 { "here".to_string() } else { direction_name(dx, dy) };
-            options.push(InteractionOption {
+              tile_opts.push(InteractionOption {
               label: format!("Chop tree ({dir})"),
-              action: InteractionAction::ChopTree(e),
+                action: InteractionAction::ChopTree(e)
             });
           }
           if let Ok((named, dialogue)) = dialogue_q.get(e) {
-            options.push(InteractionOption {
+              tile_opts.push(InteractionOption {
               label: format!("Talk to {}", named.name),
-              action: InteractionAction::Talk { speaker: named.name, tree: dialogue.0 },
+                action: InteractionAction::Talk { speaker: named.name, tree: dialogue.0 }
             });
           }
           if let Ok((chest, _, _)) = loot_chest_q.get(e)
             && !chest.opened
           {
-            let dir = if dx == 0 && dy == 0 { "here".to_string() } else { direction_name(dx, dy) };
-            options.push(InteractionOption {
+              tile_opts.push(InteractionOption {
               label: format!("Open chest ({dir})"),
-              action: InteractionAction::OpenChest(e),
+                action: InteractionAction::OpenChest(e)
             });
           }
           if let Ok(door) = door_q.get(e) {
             let verb = if door.open { "Close" } else { "Open" };
             let name = named_q.get(e).map_or("door", |n| n.name);
-            let dir = if dx == 0 && dy == 0 { "here".to_string() } else { direction_name(dx, dy) };
-            options.push(InteractionOption {
+              tile_opts.push(InteractionOption {
               label: format!("{verb} {name} ({dir})"),
-              action: InteractionAction::ToggleDoor(e),
+                action: InteractionAction::ToggleDoor(e)
             });
           }
         }
       }
-      // Item pickup
-      if (wy as usize) < level.height && (wx as usize) < level.width
+        if (wy as usize) < level.height
+          && (wx as usize) < level.width
         && level.items[wy as usize][wx as usize].is_some()
       {
-        let dir = if dx == 0 && dy == 0 { "here".to_string() } else { direction_name(dx, dy) };
-        options.push(InteractionOption {
+          tile_opts.push(InteractionOption {
           label: format!("Pick up item ({dir})"),
-          action: InteractionAction::PickUpItem(wx, wy),
+            action: InteractionAction::PickUpItem(wx, wy)
         });
       }
-    }
+        tile_opts
+      })
+      .collect();
 
-    show_interact_menu(&mut ui, options);
+    if !options.is_empty() {
+      ui.interact = InteractMenu::Open { options };
+    }
   }
 }
 
 fn handle_world_map(
   keys: Res<ButtonInput<KeyCode>>,
   mut world_map: ResMut<WorldMapView>,
-  ui: Res<UiState>,
+  ui: Res<UiState>
 ) {
   if !keys.just_pressed(KeyCode::KeyM) {
     return;
@@ -1333,13 +1261,19 @@ fn setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     current: Res<CurrentZone>,
-    mut fov: ResMut<Fov>,
     mut images: ResMut<Assets<Image>>,
-    mut world_map: ResMut<WorldMapView>,
+    mut palette_cache: ResMut<PaletteImageCache>,
+  mut world_map: ResMut<WorldMapView>
 ) {
     commands.spawn((Camera2d, Fxaa::default(), Msaa::Off));
 
-    spawn_level_tiles(&mut commands, &asset_server, &current.0);
+    spawn_level_tiles(
+      &mut commands,
+      &asset_server,
+      &mut palette_cache,
+      &mut images,
+      &current.0,
+    );
 
     let hover_img = white_pixel_image(&mut images);
     commands.spawn((
@@ -1351,7 +1285,7 @@ fn setup(
             ..default()
         },
         Transform::from_translation(Vec3::new(0.0, 0.0, 0.25)),
-        Visibility::Hidden,
+    Visibility::Hidden
     ));
 
     let start_x: i32 = ship::SHIP_WIDTH as i32 / 2;
@@ -1364,13 +1298,20 @@ fn setup(
 
     commands.spawn((
         Sprite {
-            image: asset_server.load("textures/retro-future_post-apocalyptic_settlement_guard.png"),
+      image: palette_sprite_handle(
+        "textures/space_qud/mongus.png",
+        Color::srgb(0.72, 0.52, 0.38),
+        Color::srgb(0.92, 0.88, 0.82),
+        &mut palette_cache,
+        &mut images,
+      ),
             custom_size: Some(Vec2::splat(TILE_SIZE)),
             color: Color::WHITE,
             ..default()
         },
         Transform::from_translation(
-            tile_screen_pos(local_x as f32, local_y as f32, current.0.width, current.0.height) + Vec3::Z
+      tile_screen_pos(local_x as f32, local_y as f32, current.0.width, current.0.height)
+        + Vec3::Z
         ),
         Player,
         PlayerPos { x: local_x, y: local_y, z: 0 },
@@ -1381,8 +1322,8 @@ fn setup(
             prev: start_local,
             last_move_start_frame: None,
             display: start_local,
-            last_pos: start_local,
-        },
+      last_pos: start_local
+    }
     ));
 
     // Spawn flight console on the ship
@@ -1401,7 +1342,7 @@ fn setup(
                 (26, 22) => (npcs::unit7::unit7(), 0, 0),
                 (22, 21) => (npcs::kong::kong(), 0, 0),
                 (24, 23) => (npcs::guard::guard(), 0, 0),
-                _ => continue,
+        _ => continue
             };
             obj.spawn_at(&mut commands, wx, wy, 0);
         }
@@ -1414,8 +1355,6 @@ fn setup(
         }
     }
 
-    let lvl = current.0.level(0);
-    compute_fov(&mut fov.0, lvl, local_x, local_y, FOV_RADIUS, |_, _| false);
     world_map.image = generate_world_map_image(&current.0, &mut images);
 }
 
@@ -1423,7 +1362,7 @@ fn update_fov(
     mut fov: ResMut<Fov>,
     current: Res<CurrentZone>,
     player_q: Query<&PlayerPos, With<Player>>,
-    sight_q: Query<&Location, With<BlocksSight>>,
+  sight_q: Query<&Location, With<BlocksSight>>
 ) {
     let Ok(pos) = player_q.single() else { return };
     let level = current.0.level(pos.z);
@@ -1445,10 +1384,34 @@ fn update_fov(
     });
 }
 
+/// Space Qud mask sprites under `assets/textures/space_qud/`: black→primary, white→secondary.
+fn space_qud_tile_sprite(tile: Tile) -> Option<(&'static str, Color, Color)> {
+  match tile {
+    Tile::DeckPlate => Some((
+      "textures/space_qud/grid.png",
+      Color::srgb(0.38, 0.42, 0.48),
+      Color::srgb(0.72, 0.76, 0.82),
+    )),
+    Tile::Bulkhead => Some((
+      "textures/space_qud/door closed.png",
+      Color::srgb(0.32, 0.35, 0.4),
+      Color::srgb(0.52, 0.55, 0.58),
+    )),
+    Tile::Window => Some((
+      "textures/space_qud/window.png",
+      Color::srgb(0.22, 0.32, 0.52),
+      Color::srgb(0.62, 0.76, 0.94),
+    )),
+    _ => None,
+  }
+}
+
 fn spawn_level_tiles(
     commands: &mut Commands,
     asset_server: &AssetServer,
-    zone: &active_zone::ActiveZone,
+    palette_cache: &mut PaletteImageCache,
+    images: &mut Assets<Image>,
+  zone: &active_zone::ActiveZone
 ) {
     for z in 0..zone.depth {
         let level = zone.level(z);
@@ -1467,19 +1430,28 @@ fn spawn_level_tiles(
                         BlocksSight,
                         Glyph::ascii('+', Color::srgb(r, g, b)),
                         Location::xyz(x as i32, y as i32, z),
-                        Named { name: tile.name(), flavor: "Press Space to open." },
+            Named { name: tile.name(), flavor: "Press Space to open." }
                     ));
-                } else if let Some(path) = tile.texture_path() {
+                } else {
+                let tex_palette = space_qud_tile_sprite(tile).map(|(p, c1, c2)| (p, Some((c1, c2))));
+                let tex_plain = tile.texture_path().map(|p| (p, None));
+                let tex = tex_palette.or(tex_plain);
+                if let Some((path, palette_opt)) = tex {
+                    let handle = if let Some((primary, secondary)) = palette_opt {
+                      palette_sprite_handle(path, primary, secondary, palette_cache, images)
+                    } else {
+                      asset_server.load(path)
+                    };
                     commands.spawn((
                         Sprite {
-                            image: asset_server.load(path),
+                            image: handle,
                             custom_size: Some(Vec2::splat(TILE_SIZE)),
                             color: Color::srgba(0.0, 0.0, 0.0, 0.0),
                             ..default()
                         },
                         Transform::from_translation(pos),
                         TileGlyph { x, y },
-                        TilePng,
+            TilePng
                     ));
                 } else {
                     let [r, g, b] = tile.color();
@@ -1488,8 +1460,9 @@ fn spawn_level_tiles(
                         TextFont { font_size: TILE_SIZE, ..default() },
                         TextColor(Color::srgba(r, g, b, 0.0)),
                         Transform::from_translation(pos),
-                        TileGlyph { x, y },
+            TileGlyph { x, y }
                     ));
+                }
                 }
 
                 if let Some(item) = level.items[y][x] {
@@ -1502,7 +1475,7 @@ fn spawn_level_tiles(
                             tile_screen_pos(x as f32, y as f32, zone.width, zone.height)
                                 + Vec3::new(0.0, 0.0, 1.0)
                         ),
-                        ItemGlyph { x, y },
+            ItemGlyph { x, y }
                     ));
                 }
             }
@@ -1514,7 +1487,7 @@ fn camera_follow(
     player_q: Query<&Visuals, With<Player>>,
     current: Res<CurrentZone>,
     mut cam_q: Query<&mut Transform, With<Camera2d>>,
-    windows: Query<&Window>,
+  windows: Query<&Window>
 ) {
     if let Ok(vis) = player_q.single()
         && let Ok(mut cam_tf) = cam_q.single_mut()
@@ -1529,7 +1502,7 @@ fn camera_follow(
         let local = vis.display;
         let world_pos = Vec2::new(
             (local.x - current.0.width as f32 / 2.0) * TILE_SIZE,
-            (current.0.height as f32 / 2.0 - local.y) * TILE_SIZE,
+      (current.0.height as f32 / 2.0 - local.y) * TILE_SIZE
         );
         cam_tf.translation = (world_pos - offset).extend(0.0);
     }
@@ -1537,10 +1510,10 @@ fn camera_follow(
 
 fn generate_world_map_image(
     zone: &active_zone::ActiveZone,
-    images: &mut Assets<Image>,
+  images: &mut Assets<Image>
 ) -> Handle<Image> {
-    use bevy::asset::RenderAssetUsages;
-    use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+  use bevy::{asset::RenderAssetUsages,
+             render::render_resource::{Extent3d, TextureDimension, TextureFormat}};
 
     let w = zone.width;
     let h = zone.height;
@@ -1559,15 +1532,11 @@ fn generate_world_map_image(
     }
 
     images.add(Image::new(
-        Extent3d {
-            width: w as u32,
-            height: h as u32,
-            depth_or_array_layers: 1,
-        },
+    Extent3d { width: w as u32, height: h as u32, depth_or_array_layers: 1 },
         TextureDimension::D2,
         data,
         TextureFormat::Rgba8UnormSrgb,
-        RenderAssetUsages::RENDER_WORLD,
+    RenderAssetUsages::RENDER_WORLD
     ))
 }
 
@@ -1582,7 +1551,7 @@ fn player_input(
     index: Res<TileEntityIndex>,
     mut player_query: Query<(&mut PlayerPos, &Stats, &mut Inventory), With<Player>>,
     mut enemy_query: Query<&mut Stats, (With<Enemy>, Without<Player>)>,
-    collidable_q: Query<&Collidable>,
+  collidable_q: Query<&Collidable>
 ) {
     if !ui.any_open() && !world_map.open && keys.just_pressed(KeyCode::KeyT) {
         if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
@@ -1599,7 +1568,8 @@ fn player_input(
         }
     }
 
-    if !ui.any_open() && !world_map.open
+  if !ui.any_open()
+    && !world_map.open
         && let Ok((mut pos, stats, mut inventory)) = player_query.single_mut()
     {
         let player_attack = stats.attack;
@@ -1610,7 +1580,8 @@ fn player_input(
         let turn_based_block = clock.mode == TimeMode::TurnBased
             && (clock.move_cooldown_frames > 0 || tb.pending_enemy_phase);
 
-        if !turn_based_block && keys.just_pressed(KeyCode::Period)
+    if !turn_based_block
+      && keys.just_pressed(KeyCode::Period)
             && !keys.pressed(KeyCode::ShiftLeft)
             && !keys.pressed(KeyCode::ShiftRight)
         {
@@ -1621,7 +1592,8 @@ fn player_input(
                 any_direction_just_pressed(&keys)
             } else {
                 any_direction_pressed(&keys)
-            }) && clock.move_cooldown_frames == 0
+      })
+      && clock.move_cooldown_frames == 0
         {
             let level = current.0.level(pos.z);
             let dir = read_direction(&keys);
@@ -1633,8 +1605,9 @@ fn player_input(
                 let target_x = pos.x + dx;
                 let target_y = pos.y + dy;
 
-                let enemy_hit = index.0.get(&(target_x, target_y, pos.z))
-                    .and_then(|entities| entities.iter().find(|&&e| enemy_query.get(e).is_ok()).copied());
+        let enemy_hit = index.0.get(&(target_x, target_y, pos.z)).and_then(|entities| {
+          entities.iter().find(|&&e| enemy_query.get(e).is_ok()).copied()
+        });
 
                 if let Some(hostile) = enemy_hit {
                     if let Ok(mut es) = enemy_query.get_mut(hostile) {
@@ -1642,10 +1615,9 @@ fn player_input(
                     }
                 } else {
                     let blocked = !level.walkable(target_x, target_y)
-                        || index.0.get(&(target_x, target_y, pos.z))
-                            .is_some_and(|entities| entities.iter().any(|&e| {
-                                collidable_q.get(e).is_ok_and(|c| c.0)
-                            }));
+            || index.0.get(&(target_x, target_y, pos.z)).is_some_and(|entities| {
+              entities.iter().any(|&e| collidable_q.get(e).is_ok_and(|c| c.0))
+            });
 
                     if !blocked {
                         pos.x = target_x;

@@ -195,11 +195,18 @@ pub struct Glyph {
   pub color: Color,
   /// Asset path relative to `assets/` (e.g. `textures/catgirl.png`).
   pub texture: Option<&'static str>,
+  /// Space-Qud–style mask: black → first color, white → second; transparent stays clear.
+  pub sprite_palette: Option<(Color, Color)>,
 }
 
 impl Glyph {
   pub fn ascii(ch: char, color: Color) -> Self {
-    Self { ch, color, texture: None }
+    Self {
+      ch,
+      color,
+      texture: None,
+      sprite_palette: None,
+    }
   }
 
   pub fn sprite(path: &'static str, ch: char, color: Color) -> Self {
@@ -207,6 +214,17 @@ impl Glyph {
       ch,
       color,
       texture: Some(path),
+      sprite_palette: None,
+    }
+  }
+
+  /// Mask PNG (black / white / alpha); instance colors set how it draws.
+  pub fn palette_sprite(path: &'static str, ch: char, primary: Color, secondary: Color) -> Self {
+    Self {
+      ch,
+      color: primary,
+      texture: Some(path),
+      sprite_palette: Some((primary, secondary)),
     }
   }
 }
