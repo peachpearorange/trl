@@ -149,7 +149,9 @@ pub struct GroundItem(pub Item);
 /// A door that can be opened/closed.
 #[derive(Component)]
 pub struct Door {
-  pub open: bool
+  pub open: bool,
+  /// Original colour when closed; restored on close.
+  pub closed_color: Color,
 }
 
 /// Wall construction material.
@@ -367,7 +369,9 @@ impl Object {
       },
     ))
   }
-  pub fn door(open: bool) -> Self             { Self::structure(!open).add(Door { open }) }
+  pub fn door(open: bool, closed_color: Color) -> Self {
+    Self::structure(!open).add(Door { open, closed_color })
+  }
   pub fn ground_item(item: Item) -> Self      { Self::new(GroundItem(item)) }
   pub fn torch(radius: u32) -> Self           { Self::new(LightSource { radius }) }
 

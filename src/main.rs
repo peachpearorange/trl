@@ -11,13 +11,13 @@ mod crafting;
 use {
   bevy::anti_alias::fxaa::Fxaa,
   bevy::prelude::*,
-  combat::{TileEntityIndex, enemy_ai, maintain_tile_index},
+  combat::{TileEntityIndex, enemy_ai, maintain_tile_index, tile_blocked},
   level::{FovGrid, Item, Tile, ZoneWorld, ZONE_HEIGHT, ZONE_WIDTH, SURFACE_Z, WORLD_DEPTH, compute_fov},
   std::collections::{HashMap, HashSet},
   ui::{log_message, LogEntries, WorldMapView},
   trl::entities::{
-    BlocksSight, Collidable, Dialogue, DialogueNode, DialogueTree, Enemy, Glyph, Gravity, Location, LootChest, Named,
-    Object, Stats, Tree, Visuals,
+    BlocksSight, Collidable, Dialogue, DialogueNode, DialogueTree, Door, Enemy, Glyph, Gravity, Location, LootChest,
+    Named, Object, Stats, Tree, Visuals,
   },
 };
 
@@ -81,7 +81,7 @@ struct InteractionOption {
 enum InteractionAction {
   Ascend,
   Descend,
-  OpenDoor(i32, i32),
+  ToggleDoor(Entity),
   Talk { speaker: &'static str, tree: &'static DialogueTree },
   ChopTree(Entity),
   PickUpItem(i32, i32),
@@ -511,6 +511,7 @@ fn fantasy_main() {
         enemy_death_check.in_set(SimStep),
         apply_gravity.in_set(SimStep),
         enemy_ai.in_set(SimStep),
+        update_fov.in_set(SimStep),
       )
         .chain()
     )
@@ -591,6 +592,29 @@ fn world_to_local(wx: i32, wy: i32) -> (usize, usize) {
 
 pub fn world_to_zone(wx: i32, wy: i32) -> (usize, usize) {
   (wx as usize / ZONE_WIDTH, wy as usize / ZONE_HEIGHT)
+}
+
+/// Recompute FoV every sim step so door toggles, entity moves, etc. are automatically reflected.
+fn update_fov(
+  mut fov: ResMut<Fov>,
+  gw: Res<GameWorld>,
+  player_q: Query<&PlayerPos, With<Player>>,
+  sight_q: Query<&Location, With<BlocksSight>>,
+) {
+  let Ok(pos) = player_q.single() else { return };
+  let (zx, zy) = world_to_zone(pos.x, pos.y);
+  let (lx, ly) = world_to_local(pos.x, pos.y);
+  compute_fov_with_sight_entities(
+    &mut fov.0,
+    gw.0.zone(zx, zy, pos.z),
+    lx as i32,
+    ly as i32,
+    FOV_RADIUS,
+    &sight_q,
+    zx,
+    zy,
+    pos.z,
+  );
 }
 
 /// Level-local cells occupied by entities with [`BlocksSight`] (same rules as opaque tiles for FoV).
@@ -832,7 +856,19 @@ fn spawn_level_tiles(
         continue;
       }
       let pos = tile_screen_pos(x as f32, y as f32, ZONE_WIDTH, ZONE_HEIGHT);
-      if let Some(path) = tile.texture_path() {
+      if tile == Tile::Door || tile == Tile::AirlockDoor {
+        let [r, g, b] = tile.color();
+        let wx = (zx * ZONE_WIDTH + x) as i32;
+        let wy = (zy * ZONE_HEIGHT + y) as i32;
+        commands.spawn((
+          Door { open: false, closed_color: Color::srgb(r, g, b) },
+          Collidable(true),
+          BlocksSight,
+          Glyph::ascii('+', Color::srgb(r, g, b)),
+          Location::xyz(wx, wy, z),
+          Named { name: tile.name(), flavor: "Press Space to open." },
+        ));
+      } else if let Some(path) = tile.texture_path() {
         commands.spawn((
           Sprite {
             image: asset_server.load(path),
@@ -1203,11 +1239,10 @@ fn handle_menus(
   mut gw: ResMut<GameWorld>,
   mut clock: ResMut<Clock>,
   mut tb: ResMut<TurnBasedWorldState>,
-  mut fov: ResMut<Fov>,
   mut log: ResMut<LogEntries>,
   tile_query: Query<Entity, With<TileGlyph>>,
-  sight_q: Query<&Location, With<BlocksSight>>,
   mut player_query: Query<(&mut PlayerPos, &mut Inventory), With<Player>>,
+  mut door_q: Query<(&mut Door, &mut Glyph, &mut Collidable)>,
   mut pending_chest: ResMut<ChestOpenPending>,
   mut exit: MessageWriter<AppExit>,
 ) {
@@ -1231,19 +1266,44 @@ fn handle_menus(
       ui.interact = InteractMenu::Closed;
       if let InteractionAction::OpenChest(ent) = option.action {
         pending_chest.0 = Some(ent);
+      } else if let InteractionAction::ToggleDoor(entity) = option.action {
+        if let Ok((mut door, mut glyph, mut collidable)) = door_q.get_mut(entity) {
+          door.open = !door.open;
+          collidable.0 = !door.open;
+          if door.open {
+            commands.entity(entity).remove::<(Collidable, BlocksSight, Sprite, Text2d)>();
+            glyph.ch = '/';
+            glyph.color = Color::srgb(0.3, 0.5, 0.3);
+            commands.entity(entity).insert((
+              Text2d::new("/"),
+              TextFont { font_size: TILE_SIZE, ..default() },
+              TextColor(Color::srgb(0.3, 0.5, 0.3)),
+            ));
+          } else {
+            commands.entity(entity).insert((Collidable(true), BlocksSight));
+            glyph.ch = '+';
+            glyph.color = door.closed_color;
+            commands.entity(entity).remove::<(Sprite, Text2d)>();
+            commands.entity(entity).insert((
+              Text2d::new("+"),
+              TextFont { font_size: TILE_SIZE, ..default() },
+              TextColor(door.closed_color),
+            ));
+          }
+        }
+        clock.advance(1);
+        note_player_turn_moved_world(&*clock, &mut *tb);
       } else {
         execute_interaction(
           &option.action,
           &mut gw,
           &mut clock,
           &mut *tb,
-          &mut fov,
           &mut ui,
           &mut *log,
           &mut commands,
           &asset_server,
           &tile_query,
-          &sight_q,
           &mut player_query,
         );
       }
@@ -1400,12 +1460,6 @@ fn gather_interactions(
             options.push(InteractionOption {
               label: format!("Go downstairs ({dir})"),
               action: InteractionAction::Descend
-            });
-          }
-          Tile::Door => {
-            options.push(InteractionOption {
-              label: format!("Open door ({dir})"),
-              action: InteractionAction::OpenDoor(tx, ty)
             });
           }
           _ => {}
@@ -1573,13 +1627,11 @@ fn execute_interaction(
   gw: &mut ResMut<GameWorld>,
   clock: &mut Clock,
   tb: &mut TurnBasedWorldState,
-  fov: &mut ResMut<Fov>,
   ui: &mut UiState,
   log: &mut LogEntries,
   commands: &mut Commands,
   asset_server: &AssetServer,
   tile_query: &Query<Entity, With<TileGlyph>>,
-  sight_q: &Query<&Location, With<BlocksSight>>,
   player_query: &mut Query<(&mut PlayerPos, &mut Inventory), With<Player>>,
 ) {
   // No player/position needed; must not sit behind `player_query` or logging can be skipped.
@@ -1592,24 +1644,11 @@ fn execute_interaction(
 
   if let Ok((mut pos, mut inventory)) = player_query.single_mut() {
     let (zx, zy) = world_to_zone(pos.x, pos.y);
-    let (lx, ly) = world_to_local(pos.x, pos.y);
     match action {
       InteractionAction::Ascend => {
         if pos.z + 1 < WORLD_DEPTH {
           pos.z += 1;
           rebuild_level(commands, asset_server, tile_query, &gw.0, zx, zy, pos.z);
-          fov.0 = FovGrid::new(ZONE_WIDTH, ZONE_HEIGHT);
-          compute_fov_with_sight_entities(
-            &mut fov.0,
-            gw.0.zone(zx, zy, pos.z),
-            lx as i32,
-            ly as i32,
-            FOV_RADIUS,
-            sight_q,
-            zx,
-            zy,
-            pos.z,
-          );
           clock.advance(PlayerAction::Ascend.time_cost());
           note_player_turn_moved_world(clock, tb);
         }
@@ -1618,39 +1657,11 @@ fn execute_interaction(
         if pos.z > 0 {
           pos.z -= 1;
           rebuild_level(commands, asset_server, tile_query, &gw.0, zx, zy, pos.z);
-          fov.0 = FovGrid::new(ZONE_WIDTH, ZONE_HEIGHT);
-          compute_fov_with_sight_entities(
-            &mut fov.0,
-            gw.0.zone(zx, zy, pos.z),
-            lx as i32,
-            ly as i32,
-            FOV_RADIUS,
-            sight_q,
-            zx,
-            zy,
-            pos.z,
-          );
           clock.advance(PlayerAction::Descend.time_cost());
           note_player_turn_moved_world(clock, tb);
         }
       }
-      InteractionAction::OpenDoor(dx, dy) => {
-        gw.0.zone_mut(zx, zy, pos.z).set(*dx, *dy, Tile::Floor);
-        rebuild_level(commands, asset_server, tile_query, &gw.0, zx, zy, pos.z);
-        compute_fov_with_sight_entities(
-          &mut fov.0,
-          gw.0.zone(zx, zy, pos.z),
-          lx as i32,
-          ly as i32,
-          FOV_RADIUS,
-          sight_q,
-          zx,
-          zy,
-          pos.z,
-        );
-        clock.advance(1);
-        note_player_turn_moved_world(clock, tb);
-      }
+      InteractionAction::ToggleDoor(_) => {}
       InteractionAction::Talk { .. } => unreachable!(),
       InteractionAction::ChopTree(entity) => {
         commands.entity(*entity).despawn();
@@ -1722,7 +1733,6 @@ fn try_zone_transition(
   commands: &mut Commands,
   asset_server: &AssetServer,
   tile_query: &Query<Entity, With<TileGlyph>>,
-  sight_q: &Query<&Location, With<BlocksSight>>,
   dx: i32,
   dy: i32,
 ) -> bool {
@@ -1777,17 +1787,6 @@ fn try_zone_transition(
 
   rebuild_level(commands, asset_server, tile_query, gw, new_zx as usize, new_zy as usize, pos.z);
   *fov = FovGrid::new(ZONE_WIDTH, ZONE_HEIGHT);
-  compute_fov_with_sight_entities(
-    fov,
-    gw.zone(new_zx as usize, new_zy as usize, pos.z),
-    new_lx,
-    new_ly,
-    FOV_RADIUS,
-    sight_q,
-    new_zx as usize,
-    new_zy as usize,
-    pos.z,
-  );
 
   true
 }
@@ -1808,7 +1807,6 @@ fn player_input(
   mut player_query: Query<(&mut PlayerPos, &Stats, &mut Inventory), With<Player>>,
   mut enemy_query: Query<&mut Stats, (With<Enemy>, Without<Player>)>,
   collidable_q: Query<&Collidable>,
-  sight_q: Query<&Location, With<BlocksSight>>,
 ) {
   if !ui.any_open() && !world_map.open && keys.just_pressed(KeyCode::KeyT) {
     if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
@@ -1861,7 +1859,6 @@ fn player_input(
       let transitioned = try_zone_transition(
         &mut pos, &gw.0, &mut fov.0,
         &mut commands, &asset_server, &tile_query,
-        &sight_q,
         raw_dx, raw_dy,
       );
 
@@ -1888,28 +1885,9 @@ fn player_input(
               }
             }
           } else {
-            // Block if a collidable non-enemy entity occupies the tile
-            let blocked = index.0.get(&(target_wx, target_wy, pos.z))
-              .is_some_and(|entities| entities.iter().any(|&e| {
-                collidable_q.get(e).is_ok_and(|c| c.0)
-              }));
-
-            if !blocked {
+            if !tile_blocked(level, target_wx, target_wy, pos.z, &index, &collidable_q) {
               pos.x += dx;
               pos.y += dy;
-              let (nlx, nly) = world_to_local(pos.x, pos.y);
-              let (nzx, nzy) = world_to_zone(pos.x, pos.y);
-              compute_fov_with_sight_entities(
-                &mut fov.0,
-                gw.0.zone(nzx, nzy, pos.z),
-                nlx as i32,
-                nly as i32,
-                FOV_RADIUS,
-                &sight_q,
-                nzx,
-                nzy,
-                pos.z,
-              );
 
               // Auto-pickup items underfoot
               let (izx, izy) = world_to_zone(pos.x, pos.y);
@@ -1945,6 +1923,8 @@ fn handle_interact(
   tree_q: Query<Entity, With<Tree>>,
   mut pending_chest: ResMut<ChestOpenPending>,
   mut loot_chest_q: Query<(&mut LootChest, &mut Glyph, &Location)>,
+  door_q: Query<&Door>,
+  named_q: Query<&Named>,
   mut log: ResMut<LogEntries>,
   mut clock: ResMut<Clock>,
   mut tb: ResMut<TurnBasedWorldState>,
@@ -2001,6 +1981,15 @@ fn handle_interact(
             options.push(InteractionOption {
               label: format!("Open chest ({dir})"),
               action: InteractionAction::OpenChest(e),
+            });
+          }
+          if let Ok(door) = door_q.get(e) {
+            let verb = if door.open { "Close" } else { "Open" };
+            let name = named_q.get(e).map_or("door", |n| n.name);
+            let dir = if dx == 0 && dy == 0 { "here".to_string() } else { direction_name(dx, dy) };
+            options.push(InteractionOption {
+              label: format!("{verb} {name} ({dir})"),
+              action: InteractionAction::ToggleDoor(e),
             });
           }
         }
@@ -2161,6 +2150,7 @@ fn space_main() {
             enemy_death_check.in_set(SimStep),
             apply_gravity.in_set(SimStep),
             enemy_ai.in_set(SimStep),
+            space_update_fov.in_set(SimStep),
         ).chain())
         .add_systems(Update, (
             track_movement,
@@ -2264,6 +2254,32 @@ fn space_setup(
     world_map.image = generate_map_from_active_zone(&current.0, &mut images);
 }
 
+fn space_update_fov(
+    mut fov: ResMut<Fov>,
+    current: Res<CurrentZone>,
+    player_q: Query<&SpacePlayerPos, With<Player>>,
+    sight_q: Query<&Location, With<BlocksSight>>,
+) {
+    let Ok(pos) = player_q.single() else { return };
+    let level = current.0.level(pos.z);
+    // Space mode uses contiguous local coords: no zone wrapping.
+    let blockers: HashSet<(i32, i32)> = sight_q
+        .iter()
+        .filter_map(|loc| {
+            if let Location::Coords { x, y, z, .. } = *loc
+                && z == pos.z
+            {
+                Some((x, y))
+            } else {
+                None
+            }
+        })
+        .collect();
+    compute_fov(&mut fov.0, level, pos.x, pos.y, FOV_RADIUS, |tx, ty| {
+        blockers.contains(&(tx, ty))
+    });
+}
+
 fn spawn_level_tiles_space(
     commands: &mut Commands,
     asset_server: &AssetServer,
@@ -2278,7 +2294,17 @@ fn spawn_level_tiles_space(
                     continue;
                 }
                 let pos = tile_screen_pos(x as f32, y as f32, zone.width, zone.height);
-                if let Some(path) = tile.texture_path() {
+                if tile == Tile::Door || tile == Tile::AirlockDoor {
+                    let [r, g, b] = tile.color();
+                    commands.spawn((
+                        Door { open: false, closed_color: Color::srgb(r, g, b) },
+                        Collidable(true),
+                        BlocksSight,
+                        Glyph::ascii('+', Color::srgb(r, g, b)),
+                        Location::xyz(x as i32, y as i32, z),
+                        Named { name: tile.name(), flavor: "Press Space to open." },
+                    ));
+                } else if let Some(path) = tile.texture_path() {
                     commands.spawn((
                         Sprite {
                             image: asset_server.load(path),
@@ -2392,7 +2418,6 @@ fn space_player_input(
     mut clock: ResMut<Clock>,
     mut tb: ResMut<TurnBasedWorldState>,
     mut time_mode_auto: ResMut<TimeModeAuto>,
-    mut fov: ResMut<Fov>,
     index: Res<TileEntityIndex>,
     mut player_query: Query<(&mut SpacePlayerPos, &Stats, &mut Inventory), With<Player>>,
     mut enemy_query: Query<&mut Stats, (With<Enemy>, Without<Player>)>,
@@ -2455,21 +2480,15 @@ fn space_player_input(
                         es.hp -= player_attack;
                     }
                 } else {
-                    let blocked = index.0.get(&(target_x, target_y, pos.z))
-                        .is_some_and(|entities| entities.iter().any(|&e| {
-                            collidable_q.get(e).is_ok_and(|c| c.0)
-                        }));
+                    let blocked = !level.walkable(target_x, target_y)
+                        || index.0.get(&(target_x, target_y, pos.z))
+                            .is_some_and(|entities| entities.iter().any(|&e| {
+                                collidable_q.get(e).is_ok_and(|c| c.0)
+                            }));
 
                     if !blocked {
                         pos.x = target_x;
                         pos.y = target_y;
-                        compute_fov_space(
-                            &mut fov.0,
-                            current.0.level(pos.z),
-                            pos.x,
-                            pos.y,
-                            FOV_RADIUS,
-                        );
 
                         let lvl = current.0.level(pos.z);
                         if (pos.y as usize) < lvl.height && (pos.x as usize) < lvl.width {

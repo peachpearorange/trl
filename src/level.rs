@@ -207,240 +207,252 @@ impl Item {
   }
 }
 
-impl Tile {
-  pub fn glyph(self) -> &'static str {
-    match self {
-      Tile::Air => " ",
-      Tile::Floor => ".",
-      Tile::Wall | Tile::CobblestoneWall | Tile::BrickWall => "#",
-      Tile::Grass => "\"",
-      Tile::Water => "~",
-      Tile::Sand => ",",
-      Tile::StairsUp => "<",
-      Tile::StairsDown => ">",
-      Tile::Door => "+",
-      Tile::TallGrass => "\"",
-      Tile::Bush => "%",
-      Tile::Ash => ".",
-      Tile::Lava => "~",
-      Tile::ShallowWater => "~",
-      Tile::DeepWater => "≈",
-      Tile::Road => "·",
-      Tile::WoodWall => "#",
-      Tile::WoodFloor => ".",
-      Tile::Fence => "+",
-      Tile::CaveWall => "#",
-      Tile::CaveFloor => ".",
-      Tile::CrystalFormation => "*",
-      Tile::DeckPlate | Tile::StationFloor | Tile::DerelictFloor
-      | Tile::AsteroidFloor => ".",
-      Tile::Bulkhead | Tile::StationWall | Tile::DerelictWall
-      | Tile::AsteroidRock | Tile::IceWall => "#",
-      Tile::Window => "o",
-      Tile::AirlockDoor => "+",
-      Tile::Conduit => "=",
-      Tile::Regolith | Tile::IceFloor | Tile::AlienSoil => ",",
-      Tile::Vacuum => " ",
-      Tile::AlienGrass => "\"",
-      Tile::CrystalGrowth => "*",
-      Tile::AlienFluid => "~",
-    }
-  }
-
-  pub fn color(self) -> [f32; 3] {
-    match self {
-      Tile::Air => [0.0, 0.0, 0.0],
-      Tile::Floor => [0.6, 0.5, 0.3],
-      Tile::Wall => [0.4, 0.4, 0.4],
-      Tile::CobblestoneWall => [0.5, 0.5, 0.5],
-      Tile::BrickWall => [0.6, 0.3, 0.2],
-      Tile::Grass => [0.2, 0.6, 0.2],
-      Tile::Water => [0.2, 0.3, 0.8],
-      Tile::Sand => [0.8, 0.7, 0.4],
-      Tile::StairsUp => [0.9, 0.9, 0.2],
-      Tile::StairsDown => [0.9, 0.9, 0.2],
-      Tile::Door => [0.6, 0.3, 0.1],
-      Tile::TallGrass => [0.25, 0.65, 0.25],
-      Tile::Bush => [0.15, 0.45, 0.15],
-      Tile::Ash => [0.55, 0.53, 0.5],
-      Tile::Lava => [0.9, 0.3, 0.05],
-      Tile::ShallowWater => [0.3, 0.5, 0.85],
-      Tile::DeepWater => [0.1, 0.15, 0.6],
-      Tile::Road => [0.45, 0.4, 0.35],
-      Tile::WoodWall => [0.45, 0.3, 0.15],
-      Tile::WoodFloor => [0.55, 0.4, 0.25],
-      Tile::Fence => [0.5, 0.35, 0.2],
-      Tile::CaveWall => [0.3, 0.28, 0.25],
-      Tile::CaveFloor => [0.4, 0.38, 0.35],
-      Tile::CrystalFormation => [0.5, 0.8, 0.95],
-      Tile::DeckPlate | Tile::StationFloor => [0.55, 0.58, 0.62],
-      Tile::Bulkhead => [0.45, 0.47, 0.50],
-      Tile::Window => [0.2, 0.25, 0.7],
-      Tile::AirlockDoor => [0.7, 0.65, 0.3],
-      Tile::StationWall => [0.5, 0.52, 0.55],
-      Tile::DerelictFloor => [0.35, 0.33, 0.3],
-      Tile::DerelictWall => [0.3, 0.28, 0.25],
-      Tile::Conduit => [0.6, 0.55, 0.2],
-      Tile::AsteroidRock => [0.4, 0.35, 0.3],
-      Tile::AsteroidFloor => [0.5, 0.45, 0.4],
-      Tile::Regolith => [0.55, 0.5, 0.45],
-      Tile::Vacuum => [0.0, 0.0, 0.0],
-      Tile::IceFloor => [0.7, 0.75, 0.85],
-      Tile::IceWall => [0.5, 0.55, 0.7],
-      Tile::AlienSoil => [0.45, 0.35, 0.55],
-      Tile::AlienGrass => [0.3, 0.55, 0.3],
-      Tile::CrystalGrowth => [0.5, 0.8, 0.95],
-      Tile::AlienFluid => [0.5, 0.3, 0.7],
-    }
-  }
-
-  /// High-contrast sRGB for the full-world minimap (UI); not glyph colours.
-  pub fn minimap_color(self) -> [f32; 3] {
-    match self {
-      Tile::Air => [0.04, 0.06, 0.10],
-      Tile::DeepWater => [0.05, 0.16, 0.42],
-      Tile::ShallowWater => [0.22, 0.55, 0.82],
-      Tile::Sand | Tile::Ash => [0.92, 0.80, 0.52],
-      Tile::Grass => [0.22, 0.62, 0.30],
-      Tile::TallGrass => [0.12, 0.48, 0.20],
-      Tile::Bush => [0.10, 0.38, 0.12],
-      Tile::Lava => [0.95, 0.32, 0.08],
-      Tile::Water => [0.12, 0.28, 0.70],
-      Tile::Road => [0.50, 0.46, 0.40],
-      Tile::WoodFloor => [0.55, 0.42, 0.30],
-      Tile::CobblestoneWall | Tile::BrickWall | Tile::Wall | Tile::WoodWall | Tile::Door | Tile::CaveWall => {
-        [0.38, 0.38, 0.40]
-      }
-      Tile::Floor | Tile::StairsUp | Tile::StairsDown | Tile::CaveFloor => [0.62, 0.55, 0.40],
-      Tile::Fence | Tile::CrystalFormation => [0.45, 0.55, 0.50],
-      Tile::DeckPlate | Tile::StationFloor => [0.45, 0.47, 0.5],
-      Tile::Bulkhead | Tile::StationWall => [0.35, 0.37, 0.4],
-      Tile::AsteroidRock | Tile::AsteroidFloor => [0.42, 0.38, 0.33],
-      Tile::Regolith | Tile::IceFloor => [0.6, 0.62, 0.68],
-      Tile::AlienSoil | Tile::AlienGrass => [0.35, 0.45, 0.3],
-      Tile::AlienFluid => [0.4, 0.25, 0.6],
-      Tile::Vacuum => [0.02, 0.03, 0.06],
-      Tile::DerelictFloor | Tile::DerelictWall => [0.28, 0.26, 0.22],
-      Tile::IceWall => [0.45, 0.5, 0.62],
-      Tile::Conduit => [0.5, 0.45, 0.15],
-      Tile::AirlockDoor => [0.6, 0.55, 0.2],
-      Tile::Window => [0.15, 0.2, 0.55],
-      Tile::CrystalGrowth => [0.4, 0.65, 0.8],
-    }
-  }
-
-  pub fn texture_path(self) -> Option<&'static str> {
-    match self {
-      Tile::CobblestoneWall => Some("textures/cobblestone_wall.png"),
-      Tile::BrickWall => Some("textures/brick_wall.png"),
-      _ => None,
-    }
-  }
-
-  pub fn walkable(self) -> bool {
-    matches!(
-      self,
-      Tile::Air
-        | Tile::Floor
-        | Tile::Grass
-        | Tile::Sand
-        | Tile::StairsUp
-        | Tile::StairsDown
-        | Tile::TallGrass
-        | Tile::Ash
-        | Tile::Road
-        | Tile::WoodFloor
-        | Tile::CaveFloor
-        | Tile::ShallowWater
-        | Tile::DeckPlate
-        | Tile::StationFloor
-        | Tile::DerelictFloor
-        | Tile::AsteroidFloor
-        | Tile::Regolith
-        | Tile::IceFloor
-        | Tile::AlienSoil
-        | Tile::AlienGrass
-        | Tile::Conduit
-        | Tile::Vacuum
-        | Tile::AlienFluid
-    )
-  }
+/// Properties bundled with each [`Tile`] variant.
+pub struct TileProperties {
+  pub glyph: &'static str,
+  pub color: [f32; 3],
+  pub minimap_color: [f32; 3],
+  pub texture_path: Option<&'static str>,
+  pub walkable: bool,
+  pub opaque: bool,
+  pub causes_falling: bool,
+  pub name: &'static str,
+  pub has_atmosphere: bool,
 }
 
 impl Tile {
-  pub fn opaque(self) -> bool {
-    matches!(
-      self,
-      Tile::Wall
-        | Tile::CobblestoneWall
-        | Tile::BrickWall
-        | Tile::WoodWall
-        | Tile::CaveWall
-        | Tile::Door
-        | Tile::Bulkhead
-        | Tile::StationWall
-        | Tile::DerelictWall
-        | Tile::AsteroidRock
-        | Tile::IceWall
-    )
-  }
-
-  /// True when an entity standing here should fall to the level below.
-  pub fn causes_falling(self) -> bool { matches!(self, Tile::Air) }
-
-  pub fn name(self) -> &'static str {
+  pub fn properties(self) -> TileProperties {
     match self {
-      Tile::Air => "Air",
-      Tile::Floor => "Floor",
-      Tile::Wall => "Wall",
-      Tile::CobblestoneWall => "Cobblestone Wall",
-      Tile::BrickWall => "Brick Wall",
-      Tile::Grass => "Grass",
-      Tile::Water => "Water",
-      Tile::Sand => "Sand",
-      Tile::StairsUp => "Stairs Up",
-      Tile::StairsDown => "Stairs Down",
-      Tile::Door => "Door",
-      Tile::TallGrass => "Tall Grass",
-      Tile::Bush => "Bush",
-      Tile::Ash => "Ash",
-      Tile::Lava => "Lava",
-      Tile::ShallowWater => "Shallow Water",
-      Tile::DeepWater => "Deep Water",
-      Tile::Road => "Road",
-      Tile::WoodWall => "Wooden Wall",
-      Tile::WoodFloor => "Wooden Floor",
-      Tile::Fence => "Fence",
-      Tile::CaveWall => "Cave Wall",
-      Tile::CaveFloor => "Cave Floor",
-      Tile::CrystalFormation => "Crystal Formation",
-      Tile::DeckPlate => "Deck Plate",
-      Tile::Bulkhead => "Bulkhead",
-      Tile::Window => "Window",
-      Tile::AirlockDoor => "Airlock Door",
-      Tile::StationFloor => "Station Floor",
-      Tile::StationWall => "Station Wall",
-      Tile::DerelictFloor => "Derelict Floor",
-      Tile::DerelictWall => "Derelict Wall",
-      Tile::Conduit => "Conduit",
-      Tile::AsteroidRock => "Asteroid Rock",
-      Tile::AsteroidFloor => "Asteroid Floor",
-      Tile::Regolith => "Regolith",
-      Tile::Vacuum => "Vacuum",
-      Tile::IceFloor => "Ice Floor",
-      Tile::IceWall => "Ice Wall",
-      Tile::AlienSoil => "Alien Soil",
-      Tile::AlienGrass => "Alien Grass",
-      Tile::CrystalGrowth => "Crystal Growth",
-      Tile::AlienFluid => "Alien Fluid",
+      Tile::Air => TileProperties {
+        glyph: " ", color: [0.0, 0.0, 0.0], minimap_color: [0.04, 0.06, 0.10],
+        texture_path: None, walkable: true, opaque: false, causes_falling: true,
+        name: "Air", has_atmosphere: false,
+      },
+      Tile::Floor => TileProperties {
+        glyph: ".", color: [0.6, 0.5, 0.3], minimap_color: [0.62, 0.55, 0.40],
+        texture_path: None, walkable: true, opaque: false, causes_falling: false,
+        name: "Floor", has_atmosphere: true,
+      },
+      Tile::Wall => TileProperties {
+        glyph: "#", color: [0.4, 0.4, 0.4], minimap_color: [0.38, 0.38, 0.40],
+        texture_path: None, walkable: false, opaque: true, causes_falling: false,
+        name: "Wall", has_atmosphere: true,
+      },
+      Tile::CobblestoneWall => TileProperties {
+        glyph: "#", color: [0.5, 0.5, 0.5], minimap_color: [0.38, 0.38, 0.40],
+        texture_path: Some("textures/cobblestone_wall.png"),
+        walkable: false, opaque: true, causes_falling: false,
+        name: "Cobblestone Wall", has_atmosphere: true,
+      },
+      Tile::BrickWall => TileProperties {
+        glyph: "#", color: [0.6, 0.3, 0.2], minimap_color: [0.38, 0.38, 0.40],
+        texture_path: Some("textures/brick_wall.png"),
+        walkable: false, opaque: true, causes_falling: false,
+        name: "Brick Wall", has_atmosphere: true,
+      },
+      Tile::Grass => TileProperties {
+        glyph: "\"", color: [0.2, 0.6, 0.2], minimap_color: [0.22, 0.62, 0.30],
+        texture_path: None, walkable: true, opaque: false, causes_falling: false,
+        name: "Grass", has_atmosphere: true,
+      },
+      Tile::Water => TileProperties {
+        glyph: "~", color: [0.2, 0.3, 0.8], minimap_color: [0.12, 0.28, 0.70],
+        texture_path: None, walkable: false, opaque: false, causes_falling: false,
+        name: "Water", has_atmosphere: true,
+      },
+      Tile::Sand => TileProperties {
+        glyph: ",", color: [0.8, 0.7, 0.4], minimap_color: [0.92, 0.80, 0.52],
+        texture_path: None, walkable: true, opaque: false, causes_falling: false,
+        name: "Sand", has_atmosphere: true,
+      },
+      Tile::StairsUp => TileProperties {
+        glyph: "<", color: [0.9, 0.9, 0.2], minimap_color: [0.62, 0.55, 0.40],
+        texture_path: None, walkable: true, opaque: false, causes_falling: false,
+        name: "Stairs Up", has_atmosphere: true,
+      },
+      Tile::StairsDown => TileProperties {
+        glyph: ">", color: [0.9, 0.9, 0.2], minimap_color: [0.62, 0.55, 0.40],
+        texture_path: None, walkable: true, opaque: false, causes_falling: false,
+        name: "Stairs Down", has_atmosphere: true,
+      },
+      Tile::Door => TileProperties {
+        glyph: "+", color: [0.6, 0.3, 0.1], minimap_color: [0.38, 0.38, 0.40],
+        texture_path: None, walkable: true, opaque: false, causes_falling: false,
+        name: "Door", has_atmosphere: true,
+      },
+      Tile::TallGrass => TileProperties {
+        glyph: "\"", color: [0.25, 0.65, 0.25], minimap_color: [0.12, 0.48, 0.20],
+        texture_path: None, walkable: true, opaque: false, causes_falling: false,
+        name: "Tall Grass", has_atmosphere: true,
+      },
+      Tile::Bush => TileProperties {
+        glyph: "%", color: [0.15, 0.45, 0.15], minimap_color: [0.10, 0.38, 0.12],
+        texture_path: None, walkable: false, opaque: false, causes_falling: false,
+        name: "Bush", has_atmosphere: true,
+      },
+      Tile::Ash => TileProperties {
+        glyph: ".", color: [0.55, 0.53, 0.5], minimap_color: [0.92, 0.80, 0.52],
+        texture_path: None, walkable: true, opaque: false, causes_falling: false,
+        name: "Ash", has_atmosphere: true,
+      },
+      Tile::Lava => TileProperties {
+        glyph: "~", color: [0.9, 0.3, 0.05], minimap_color: [0.95, 0.32, 0.08],
+        texture_path: None, walkable: false, opaque: false, causes_falling: false,
+        name: "Lava", has_atmosphere: true,
+      },
+      Tile::ShallowWater => TileProperties {
+        glyph: "~", color: [0.3, 0.5, 0.85], minimap_color: [0.22, 0.55, 0.82],
+        texture_path: None, walkable: true, opaque: false, causes_falling: false,
+        name: "Shallow Water", has_atmosphere: true,
+      },
+      Tile::DeepWater => TileProperties {
+        glyph: "≈", color: [0.1, 0.15, 0.6], minimap_color: [0.05, 0.16, 0.42],
+        texture_path: None, walkable: false, opaque: false, causes_falling: false,
+        name: "Deep Water", has_atmosphere: true,
+      },
+      Tile::Road => TileProperties {
+        glyph: "·", color: [0.45, 0.4, 0.35], minimap_color: [0.50, 0.46, 0.40],
+        texture_path: None, walkable: true, opaque: false, causes_falling: false,
+        name: "Road", has_atmosphere: true,
+      },
+      Tile::WoodWall => TileProperties {
+        glyph: "#", color: [0.45, 0.3, 0.15], minimap_color: [0.38, 0.38, 0.40],
+        texture_path: None, walkable: false, opaque: true, causes_falling: false,
+        name: "Wooden Wall", has_atmosphere: true,
+      },
+      Tile::WoodFloor => TileProperties {
+        glyph: ".", color: [0.55, 0.4, 0.25], minimap_color: [0.55, 0.42, 0.30],
+        texture_path: None, walkable: true, opaque: false, causes_falling: false,
+        name: "Wooden Floor", has_atmosphere: true,
+      },
+      Tile::Fence => TileProperties {
+        glyph: "+", color: [0.5, 0.35, 0.2], minimap_color: [0.45, 0.55, 0.50],
+        texture_path: None, walkable: false, opaque: false, causes_falling: false,
+        name: "Fence", has_atmosphere: true,
+      },
+      Tile::CaveWall => TileProperties {
+        glyph: "#", color: [0.3, 0.28, 0.25], minimap_color: [0.38, 0.38, 0.40],
+        texture_path: None, walkable: false, opaque: true, causes_falling: false,
+        name: "Cave Wall", has_atmosphere: true,
+      },
+      Tile::CaveFloor => TileProperties {
+        glyph: ".", color: [0.4, 0.38, 0.35], minimap_color: [0.62, 0.55, 0.40],
+        texture_path: None, walkable: true, opaque: false, causes_falling: false,
+        name: "Cave Floor", has_atmosphere: true,
+      },
+      Tile::CrystalFormation => TileProperties {
+        glyph: "*", color: [0.5, 0.8, 0.95], minimap_color: [0.45, 0.55, 0.50],
+        texture_path: None, walkable: false, opaque: false, causes_falling: false,
+        name: "Crystal Formation", has_atmosphere: true,
+      },
+      // --- Space tiles ---
+      Tile::DeckPlate => TileProperties {
+        glyph: ".", color: [0.55, 0.58, 0.62], minimap_color: [0.45, 0.47, 0.5],
+        texture_path: None, walkable: true, opaque: false, causes_falling: false,
+        name: "Deck Plate", has_atmosphere: true,
+      },
+      Tile::Bulkhead => TileProperties {
+        glyph: "#", color: [0.45, 0.47, 0.50], minimap_color: [0.35, 0.37, 0.4],
+        texture_path: None, walkable: false, opaque: true, causes_falling: false,
+        name: "Bulkhead", has_atmosphere: true,
+      },
+      Tile::Window => TileProperties {
+        glyph: "o", color: [0.2, 0.25, 0.7], minimap_color: [0.15, 0.2, 0.55],
+        texture_path: None, walkable: false, opaque: false, causes_falling: false,
+        name: "Window", has_atmosphere: true,
+      },
+      Tile::AirlockDoor => TileProperties {
+        glyph: "+", color: [0.7, 0.65, 0.3], minimap_color: [0.6, 0.55, 0.2],
+        texture_path: None, walkable: true, opaque: false, causes_falling: false,
+        name: "Airlock Door", has_atmosphere: true,
+      },
+      Tile::StationFloor => TileProperties {
+        glyph: ".", color: [0.55, 0.58, 0.62], minimap_color: [0.45, 0.47, 0.5],
+        texture_path: None, walkable: true, opaque: false, causes_falling: false,
+        name: "Station Floor", has_atmosphere: true,
+      },
+      Tile::StationWall => TileProperties {
+        glyph: "#", color: [0.5, 0.52, 0.55], minimap_color: [0.35, 0.37, 0.4],
+        texture_path: None, walkable: false, opaque: true, causes_falling: false,
+        name: "Station Wall", has_atmosphere: true,
+      },
+      Tile::DerelictFloor => TileProperties {
+        glyph: ".", color: [0.35, 0.33, 0.3], minimap_color: [0.28, 0.26, 0.22],
+        texture_path: None, walkable: true, opaque: false, causes_falling: false,
+        name: "Derelict Floor", has_atmosphere: true,
+      },
+      Tile::DerelictWall => TileProperties {
+        glyph: "#", color: [0.3, 0.28, 0.25], minimap_color: [0.28, 0.26, 0.22],
+        texture_path: None, walkable: false, opaque: true, causes_falling: false,
+        name: "Derelict Wall", has_atmosphere: true,
+      },
+      Tile::Conduit => TileProperties {
+        glyph: "=", color: [0.6, 0.55, 0.2], minimap_color: [0.5, 0.45, 0.15],
+        texture_path: None, walkable: true, opaque: false, causes_falling: false,
+        name: "Conduit", has_atmosphere: true,
+      },
+      Tile::AsteroidRock => TileProperties {
+        glyph: "#", color: [0.4, 0.35, 0.3], minimap_color: [0.42, 0.38, 0.33],
+        texture_path: None, walkable: false, opaque: true, causes_falling: false,
+        name: "Asteroid Rock", has_atmosphere: true,
+      },
+      Tile::AsteroidFloor => TileProperties {
+        glyph: ".", color: [0.5, 0.45, 0.4], minimap_color: [0.42, 0.38, 0.33],
+        texture_path: None, walkable: true, opaque: false, causes_falling: false,
+        name: "Asteroid Floor", has_atmosphere: true,
+      },
+      Tile::Regolith => TileProperties {
+        glyph: ",", color: [0.55, 0.5, 0.45], minimap_color: [0.6, 0.62, 0.68],
+        texture_path: None, walkable: true, opaque: false, causes_falling: false,
+        name: "Regolith", has_atmosphere: true,
+      },
+      Tile::Vacuum => TileProperties {
+        glyph: " ", color: [0.0, 0.0, 0.0], minimap_color: [0.02, 0.03, 0.06],
+        texture_path: None, walkable: true, opaque: false, causes_falling: false,
+        name: "Vacuum", has_atmosphere: false,
+      },
+      Tile::IceFloor => TileProperties {
+        glyph: ",", color: [0.7, 0.75, 0.85], minimap_color: [0.6, 0.62, 0.68],
+        texture_path: None, walkable: true, opaque: false, causes_falling: false,
+        name: "Ice Floor", has_atmosphere: true,
+      },
+      Tile::IceWall => TileProperties {
+        glyph: "#", color: [0.5, 0.55, 0.7], minimap_color: [0.45, 0.5, 0.62],
+        texture_path: None, walkable: false, opaque: true, causes_falling: false,
+        name: "Ice Wall", has_atmosphere: true,
+      },
+      Tile::AlienSoil => TileProperties {
+        glyph: ",", color: [0.45, 0.35, 0.55], minimap_color: [0.35, 0.45, 0.3],
+        texture_path: None, walkable: true, opaque: false, causes_falling: false,
+        name: "Alien Soil", has_atmosphere: true,
+      },
+      Tile::AlienGrass => TileProperties {
+        glyph: "\"", color: [0.3, 0.55, 0.3], minimap_color: [0.35, 0.45, 0.3],
+        texture_path: None, walkable: true, opaque: false, causes_falling: false,
+        name: "Alien Grass", has_atmosphere: true,
+      },
+      Tile::CrystalGrowth => TileProperties {
+        glyph: "*", color: [0.5, 0.8, 0.95], minimap_color: [0.4, 0.65, 0.8],
+        texture_path: None, walkable: false, opaque: false, causes_falling: false,
+        name: "Crystal Growth", has_atmosphere: true,
+      },
+      Tile::AlienFluid => TileProperties {
+        glyph: "~", color: [0.5, 0.3, 0.7], minimap_color: [0.4, 0.25, 0.6],
+        texture_path: None, walkable: true, opaque: false, causes_falling: false,
+        name: "Alien Fluid", has_atmosphere: true,
+      },
     }
   }
 
-  /// Whether this tile provides breathable atmosphere.
-  /// Returns false for Vacuum and Air; true for everything else.
-  pub fn has_atmosphere(self) -> bool {
-    !matches!(self, Tile::Vacuum | Tile::Air)
-  }
+  pub fn glyph(self) -> &'static str { self.properties().glyph }
+  pub fn color(self) -> [f32; 3] { self.properties().color }
+  pub fn minimap_color(self) -> [f32; 3] { self.properties().minimap_color }
+  pub fn texture_path(self) -> Option<&'static str> { self.properties().texture_path }
+  pub fn walkable(self) -> bool { self.properties().walkable }
+  pub fn opaque(self) -> bool { self.properties().opaque }
+  pub fn causes_falling(self) -> bool { self.properties().causes_falling }
+  pub fn name(self) -> &'static str { self.properties().name }
+  pub fn has_atmosphere(self) -> bool { self.properties().has_atmosphere }
 }
 
 #[derive(Clone, Debug)]

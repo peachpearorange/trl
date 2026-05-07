@@ -1,7 +1,7 @@
 use {
   bevy::prelude::*,
   std::collections::{HashMap, HashSet},
-  trl::entities::{Enemy, Location, Stats, TimeSinceAction, Wearing},
+  trl::entities::{Collidable, Enemy, Location, Stats, TimeSinceAction, Wearing},
 };
 
 // ---------------------------------------------------------------------------
@@ -79,6 +79,23 @@ fn step_toward(ex: i32, ey: i32, px: i32, py: i32) -> (i32, i32) {
   ((px - ex).signum(), (py - ey).signum())
 }
 
+/// True if the given world-space tile is impassable due to tile type or a collidable entity.
+pub fn tile_blocked(
+  level: &crate::level::Level,
+  wx: i32,
+  wy: i32,
+  z: usize,
+  index: &TileEntityIndex,
+  collidable_q: &Query<&Collidable>,
+) -> bool {
+  let lx = wx as usize % crate::level::ZONE_WIDTH;
+  let ly = wy as usize % crate::level::ZONE_HEIGHT;
+  !level.walkable(lx as i32, ly as i32)
+    || index.0.get(&(wx, wy, z)).is_some_and(|entities| {
+      entities.iter().any(|&e| collidable_q.get(e).is_ok_and(|c| c.0))
+    })
+}
+
 pub fn enemy_ai(
   index: Res<TileEntityIndex>,
   gw: Res<crate::GameWorld>,
@@ -89,6 +106,7 @@ pub fn enemy_ai(
     (&mut Location, &mut TimeSinceAction, &Stats, Option<&Wearing>),
     (With<Enemy>, Without<crate::Player>),
   >,
+  collidable_q: Query<&Collidable>,
 ) {
   if let Ok((player_pos, mut player_stats)) = player_q.single_mut() {
     let (px, py) = (player_pos.x, player_pos.y);
@@ -128,8 +146,7 @@ pub fn enemy_ai(
           let (nex, ney) = (ex + dx, ey + dy); // world coords
           let nlx = nex as usize % crate::level::ZONE_WIDTH;
           let nly = ney as usize % crate::level::ZONE_HEIGHT;
-          if level.walkable(nlx as i32, nly as i32)
-            && !index.0.contains_key(&(nex, ney, ez))
+          if !tile_blocked(level, nex, ney, ez, &index, &collidable_q)
             && !claimed.contains(&(nex, ney))
           {
             let below = ez.checked_sub(1)
