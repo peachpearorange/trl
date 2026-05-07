@@ -1,58 +1,156 @@
-use crate::entities::Object;
-use crate::level::{Level, Tile};
+use crate::{entities::Object,
+            level::{Level, Tile}};
 
-type ObjectFactory = fn() -> Object;
+pub type ObjectFactory = fn() -> Object;
 
 struct CharAssoc {
-    ch: char,
-    tile: Tile,
-    factories: Vec<ObjectFactory>,
+  ch: char,
+  tile: Tile,
+  factories: Vec<ObjectFactory>
+}
+
+pub struct PrefabObject {
+  pub object: Object,
+  pub x: i32,
+  pub y: i32
+}
+
+impl PrefabObject {
+  pub fn spawn_at_z(
+    self,
+    commands: &mut bevy::prelude::Commands,
+    z: usize
+  ) -> bevy::prelude::Entity {
+    self.object.spawn_at(commands, self.x, self.y, z)
+  }
 }
 
 pub struct PrefabArea {
-    assocs: Vec<CharAssoc>,
-    default_tile: Tile,
+  assocs: Vec<CharAssoc>,
+  default_tile: Tile
 }
 
 impl PrefabArea {
-    pub fn new() -> Self {
-        PrefabArea {
-            assocs: Vec::new(),
-            default_tile: Tile::Vacuum,
+  pub fn new() -> Self { PrefabArea { assocs: Vec::new(), default_tile: Tile::Vacuum } }
+
+  pub fn filled_with(mut self, tile: Tile) -> Self {
+    self.default_tile = tile;
+    self
+  }
+
+  pub fn assoc(mut self, ch: char, tile: Tile, factories: &[ObjectFactory]) -> Self {
+    self.assocs.push(CharAssoc { ch, tile, factories: factories.to_vec() });
+    self
+  }
+
+  pub fn tile(mut self, ch: char, tile: Tile) -> Self {
+    self.assocs.push(CharAssoc { ch, tile, factories: Vec::new() });
+    self
+  }
+
+  pub fn build(&self, layout: &str) -> (Level, Vec<PrefabObject>) {
+    let raw_lines: Vec<&str> = layout.lines().filter(|l| !l.trim().is_empty()).collect();
+    let indent = raw_lines
+      .iter()
+      .filter_map(|line| {
+        line.char_indices().find(|(_, ch)| !ch.is_whitespace()).map(|(i, _)| i)
+      })
+      .min()
+      .unwrap_or(0);
+    let lines: Vec<&str> =
+      raw_lines.iter().map(|line| line.get(indent..).unwrap_or(line)).collect();
+    let height = lines.len();
+    let width = lines.iter().map(|l| l.len()).max().unwrap_or(0);
+
+    let mut level = Level::new(width, height, self.default_tile);
+    let mut spawns: Vec<PrefabObject> = Vec::new();
+
+    for (y, line) in lines.iter().enumerate() {
+      for (x, ch) in line.chars().enumerate() {
+        if let Some(assoc) = self.assocs.iter().find(|a| a.ch == ch) {
+          level.set(x as i32, y as i32, assoc.tile);
+          for factory in &assoc.factories {
+            spawns.push(PrefabObject { object: factory(), x: x as i32, y: y as i32 });
+          }
         }
+      }
     }
 
-    pub fn assoc(mut self, ch: char, tile: Tile, factories: &[ObjectFactory]) -> Self {
-        self.assocs.push(CharAssoc {
-            ch,
-            tile,
-            factories: factories.to_vec(),
-        });
-        self
-    }
+    (level, spawns)
+  }
+}
 
-    pub fn build(&self, layout: &str) -> (Level, Vec<(Object, i32, i32)>) {
-        let lines: Vec<&str> = layout
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .collect();
-        let height = lines.len();
-        let width = lines.iter().map(|l| l.len()).max().unwrap_or(0);
+impl Default for PrefabArea {
+  fn default() -> Self { Self::new() }
+}
 
-        let mut level = Level::new(width, height, self.default_tile);
-        let mut spawns: Vec<(Object, i32, i32)> = Vec::new();
+#[macro_export]
+macro_rules! prefab_area {
+    (
+        $(
+            $ch:ident = $tile_root:ident $(:: $tile_tail:ident)* $(with $first_object_root:ident $(:: $first_object_tail:ident)* $(and $object_root:ident $(:: $object_tail:ident)*)*)?
+        ),+ $(,)?
+    ) => {{
+        $crate::prefabs::PrefabArea::new()
+            $(
+                .assoc(
+                    stringify!($ch).chars().next().expect("prefab char must not be empty"),
+                    $tile_root $(:: $tile_tail)*,
+                    &[$($first_object_root $(:: $first_object_tail)* $(, $object_root $(:: $object_tail)*)*)?],
+                )
+            )+
+    }};
+}
 
-        for (y, line) in lines.iter().enumerate() {
-            for (x, ch) in line.chars().enumerate() {
-                if let Some(assoc) = self.assocs.iter().find(|a| a.ch == ch) {
-                    level.set(x as i32, y as i32, assoc.tile);
-                    for factory in &assoc.factories {
-                        spawns.push((factory(), x as i32, y as i32));
-                    }
-                }
-            }
-        }
+#[cfg(test)]
+mod tests {
+  use super::*;
 
-        (level, spawns)
-    }
+  fn chest() -> Object { Object::loot_chest() }
+
+  fn enemy() -> Object { Object::rat_soldier() }
+
+  #[test]
+  fn builds_tiles_and_multiple_objects_from_layout() {
+    let area = prefab_area! {
+        k = Tile::Floor with chest and enemy,
+        w = Tile::Wall,
+    };
+
+    let (level, spawns) = area.build(
+      "
+            www
+            wkw
+            www
+            "
+    );
+
+    assert_eq!(level.width, 3);
+    assert_eq!(level.height, 3);
+    assert_eq!(level.get(1, 1), Some(Tile::Floor));
+    assert_eq!(level.get(0, 0), Some(Tile::Wall));
+    assert_eq!(spawns.len(), 2);
+    assert!(spawns.iter().all(|spawn| spawn.x == 1 && spawn.y == 1));
+  }
+
+  #[test]
+  fn unknown_chars_stay_as_default_tile() {
+    let (level, spawns) =
+      PrefabArea::new().filled_with(Tile::Vacuum).tile('.', Tile::DeckPlate).build(".x");
+
+    assert_eq!(level.get(0, 0), Some(Tile::DeckPlate));
+    assert_eq!(level.get(1, 0), Some(Tile::Vacuum));
+    assert!(spawns.is_empty());
+  }
+
+  #[test]
+  fn macro_accepts_associated_object_constructors() {
+    let area = prefab_area! {
+        c = Tile::DeckPlate with Object::loot_chest,
+    };
+
+    let (_, spawns) = area.build("c");
+
+    assert_eq!(spawns.len(), 1);
+  }
 }
