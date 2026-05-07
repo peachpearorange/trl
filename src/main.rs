@@ -40,8 +40,6 @@ pub const STATUS_BAR_HEIGHT: f32 = 32.0;
 #[derive(Clone, Copy, Debug)]
 enum PlayerAction {
   Move { dx: i32, dy: i32 },
-  Ascend,
-  Descend,
   Wait
 }
 
@@ -50,7 +48,6 @@ impl PlayerAction {
     match self {
       PlayerAction::Move { dx, dy } if dx != 0 && dy != 0 => 2,
       PlayerAction::Move { .. } => 1,
-      PlayerAction::Ascend | PlayerAction::Descend => 3,
       PlayerAction::Wait => 1
     }
   }
@@ -78,8 +75,6 @@ struct InteractionOption {
 
 #[derive(Clone, Debug)]
 enum InteractionAction {
-  Ascend,
-  Descend,
   ToggleDoor(Entity),
   Talk { speaker: &'static str, tree: &'static DialogueTree },
   ChopTree(Entity),
@@ -431,7 +426,90 @@ fn sync_entity_positions(
 // ---------------------------------------------------------------------------
 
 fn main() {
-    space_main();
+    let mut galaxy = galaxy::Galaxy::new();
+    let ship_id: galaxy::LocationId = (-1, -1, -1);
+
+    let ship_location = ship::build_ship_interior();
+    galaxy.insert(ship_id, ship_location.clone());
+
+    // Add starter planet at origin
+    let origin: galaxy::LocationId = (0, 0, 0);
+    let starter_planet = galaxy_gen::generate_starter_planet();
+    galaxy.insert(origin, starter_planet.clone());
+
+    // Ship starts docked at the starter planet
+    let active = active_zone::ActiveZone::docked(
+        &ship_location,
+        &starter_planet,
+        0, // first landing spot
+    ).expect("ship should dock at starter planet");
+
+    let ship_res = ship::Ship {
+        location_id: ship_id,
+        docked_at: Some(origin),
+        fuel: 500,
+        max_fuel: 500,
+    };
+
+    let fov = level::FovGrid::new(active.width, active.height);
+
+    let _ = &active; // Keep 'active' in scope for init
+
+    App::new()
+        .add_plugins(haalka::HaalkaPlugin::default())
+        .add_plugins(DefaultPlugins
+            .set(ImagePlugin::default_linear())
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "trl — space".into(),
+                    resolution: (1200u32, 800u32).into(),
+                    ..default()
+                }),
+                ..default()
+            }))
+        .insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.05)))
+            .insert_resource(galaxy)
+        .insert_resource(ship_res)
+        .insert_resource(CurrentZone(active))
+        .init_resource::<RenderFrame>()
+        .init_resource::<TurnBasedWorldState>()
+        .insert_resource(Clock::new())
+        .insert_resource(TimeModeAuto(true))
+        .init_resource::<ChestOpenPending>()
+        .insert_resource(UiState::default())
+        .insert_resource(Fov(fov))
+        .insert_resource(TileEntityIndex::default())
+        .add_plugins(ui::UiPlugin)
+        .add_systems(Startup, (setup, ui::spawn_haalka_root).chain())
+        .configure_sets(Update, SimStep.run_if(should_run_sim_step))
+        .add_systems(Update, (
+            bump_render_frame,
+            maintain_tile_index,
+            setup_glyph_visuals,
+            update_time_mode,
+            handle_world_map,
+            handle_dialogue,
+            handle_menus,
+            handle_interact,
+            handle_utility_menus,
+            player_input,
+        ).chain())
+        .add_systems(Update, (
+            ApplyDeferred,
+            enemy_death_check.in_set(SimStep),
+            enemy_ai.in_set(SimStep),
+            update_fov.in_set(SimStep),
+        ).chain())
+        .add_systems(Update, (
+            track_movement,
+            interpolate_visual_positions,
+            sync_entity_positions,
+            update_entity_visibility,
+            camera_follow,
+            update_fov_visuals,
+            update_tile_hover_highlight,
+        ).chain())
+        .run();
 }
 
 // ---------------------------------------------------------------------------
@@ -907,42 +985,6 @@ fn handle_dialogue(
 // Interaction menu
 // ---------------------------------------------------------------------------
 
-fn gather_interactions(
-  level: &level::Level,
-  lx: i32,
-  ly: i32,
-  z: usize,
-) -> Vec<InteractionOption> {
-  let mut options = Vec::new();
-
-  for dy in -1..=1 {
-    for dx in -1..=1 {
-      let (tx, ty) = (lx + dx, ly + dy);
-      if let Some(tile) = level.get(tx, ty) {
-        let here = dx == 0 && dy == 0;
-        let dir = if here { "here".to_string() } else { direction_name(dx, dy) };
-
-        match tile {
-          Tile::StairsUp if here && z + 1 < 32 => {
-            options.push(InteractionOption {
-              label: format!("Go upstairs ({dir})"),
-              action: InteractionAction::Ascend
-            });
-          }
-          Tile::StairsDown if here && z > 0 => {
-            options.push(InteractionOption {
-              label: format!("Go downstairs ({dir})"),
-              action: InteractionAction::Descend
-            });
-          }
-          _ => {}
-        }
-      }
-    }
-  }
-  options
-}
-
 fn direction_name(dx: i32, dy: i32) -> String {
   match (dx, dy) {
     (0, -1) => "N",
@@ -1115,7 +1157,6 @@ fn execute_interaction(
 
   if let Ok((pos, mut inventory)) = player_query.single_mut() {
     match action {
-      InteractionAction::Ascend | InteractionAction::Descend => {}
       InteractionAction::ToggleDoor(_) => {}
       InteractionAction::Talk { .. } => unreachable!(),
       InteractionAction::ChopTree(entity) => {
@@ -1216,7 +1257,7 @@ fn handle_interact(
 
   if let Ok((pos, _)) = player_q.single() {
     let level = current.0.level(pos.z);
-    let mut options = gather_interactions(level, pos.x, pos.y, pos.z);
+    let mut options = Vec::new();
 
     // Entity-based interactions: trees, dialogue, items
     for (dx, dy) in (-1i32..=1).flat_map(|dy| (-1i32..=1).map(move |dx| (dx, dy))) {
@@ -1286,97 +1327,6 @@ fn handle_world_map(
   } else if !ui.any_open() {
     world_map.open = true;
   }
-}
-
-// ---------------------------------------------------------------------------
-// Space game entry point
-// ---------------------------------------------------------------------------
-
-fn space_main() {
-    let mut galaxy = galaxy::Galaxy::new();
-    let ship_id: galaxy::LocationId = (-1, -1, -1);
-
-    let ship_location = ship::build_ship_interior();
-    galaxy.insert(ship_id, ship_location.clone());
-
-    // Add starter planet at origin
-    let origin: galaxy::LocationId = (0, 0, 0);
-    let starter_planet = galaxy_gen::generate_starter_planet();
-    galaxy.insert(origin, starter_planet.clone());
-
-    // Ship starts docked at the starter planet
-    let active = active_zone::ActiveZone::docked(
-        &ship_location,
-        &starter_planet,
-        0, // first landing spot
-    ).expect("ship should dock at starter planet");
-
-    let ship_res = ship::Ship {
-        location_id: ship_id,
-        docked_at: Some(origin),
-        fuel: 500,
-        max_fuel: 500,
-    };
-
-    let fov = level::FovGrid::new(active.width, active.height);
-
-    let _ = &active; // Keep 'active' in scope for init
-
-    App::new()
-        .add_plugins(haalka::HaalkaPlugin::default())
-        .add_plugins(DefaultPlugins
-            .set(ImagePlugin::default_linear())
-            .set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: "trl — space".into(),
-                    resolution: (1200u32, 800u32).into(),
-                    ..default()
-                }),
-                ..default()
-            }))
-        .insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.05)))
-                .insert_resource(galaxy)
-        .insert_resource(ship_res)
-        .insert_resource(CurrentZone(active))
-        .init_resource::<RenderFrame>()
-        .init_resource::<TurnBasedWorldState>()
-        .insert_resource(Clock::new())
-        .insert_resource(TimeModeAuto(true))
-        .init_resource::<ChestOpenPending>()
-        .insert_resource(UiState::default())
-        .insert_resource(Fov(fov))
-        .insert_resource(TileEntityIndex::default())
-        .add_plugins(ui::UiPlugin)
-        .add_systems(Startup, (setup, ui::spawn_haalka_root).chain())
-        .configure_sets(Update, SimStep.run_if(should_run_sim_step))
-        .add_systems(Update, (
-            bump_render_frame,
-            maintain_tile_index,
-            setup_glyph_visuals,
-            update_time_mode,
-            handle_world_map,
-            handle_dialogue,
-            handle_menus,
-            handle_interact,
-            handle_utility_menus,
-            player_input,
-        ).chain())
-        .add_systems(Update, (
-            ApplyDeferred,
-            enemy_death_check.in_set(SimStep),
-            enemy_ai.in_set(SimStep),
-            update_fov.in_set(SimStep),
-        ).chain())
-        .add_systems(Update, (
-            track_movement,
-            interpolate_visual_positions,
-            sync_entity_positions,
-            update_entity_visibility,
-            camera_follow,
-            update_fov_visuals,
-            update_tile_hover_highlight,
-        ).chain())
-        .run();
 }
 
 fn setup(
