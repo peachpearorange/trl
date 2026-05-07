@@ -3,7 +3,6 @@ use crate::{entities::{Glyph, Named, Object, Stats},
 use bevy::prelude::Color;
 
 pub type ObjectFactory = fn() -> Object;
-pub type Assoc = (char, Tile, Vec<ObjectFactory>);
 
 pub struct PrefabObject {
   pub object: Object,
@@ -21,7 +20,56 @@ impl PrefabObject {
   }
 }
 
-pub fn prefab_area(assocs: &[Assoc], layout: &str) -> (Level, Vec<PrefabObject>) {
+/// ASCII layout plus `.assoc` chains; object lists use arrays (`[]`, `[f]`, …), not `vec!`.
+pub fn prefab(layout: impl Into<String>) -> PrefabBuilder {
+  PrefabBuilder {
+    layout: layout.into(),
+    assocs: Vec::new(),
+  }
+}
+
+pub struct PrefabBuilder {
+  layout: String,
+  assocs: Vec<(char, Tile, Vec<ObjectFactory>)>,
+}
+
+pub trait AssocMarker {
+  fn assoc_char(self) -> char;
+}
+
+impl AssocMarker for char {
+  fn assoc_char(self) -> char {
+    self
+  }
+}
+
+impl AssocMarker for &str {
+  fn assoc_char(self) -> char {
+    let mut it = self.chars();
+    let c = it.next().expect("prefab assoc key must not be empty");
+    assert!(it.next().is_none(), "prefab assoc key must be one character");
+    c
+  }
+}
+
+impl PrefabBuilder {
+  pub fn assoc<const N: usize>(
+    mut self,
+    marker: impl AssocMarker,
+    (tile, factories): (Tile, [ObjectFactory; N]),
+  ) -> Self {
+    self
+      .assocs
+      .push((marker.assoc_char(), tile, Vec::from(factories)));
+    self
+  }
+
+  pub fn build(self) -> (Level, Vec<PrefabObject>) {
+    compile_prefab(&self.layout, &self.assocs)
+  }
+}
+
+fn compile_prefab(layout: &str, assocs: &[(char, Tile, Vec<ObjectFactory>)]) -> (Level, Vec<PrefabObject>) {
   let raw_lines: Vec<&str> = layout.lines().filter(|l| !l.trim().is_empty()).collect();
   let indent = raw_lines
     .iter()
@@ -77,34 +125,25 @@ fn ship_pilot() -> Object {
 }
 
 pub fn small_building_with_npc() -> (Level, Vec<PrefabObject>) {
-  prefab_area(
-    &[
-      ('w', Tile::StationWall, vec![]),
-      ('f', Tile::StationFloor, vec![]),
-      ('d', Tile::Door, vec![]),
-      ('n', Tile::StationFloor, vec![resident]),
-    ],
+  prefab(
     "
     wwwww
     wfffw
     wfnfw
     wwdfw
     wwwww
-    "
+    ",
   )
+  .assoc('w', (Tile::StationWall, []))
+  .assoc('f', (Tile::StationFloor, []))
+  .assoc('d', (Tile::Door, []))
+  .assoc('n', (Tile::StationFloor, [resident]))
+  .build()
 }
 
 /// Compact vessel: bulkhead shell, viewport row, flight console, aft airlock, one crew NPC.
 pub fn small_spaceship() -> (Level, Vec<PrefabObject>) {
-  prefab_area(
-    &[
-      ('b', Tile::Bulkhead, vec![]),
-      ('w', Tile::Window, vec![]),
-      ('.', Tile::DeckPlate, vec![]),
-      ('c', Tile::DeckPlate, vec![Object::flight_console]),
-      ('a', Tile::AirlockDoor, vec![]),
-      ('p', Tile::DeckPlate, vec![ship_pilot]),
-    ],
+  prefab(
     "
     bbbbbbb
     bwwwwwb
@@ -115,6 +154,13 @@ pub fn small_spaceship() -> (Level, Vec<PrefabObject>) {
     bbbbbbb
     ",
   )
+  .assoc('b', (Tile::Bulkhead, []))
+  .assoc('w', (Tile::Window, []))
+  .assoc('.', (Tile::DeckPlate, []))
+  .assoc('c', (Tile::DeckPlate, [Object::flight_console]))
+  .assoc('a', (Tile::AirlockDoor, []))
+  .assoc('p', (Tile::DeckPlate, [ship_pilot]))
+  .build()
 }
 
 #[cfg(test)]
@@ -127,17 +173,16 @@ mod tests {
 
   #[test]
   fn builds_tiles_and_multiple_objects_from_layout() {
-    let (level, spawns) = prefab_area(
-      &[
-        ('k', Tile::Floor, vec![chest, enemy]),
-        ('w', Tile::Wall, vec![]),
-      ],
+    let (level, spawns) = prefab(
       "
             www
             wkw
             www
-            "
-    );
+            ",
+    )
+    .assoc('k', (Tile::Floor, [chest, enemy]))
+    .assoc('w', (Tile::Wall, []))
+    .build();
 
     assert_eq!(level.width, 3);
     assert_eq!(level.height, 3);
@@ -148,8 +193,21 @@ mod tests {
   }
 
   #[test]
+  fn assoc_accepts_one_char_string() {
+    let (level, _) = prefab(
+      "
+aa
+aa
+",
+    )
+    .assoc("a", (Tile::DeckPlate, []))
+    .build();
+    assert_eq!(level.get(0, 0), Some(Tile::DeckPlate));
+  }
+
+  #[test]
   fn unknown_chars_stay_as_default_tile() {
-    let (level, spawns) = prefab_area(&[('.', Tile::DeckPlate, vec![])], ".x");
+    let (level, spawns) = prefab(".x").assoc('.', (Tile::DeckPlate, [])).build();
 
     assert_eq!(level.get(0, 0), Some(Tile::DeckPlate));
     assert_eq!(level.get(1, 0), Some(Tile::Vacuum));
@@ -158,7 +216,9 @@ mod tests {
 
   #[test]
   fn accepts_associated_object_constructors() {
-    let (_, spawns) = prefab_area(&[('c', Tile::DeckPlate, vec![Object::loot_chest])], "c");
+    let (_, spawns) = prefab("c")
+      .assoc('c', (Tile::DeckPlate, [Object::loot_chest]))
+      .build();
 
     assert_eq!(spawns.len(), 1);
   }
