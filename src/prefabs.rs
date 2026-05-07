@@ -3,20 +3,7 @@ use crate::{entities::{Glyph, Named, Object, Stats},
 use bevy::prelude::Color;
 
 pub type ObjectFactory = fn() -> Object;
-
-pub struct CharAssoc {
-  ch: char,
-  tile: Tile,
-  factories: Vec<ObjectFactory>
-}
-
-impl CharAssoc {
-  pub fn tile(ch: char, tile: Tile) -> Self { Self { ch, tile, factories: Vec::new() } }
-
-  pub fn with_objects(ch: char, tile: Tile, factories: Vec<ObjectFactory>) -> Self {
-    Self { ch, tile, factories }
-  }
-}
+pub type Assoc = (char, Tile, Vec<ObjectFactory>);
 
 pub struct PrefabObject {
   pub object: Object,
@@ -34,7 +21,7 @@ impl PrefabObject {
   }
 }
 
-pub fn prefab_area(assocs: &[CharAssoc], layout: &str) -> (Level, Vec<PrefabObject>) {
+pub fn prefab_area(assocs: &[Assoc], layout: &str) -> (Level, Vec<PrefabObject>) {
   let raw_lines: Vec<&str> = layout.lines().filter(|l| !l.trim().is_empty()).collect();
   let indent = raw_lines
     .iter()
@@ -53,9 +40,10 @@ pub fn prefab_area(assocs: &[CharAssoc], layout: &str) -> (Level, Vec<PrefabObje
 
   for (y, line) in lines.iter().enumerate() {
     for (x, ch) in line.chars().enumerate() {
-      if let Some(assoc) = assocs.iter().find(|a| a.ch == ch) {
-        level.set(x as i32, y as i32, assoc.tile);
-        for factory in &assoc.factories {
+      if let Some(&(_, tile, ref factories)) = assocs.iter().find(|&&(assoc_ch, ..)| assoc_ch == ch)
+      {
+        level.set(x as i32, y as i32, tile);
+        for factory in factories {
           spawns.push(PrefabObject { object: factory(), x: x as i32, y: y as i32 });
         }
       }
@@ -79,10 +67,10 @@ fn resident() -> Object {
 pub fn small_building_with_npc() -> (Level, Vec<PrefabObject>) {
   prefab_area(
     &[
-      CharAssoc::tile('w', Tile::StationWall),
-      CharAssoc::tile('f', Tile::StationFloor),
-      CharAssoc::tile('d', Tile::Door),
-      CharAssoc::with_objects('n', Tile::StationFloor, vec![resident]),
+      ('w', Tile::StationWall, vec![]),
+      ('f', Tile::StationFloor, vec![]),
+      ('d', Tile::Door, vec![]),
+      ('n', Tile::StationFloor, vec![resident]),
     ],
     "
     wwwww
@@ -106,8 +94,8 @@ mod tests {
   fn builds_tiles_and_multiple_objects_from_layout() {
     let (level, spawns) = prefab_area(
       &[
-        CharAssoc::with_objects('k', Tile::Floor, vec![chest, enemy]),
-        CharAssoc::tile('w', Tile::Wall),
+        ('k', Tile::Floor, vec![chest, enemy]),
+        ('w', Tile::Wall, vec![]),
       ],
       "
             www
@@ -126,7 +114,7 @@ mod tests {
 
   #[test]
   fn unknown_chars_stay_as_default_tile() {
-    let (level, spawns) = prefab_area(&[CharAssoc::tile('.', Tile::DeckPlate)], ".x");
+    let (level, spawns) = prefab_area(&[('.', Tile::DeckPlate, vec![])], ".x");
 
     assert_eq!(level.get(0, 0), Some(Tile::DeckPlate));
     assert_eq!(level.get(1, 0), Some(Tile::Vacuum));
@@ -135,8 +123,7 @@ mod tests {
 
   #[test]
   fn accepts_associated_object_constructors() {
-    let (_, spawns) =
-      prefab_area(&[CharAssoc::with_objects('c', Tile::DeckPlate, vec![Object::loot_chest])], "c");
+    let (_, spawns) = prefab_area(&[('c', Tile::DeckPlate, vec![Object::loot_chest])], "c");
 
     assert_eq!(spawns.len(), 1);
   }
