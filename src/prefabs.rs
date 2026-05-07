@@ -1,5 +1,6 @@
-use crate::{entities::{Glyph, Named, Object, Stats},
-            level::{Level, Tile}};
+use std::collections::HashMap;
+
+use crate::entities::{Glyph, Named, Object, Stats};
 use bevy::prelude::Color;
 
 pub struct PrefabObject {
@@ -18,17 +19,40 @@ impl PrefabObject {
   }
 }
 
-/// ASCII layout plus `.assoc` chains; pass `[Object::flight_console()]`-style templates ([`Object`] is cheaply cloned per grid cell).
-pub fn prefab(layout: impl Into<String>) -> PrefabBuilder {
-  PrefabBuilder {
-    layout: layout.into(),
-    assocs: Vec::new(),
-  }
+/// ASCII layout plus `.assoc` chains; yields spawn offsets only (tiles live in your [`crate::level::Level`]).
+pub struct Prefab {
+  layout: String,
+  assocs: HashMap<char, Vec<Object>>,
 }
 
-pub struct PrefabBuilder {
-  layout: String,
-  assocs: Vec<(char, Tile, Vec<Object>)>,
+pub fn prefab(layout: impl Into<String>) -> Prefab {
+  Prefab::new(layout)
+}
+
+impl Prefab {
+  pub fn new(layout: impl Into<String>) -> Self {
+    Self {
+      layout: layout.into(),
+      assocs: HashMap::new(),
+    }
+  }
+
+  /// Each [`Object`] is [`Clone`]d per matching grid cell.
+  pub fn assoc<const N: usize>(
+    mut self,
+    marker: impl AssocMarker,
+    templates: [Object; N],
+  ) -> Self {
+    self
+      .assocs
+      .insert(marker.assoc_char(), Vec::from(templates));
+    self
+  }
+
+  /// Local `(x, y)` offsets from the prefab’s top-left (same orientation as layout rows).
+  pub fn build(self) -> Vec<PrefabObject> {
+    compile_prefab(&self.layout, &self.assocs)
+  }
 }
 
 pub trait AssocMarker {
@@ -50,25 +74,7 @@ impl AssocMarker for &str {
   }
 }
 
-impl PrefabBuilder {
-  /// Each [`Object`] is [`Clone`]d per matching grid cell (spawn templates from `Object::npc()`, …).
-  pub fn assoc<const N: usize>(
-    mut self,
-    marker: impl AssocMarker,
-    (tile, templates): (Tile, [Object; N]),
-  ) -> Self {
-    self
-      .assocs
-      .push((marker.assoc_char(), tile, Vec::from(templates)));
-    self
-  }
-
-  pub fn build(self) -> (Level, Vec<PrefabObject>) {
-    compile_prefab(&self.layout, &self.assocs)
-  }
-}
-
-fn compile_prefab(layout: &str, assocs: &[(char, Tile, Vec<Object>)]) -> (Level, Vec<PrefabObject>) {
+fn compile_prefab(layout: &str, assocs: &HashMap<char, Vec<Object>>) -> Vec<PrefabObject> {
   let raw_lines: Vec<&str> = layout.lines().filter(|l| !l.trim().is_empty()).collect();
   let indent = raw_lines
     .iter()
@@ -79,29 +85,34 @@ fn compile_prefab(layout: &str, assocs: &[(char, Tile, Vec<Object>)]) -> (Level,
     .unwrap_or(0);
   let lines: Vec<&str> =
     raw_lines.iter().map(|line| line.get(indent..).unwrap_or(line)).collect();
-  let height = lines.len();
-  let width = lines.iter().map(|l| l.len()).max().unwrap_or(0);
 
-  let mut level = Level::new(width, height, Tile::Vacuum);
   let mut spawns: Vec<PrefabObject> = Vec::new();
 
   for (y, line) in lines.iter().enumerate() {
     for (x, ch) in line.chars().enumerate() {
-      if let Some(&(_, tile, ref factories)) = assocs.iter().find(|&&(assoc_ch, ..)| assoc_ch == ch)
-      {
-        level.set(x as i32, y as i32, tile);
-        for template in factories {
+      if ch.is_whitespace() {
+        continue;
+      }
+      if let Some(templates) = assocs.get(&ch) {
+        for template in templates {
           spawns.push(PrefabObject {
             object: template.clone(),
             x: x as i32,
             y: y as i32,
           });
         }
+      } else {
+        bevy::log::error!(
+          "prefab: layout character {:?} at ({}, {}) has no .assoc — ignored",
+          ch,
+          x,
+          y
+        );
       }
     }
   }
 
-  (level, spawns)
+  spawns
 }
 
 fn resident() -> Object {
@@ -115,7 +126,6 @@ fn resident() -> Object {
   ))
 }
 
-/// Crew on the small-ship prefab; neutral, non-blocking.
 fn ship_pilot() -> Object {
   Object::npc().add((
     Named {
@@ -127,7 +137,7 @@ fn ship_pilot() -> Object {
   ))
 }
 
-pub fn small_building_with_npc() -> (Level, Vec<PrefabObject>) {
+pub fn small_building_with_npc() -> Vec<PrefabObject> {
   prefab(
     "
     wwwww
@@ -137,15 +147,14 @@ pub fn small_building_with_npc() -> (Level, Vec<PrefabObject>) {
     wwwww
     ",
   )
-  .assoc('w', (Tile::StationWall, []))
-  .assoc('f', (Tile::StationFloor, []))
-  .assoc('d', (Tile::Door, []))
-  .assoc('n', (Tile::StationFloor, [resident()]))
+  .assoc('w', [])
+  .assoc('f', [])
+  .assoc('d', [])
+  .assoc('n', [resident()])
   .build()
 }
 
-/// Compact vessel: bulkhead shell, viewport row, flight console, aft airlock, one crew NPC.
-pub fn small_spaceship() -> (Level, Vec<PrefabObject>) {
+pub fn small_spaceship() -> Vec<PrefabObject> {
   prefab(
     "
     bbbbbbb
@@ -157,12 +166,12 @@ pub fn small_spaceship() -> (Level, Vec<PrefabObject>) {
     bbbbbbb
     ",
   )
-  .assoc('b', (Tile::Bulkhead, []))
-  .assoc('w', (Tile::Window, []))
-  .assoc('.', (Tile::DeckPlate, []))
-  .assoc('c', (Tile::DeckPlate, [Object::flight_console()]))
-  .assoc('a', (Tile::AirlockDoor, []))
-  .assoc('p', (Tile::DeckPlate, [ship_pilot()]))
+  .assoc('b', [])
+  .assoc('w', [])
+  .assoc('.', [])
+  .assoc('c', [Object::flight_console()])
+  .assoc('a', [])
+  .assoc('p', [ship_pilot()])
   .build()
 }
 
@@ -175,78 +184,61 @@ mod tests {
   fn enemy() -> Object { Object::rat_soldier() }
 
   #[test]
-  fn builds_tiles_and_multiple_objects_from_layout() {
-    let (level, spawns) = prefab(
+  fn builds_multiple_objects_at_same_cell() {
+    let spawns = prefab(
       "
             www
             wkw
             www
             ",
     )
-    .assoc('k', (Tile::Floor, [chest(), enemy()]))
-    .assoc('w', (Tile::Wall, []))
+    .assoc('k', [chest(), enemy()])
+    .assoc('w', [])
     .build();
 
-    assert_eq!(level.width, 3);
-    assert_eq!(level.height, 3);
-    assert_eq!(level.get(1, 1), Some(Tile::Floor));
-    assert_eq!(level.get(0, 0), Some(Tile::Wall));
     assert_eq!(spawns.len(), 2);
     assert!(spawns.iter().all(|spawn| spawn.x == 1 && spawn.y == 1));
   }
 
   #[test]
   fn assoc_accepts_one_char_string() {
-    let (level, _) = prefab(
+    let spawns = prefab(
       "
 aa
 aa
 ",
     )
-    .assoc("a", (Tile::DeckPlate, []))
+    .assoc("a", [])
     .build();
-    assert_eq!(level.get(0, 0), Some(Tile::DeckPlate));
-  }
-
-  #[test]
-  fn unknown_chars_stay_as_default_tile() {
-    let (level, spawns) = prefab(".x").assoc('.', (Tile::DeckPlate, [])).build();
-
-    assert_eq!(level.get(0, 0), Some(Tile::DeckPlate));
-    assert_eq!(level.get(1, 0), Some(Tile::Vacuum));
     assert!(spawns.is_empty());
   }
 
   #[test]
-  fn accepts_associated_object_constructors() {
-    let (_, spawns) = prefab("c")
-      .assoc('c', (Tile::DeckPlate, [Object::loot_chest()]))
-      .build();
+  fn unknown_chars_emit_error_and_spawn_nothing_for_that_cell() {
+    let spawns = prefab(".x").assoc('.', []).build();
+
+    assert!(spawns.is_empty());
+  }
+
+  #[test]
+  fn accepts_object_templates() {
+    let spawns = prefab("c").assoc('c', [Object::loot_chest()]).build();
 
     assert_eq!(spawns.len(), 1);
   }
 
   #[test]
-  fn small_building_contains_walls_door_and_npc() {
-    let (level, spawns) = small_building_with_npc();
+  fn small_building_has_one_npc_at_expected_offset() {
+    let spawns = small_building_with_npc();
 
-    assert_eq!(level.width, 5);
-    assert_eq!(level.height, 5);
-    assert_eq!(level.get(0, 0), Some(Tile::StationWall));
-    assert_eq!(level.get(2, 3), Some(Tile::Door));
-    assert_eq!(level.get(2, 2), Some(Tile::StationFloor));
     assert_eq!(spawns.len(), 1);
     assert_eq!((spawns[0].x, spawns[0].y), (2, 2));
   }
 
   #[test]
-  fn small_spaceship_has_airlock_console_and_pilot() {
-    let (level, spawns) = small_spaceship();
+  fn small_spaceship_has_console_and_pilot_offsets() {
+    let spawns = small_spaceship();
 
-    assert_eq!(level.width, 7);
-    assert_eq!(level.height, 7);
-    assert_eq!(level.get(3, 5), Some(Tile::AirlockDoor));
-    assert_eq!(level.get(3, 3), Some(Tile::DeckPlate));
     assert_eq!(spawns.len(), 2);
     let origins: Vec<(i32, i32)> = spawns.iter().map(|s| (s.x, s.y)).collect();
     assert!(origins.contains(&(3, 2)));
