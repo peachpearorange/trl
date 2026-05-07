@@ -1300,8 +1300,8 @@ fn setup(
         Sprite {
       image: palette_sprite_handle(
         "textures/space_qud/mongus.png",
-        Color::srgb(0.72, 0.52, 0.38),
-        Color::srgb(0.92, 0.88, 0.82),
+        Color::srgb(0.18, 0.42, 0.92),
+        Color::srgb(0.98, 0.88, 0.22),
         &mut palette_cache,
         &mut images,
       ),
