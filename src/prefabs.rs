@@ -1,5 +1,6 @@
-use crate::{entities::Object,
+use crate::{entities::{Glyph, Named, Object, Stats},
             level::{Level, Tile}};
+use bevy::prelude::Color;
 
 pub type ObjectFactory = fn() -> Object;
 
@@ -84,6 +85,36 @@ impl Default for PrefabArea {
   fn default() -> Self { Self::new() }
 }
 
+fn resident() -> Object {
+  Object::npc().add((
+    Named {
+      name: "Resident",
+      flavor: "Someone trying to keep a small place livable.",
+    },
+    Stats { hp: 8, max_hp: 8, attack: 1, move_speed: 3.0, attack_speed: 1.0 },
+    Glyph::ascii('@', Color::srgb(0.7, 0.9, 1.0)),
+  ))
+}
+
+pub fn small_building_with_npc() -> (Level, Vec<PrefabObject>) {
+  crate::prefab_area! {
+      w = Tile::StationWall,
+      f = Tile::StationFloor,
+      d = Tile::Door,
+      n = Tile::StationFloor with resident,
+  }
+  .filled_with(Tile::Vacuum)
+  .build(
+    "
+    wwwww
+    wfffw
+    wfnfw
+    wwdfw
+    wwwww
+    "
+  )
+}
+
 #[macro_export]
 macro_rules! prefab_area {
     (
@@ -152,5 +183,18 @@ mod tests {
     let (_, spawns) = area.build("c");
 
     assert_eq!(spawns.len(), 1);
+  }
+
+  #[test]
+  fn small_building_contains_walls_door_and_npc() {
+    let (level, spawns) = small_building_with_npc();
+
+    assert_eq!(level.width, 5);
+    assert_eq!(level.height, 5);
+    assert_eq!(level.get(0, 0), Some(Tile::StationWall));
+    assert_eq!(level.get(2, 3), Some(Tile::Door));
+    assert_eq!(level.get(2, 2), Some(Tile::StationFloor));
+    assert_eq!(spawns.len(), 1);
+    assert_eq!((spawns[0].x, spawns[0].y), (2, 2));
   }
 }
