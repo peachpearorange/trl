@@ -2,8 +2,6 @@ use crate::{entities::{Glyph, Named, Object, Stats},
             level::{Level, Tile}};
 use bevy::prelude::Color;
 
-pub type ObjectFactory = fn() -> Object;
-
 pub struct PrefabObject {
   pub object: Object,
   pub x: i32,
@@ -20,7 +18,7 @@ impl PrefabObject {
   }
 }
 
-/// ASCII layout plus `.assoc` chains; object lists use arrays (`[]`, `[f]`, …), not `vec!`.
+/// ASCII layout plus `.assoc` chains; pass `[Object::flight_console()]`-style templates ([`Object`] is cheaply cloned per grid cell).
 pub fn prefab(layout: impl Into<String>) -> PrefabBuilder {
   PrefabBuilder {
     layout: layout.into(),
@@ -30,7 +28,7 @@ pub fn prefab(layout: impl Into<String>) -> PrefabBuilder {
 
 pub struct PrefabBuilder {
   layout: String,
-  assocs: Vec<(char, Tile, Vec<ObjectFactory>)>,
+  assocs: Vec<(char, Tile, Vec<Object>)>,
 }
 
 pub trait AssocMarker {
@@ -53,14 +51,15 @@ impl AssocMarker for &str {
 }
 
 impl PrefabBuilder {
+  /// Each [`Object`] is [`Clone`]d per matching grid cell (spawn templates from `Object::npc()`, …).
   pub fn assoc<const N: usize>(
     mut self,
     marker: impl AssocMarker,
-    (tile, factories): (Tile, [ObjectFactory; N]),
+    (tile, templates): (Tile, [Object; N]),
   ) -> Self {
     self
       .assocs
-      .push((marker.assoc_char(), tile, Vec::from(factories)));
+      .push((marker.assoc_char(), tile, Vec::from(templates)));
     self
   }
 
@@ -69,7 +68,7 @@ impl PrefabBuilder {
   }
 }
 
-fn compile_prefab(layout: &str, assocs: &[(char, Tile, Vec<ObjectFactory>)]) -> (Level, Vec<PrefabObject>) {
+fn compile_prefab(layout: &str, assocs: &[(char, Tile, Vec<Object>)]) -> (Level, Vec<PrefabObject>) {
   let raw_lines: Vec<&str> = layout.lines().filter(|l| !l.trim().is_empty()).collect();
   let indent = raw_lines
     .iter()
@@ -91,8 +90,12 @@ fn compile_prefab(layout: &str, assocs: &[(char, Tile, Vec<ObjectFactory>)]) -> 
       if let Some(&(_, tile, ref factories)) = assocs.iter().find(|&&(assoc_ch, ..)| assoc_ch == ch)
       {
         level.set(x as i32, y as i32, tile);
-        for factory in factories {
-          spawns.push(PrefabObject { object: factory(), x: x as i32, y: y as i32 });
+        for template in factories {
+          spawns.push(PrefabObject {
+            object: template.clone(),
+            x: x as i32,
+            y: y as i32,
+          });
         }
       }
     }
@@ -137,7 +140,7 @@ pub fn small_building_with_npc() -> (Level, Vec<PrefabObject>) {
   .assoc('w', (Tile::StationWall, []))
   .assoc('f', (Tile::StationFloor, []))
   .assoc('d', (Tile::Door, []))
-  .assoc('n', (Tile::StationFloor, [resident]))
+  .assoc('n', (Tile::StationFloor, [resident()]))
   .build()
 }
 
@@ -157,9 +160,9 @@ pub fn small_spaceship() -> (Level, Vec<PrefabObject>) {
   .assoc('b', (Tile::Bulkhead, []))
   .assoc('w', (Tile::Window, []))
   .assoc('.', (Tile::DeckPlate, []))
-  .assoc('c', (Tile::DeckPlate, [Object::flight_console]))
+  .assoc('c', (Tile::DeckPlate, [Object::flight_console()]))
   .assoc('a', (Tile::AirlockDoor, []))
-  .assoc('p', (Tile::DeckPlate, [ship_pilot]))
+  .assoc('p', (Tile::DeckPlate, [ship_pilot()]))
   .build()
 }
 
@@ -180,7 +183,7 @@ mod tests {
             www
             ",
     )
-    .assoc('k', (Tile::Floor, [chest, enemy]))
+    .assoc('k', (Tile::Floor, [chest(), enemy()]))
     .assoc('w', (Tile::Wall, []))
     .build();
 
@@ -217,7 +220,7 @@ aa
   #[test]
   fn accepts_associated_object_constructors() {
     let (_, spawns) = prefab("c")
-      .assoc('c', (Tile::DeckPlate, [Object::loot_chest]))
+      .assoc('c', (Tile::DeckPlate, [Object::loot_chest()]))
       .build();
 
     assert_eq!(spawns.len(), 1);

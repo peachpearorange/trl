@@ -1,7 +1,8 @@
 //! Entity types and spawnable definitions for the game.
 
 use {crate::faction::Faction,
-     bevy::prelude::*};
+     bevy::prelude::*,
+     std::sync::Arc};
 
 // ============ DIALOGUE ============
 
@@ -36,7 +37,7 @@ pub struct DialogueChoice {
 }
 
 /// Marks an entity as conversable; holds a pointer to its dialogue tree.
-#[derive(Component, Debug)]
+#[derive(Component, Clone, Debug)]
 pub struct Dialogue(pub &'static DialogueTree);
 
 /// Construct a [`DialogueTree`] (for use in `static` initializers).
@@ -131,21 +132,21 @@ pub enum Material {
 // ============ COMPONENTS ============
 
 /// Whether this entity blocks movement.
-#[derive(Component)]
+#[derive(Component, Clone, Copy)]
 pub struct Collidable(pub bool);
 
 /// Emits light in a radius.
-#[derive(Component)]
+#[derive(Component, Clone, Copy)]
 pub struct LightSource {
   pub radius: u32
 }
 
 /// An item sitting on the ground.
-#[derive(Component)]
+#[derive(Component, Clone, Copy)]
 pub struct GroundItem(pub Item);
 
 /// A door that can be opened/closed.
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct Door {
   pub open: bool,
   /// Original colour when closed; restored on close.
@@ -153,39 +154,39 @@ pub struct Door {
 }
 
 /// Wall construction material.
-#[derive(Component)]
+#[derive(Component, Clone, Copy)]
 pub struct WallComp {
   pub material: Material
 }
 
 /// Combat/AI faction.
-#[derive(Component)]
+#[derive(Component, Clone, Copy)]
 pub struct FactionComp(pub Faction);
 
 /// Marker for character entities (player, enemies, NPCs).
-#[derive(Component)]
+#[derive(Component, Clone, Copy)]
 pub struct Character;
 
 /// The player character.
-#[derive(Component)]
+#[derive(Component, Clone, Copy)]
 pub struct Player;
 
 /// An enemy entity.
-#[derive(Component)]
+#[derive(Component, Clone, Copy)]
 pub struct Enemy;
 
 /// A tree entity.
-#[derive(Component)]
+#[derive(Component, Clone, Copy)]
 pub struct Tree;
 
 /// Placed loot container; blocks the tile until emptied.
-#[derive(Component, Debug)]
+#[derive(Component, Clone, Debug)]
 pub struct LootChest {
   pub opened: bool,
 }
 
 /// Entity occupies its tile for line-of-sight (like an opaque tile) but need not block movement.
-#[derive(Component)]
+#[derive(Component, Clone, Copy)]
 pub struct BlocksSight;
 
 /// Visual for a grid entity: optional PNG (tile-sized sprite) or [`Text2d`] from `ch` + `color`.
@@ -230,14 +231,14 @@ impl Glyph {
 }
 
 /// Identity and SS13-style flavor text shown on hover.
-#[derive(Component, Debug)]
+#[derive(Component, Clone, Debug)]
 pub struct Named {
   pub name:   &'static str,
   pub flavor: &'static str,
 }
 
 /// Flat combat stats.
-#[derive(Component, Debug)]
+#[derive(Component, Clone, Debug)]
 pub struct Stats {
   pub hp:           i32,
   pub max_hp:       i32,
@@ -247,23 +248,23 @@ pub struct Stats {
 }
 
 /// What an entity is holding. None = unarmed (has hands, holds nothing).
-#[derive(Component, Debug)]
+#[derive(Component, Clone, Debug)]
 pub struct Wielding(pub Option<Item>);
 
 /// Armor being worn. None = unarmored.
-#[derive(Component, Debug)]
+#[derive(Component, Clone, Debug)]
 pub struct Wearing(pub Option<Armor>);
 
 /// Tracks display frames since the entity last acted. Used by enemy AI.
-#[derive(Component, Debug, Default)]
+#[derive(Component, Clone, Copy, Debug, Default)]
 pub struct TimeSinceAction(pub u32);
 
 /// Marker: this entity is affected by gravity and will fall through Air tiles.
-#[derive(Component, Debug)]
+#[derive(Component, Clone, Copy, Debug)]
 pub struct Gravity;
 
 /// Marker component for the flight console entity.
-#[derive(Component)]
+#[derive(Component, Clone, Copy)]
 pub struct FlightConsole;
 
 /// Smooth visual interpolation state for moving entities.
@@ -286,18 +287,27 @@ pub struct Visuals {
 /// Composable entity blueprint. Chain constructor fns that delegate to
 /// each other, then call `.spawn()`.
 ///
+/// [`Clone`] uses `Arc` internally so the same blueprint can spawn many entities (e.g. prefabs).
+///
 /// ```ignore
 /// player().add(Location::xyz(5, 3, 2)).spawn(&mut commands);
 /// ```
-pub struct Object(Box<dyn FnOnce(&mut EntityCommands) + Send + Sync>);
+#[derive(Clone)]
+pub struct Object(Arc<dyn Fn(&mut EntityCommands) + Send + Sync + 'static>);
 
 impl Object {
-  fn new(bundle: impl Bundle) -> Self {
-    Self(Box::new(|e: &mut EntityCommands| { e.insert(bundle); }))
+  fn new(bundle: impl Bundle + Clone + Send + Sync + 'static) -> Self {
+    Self(Arc::new(move |e: &mut EntityCommands| {
+      e.insert(bundle.clone());
+    }))
   }
 
-  pub fn add(self, bundle: impl Bundle) -> Self {
-    Self(Box::new(|e: &mut EntityCommands| { (self.0)(e); e.insert(bundle); }))
+  pub fn add(self, bundle: impl Bundle + Clone + Send + Sync + 'static) -> Self {
+    let prev = self.0.clone();
+    Self(Arc::new(move |e: &mut EntityCommands| {
+      prev(e);
+      e.insert(bundle.clone());
+    }))
   }
 
   pub fn spawn(self, commands: &mut Commands) -> Entity {
