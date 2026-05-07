@@ -64,6 +64,18 @@ fn resident() -> Object {
   ))
 }
 
+/// Crew on the small-ship prefab; neutral, non-blocking.
+fn ship_pilot() -> Object {
+  Object::npc().add((
+    Named {
+      name: "Pilot",
+      flavor: "Ticks through a short pre-flight list. Coffee stains on the console manual.",
+    },
+    Stats { hp: 10, max_hp: 10, attack: 1, move_speed: 3.0, attack_speed: 1.0 },
+    Glyph::ascii('@', Color::srgb(0.55, 0.82, 0.95)),
+  ))
+}
+
 pub fn small_building_with_npc() -> (Level, Vec<PrefabObject>) {
   prefab_area(
     &[
@@ -79,6 +91,29 @@ pub fn small_building_with_npc() -> (Level, Vec<PrefabObject>) {
     wwdfw
     wwwww
     "
+  )
+}
+
+/// Compact vessel: bulkhead shell, viewport row, flight console, aft airlock, one crew NPC.
+pub fn small_spaceship() -> (Level, Vec<PrefabObject>) {
+  prefab_area(
+    &[
+      ('b', Tile::Bulkhead, vec![]),
+      ('w', Tile::Window, vec![]),
+      ('.', Tile::DeckPlate, vec![]),
+      ('c', Tile::DeckPlate, vec![Object::flight_console]),
+      ('a', Tile::AirlockDoor, vec![]),
+      ('p', Tile::DeckPlate, vec![ship_pilot]),
+    ],
+    "
+    bbbbbbb
+    bwwwwwb
+    b..p..b
+    b..c..b
+    b.....b
+    b..a..b
+    bbbbbbb
+    ",
   )
 }
 
@@ -139,5 +174,19 @@ mod tests {
     assert_eq!(level.get(2, 2), Some(Tile::StationFloor));
     assert_eq!(spawns.len(), 1);
     assert_eq!((spawns[0].x, spawns[0].y), (2, 2));
+  }
+
+  #[test]
+  fn small_spaceship_has_airlock_console_and_pilot() {
+    let (level, spawns) = small_spaceship();
+
+    assert_eq!(level.width, 7);
+    assert_eq!(level.height, 7);
+    assert_eq!(level.get(3, 5), Some(Tile::AirlockDoor));
+    assert_eq!(level.get(3, 3), Some(Tile::DeckPlate));
+    assert_eq!(spawns.len(), 2);
+    let origins: Vec<(i32, i32)> = spawns.iter().map(|s| (s.x, s.y)).collect();
+    assert!(origins.contains(&(3, 2)));
+    assert!(origins.contains(&(3, 3)));
   }
 }
