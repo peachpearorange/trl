@@ -11,3 +11,5 @@ pub mod galaxy_gen;
 pub mod navigation;
 pub mod atmosphere;
 pub mod crew;
+pub mod prefabs;
+pub mod sprites;

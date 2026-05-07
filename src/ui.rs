@@ -16,9 +16,8 @@
 
 use {
   crate::{
-    level::{ZONE_WIDTH, ZONE_HEIGHT},
     utils::mapv,
-    Clock, try_pick_level_tile_at_cursor, world_to_zone, GAME_VIEWPORT_WIDTH_FRAC, STATUS_BAR_HEIGHT,
+    Clock, try_pick_level_tile_at_cursor, GAME_VIEWPORT_WIDTH_FRAC, STATUS_BAR_HEIGHT,
   },
   bevy::prelude::*,
   bevy::text::FontWeight,
@@ -661,7 +660,7 @@ fn sync_ui(
   clock: Res<Clock>,
   player_q: Query<(&crate::PlayerPos, &Stats, &crate::Inventory), With<crate::Player>>,
   ui: Res<crate::UiState>,
-  gw: Res<crate::GameWorld>,
+  current: Res<crate::CurrentZone>,
   fov: Res<crate::Fov>,
   index: Res<crate::combat::TileEntityIndex>,
   named_q: Query<(&Named, Option<&Stats>)>,
@@ -706,7 +705,7 @@ fn sync_ui(
 
   // ── Hover info ──
   *hover_info = compute_hover_info(
-    &windows, &camera_q, &gw, player_q, &fov, &index, &named_q
+    &windows, &camera_q, &current, player_q, &fov, &index, &named_q
   );
 
   // ── Overlay state ──
@@ -748,7 +747,7 @@ fn sync_ui(
 fn compute_hover_info(
   windows: &Query<&Window>,
   camera_q: &Query<(&Camera, &GlobalTransform), With<Camera2d>>,
-  gw: &crate::GameWorld,
+  current: &crate::CurrentZone,
   player_q: Query<(&crate::PlayerPos, &Stats, &crate::Inventory), With<crate::Player>>,
   fov: &crate::Fov,
   index: &crate::combat::TileEntityIndex,
@@ -766,8 +765,7 @@ fn compute_hover_info(
     && let Ok((camera, cam_tf)) = camera_q.single()
     && let Ok((pos, _, _)) = player_q.single()
   {
-    let (zx, zy) = world_to_zone(pos.x, pos.y);
-    let level = gw.0.zone(zx, zy, pos.z);
+    let level = current.0.level(pos.z);
     if let Some((tx, ty)) =
       try_pick_level_tile_at_cursor(window, camera, cam_tf, level.width, level.height)
     {
@@ -782,12 +780,10 @@ fn compute_hover_info(
         };
 
         // Look for entity on this tile
-        let wx = (zx * ZONE_WIDTH) as i32 + tx;
-        let wy = (zy * ZONE_HEIGHT) as i32 + ty;
         let (entity_name, entity_hp, flavor) = if visible {
           index
             .0
-            .get(&(wx, wy, pos.z))
+            .get(&(tx, ty, pos.z))
             .and_then(|entities| {
               entities.iter().find_map(|&e| {
                 named_q.get(e).ok().map(|(named, stats)| {

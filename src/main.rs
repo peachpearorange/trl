@@ -2,8 +2,6 @@ mod ui;
 use trl::level;
 mod combat;
 mod npcs;
-mod worldgen;
-mod world_data;
 mod utils;
 mod loot;
 mod crafting;
@@ -11,17 +9,18 @@ mod crafting;
 use {
   bevy::anti_alias::fxaa::Fxaa,
   bevy::prelude::*,
-  combat::{TileEntityIndex, enemy_ai, maintain_tile_index, tile_blocked},
-  level::{FovGrid, Item, Tile, ZoneWorld, ZONE_HEIGHT, ZONE_WIDTH, SURFACE_Z, WORLD_DEPTH, compute_fov},
+  combat::{TileEntityIndex, enemy_ai, maintain_tile_index},
+  level::{FovGrid, Item, Tile, ZONE_HEIGHT, ZONE_WIDTH, compute_fov},
   std::collections::{HashMap, HashSet},
   ui::{log_message, LogEntries, WorldMapView},
   trl::entities::{
-    BlocksSight, Collidable, Dialogue, DialogueNode, DialogueTree, Door, Enemy, Glyph, Gravity, Location, LootChest,
+    BlocksSight, Collidable, Dialogue, DialogueNode, DialogueTree, Door, Enemy, Glyph, Location, LootChest,
     Named, Object, Stats, Tree, Visuals,
   },
 };
 
-use trl::{galaxy, ship, active_zone, galaxy_gen, docking};
+use trl::{galaxy, ship, active_zone, galaxy_gen};
+use trl::active_zone::ActiveZone;
 
 const TILE_SIZE: f32 = 64.0;
 /// Simulated 60Hz display: one grid step / one input gate spans this many render updates.
@@ -124,7 +123,6 @@ enum DialogueState {
 
 #[derive(Component)]
 
-
 // ---------------------------------------------------------------------------
 // Merged UI state
 // ---------------------------------------------------------------------------
@@ -226,9 +224,6 @@ struct SimStep;
 // ---------------------------------------------------------------------------
 
 #[derive(Resource)]
-pub struct GameWorld(pub ZoneWorld);
-
-#[derive(Resource)]
 pub struct CurrentZone(pub active_zone::ActiveZone);
 
 #[derive(Resource)]
@@ -239,16 +234,9 @@ pub struct Player;
 
 #[derive(Component)]
 pub struct PlayerPos {
-  pub x: i32,
-  pub y: i32,
-  pub z: usize,
-}
-
-#[derive(Component)]
-struct SpacePlayerPos {
-    x: i32,
-    y: i32,
-    z: usize,
+    pub x: i32,
+    pub y: i32,
+    pub z: usize,
 }
 
 #[derive(Component)]
@@ -284,14 +272,6 @@ struct TileHoverHighlight;
 // ---------------------------------------------------------------------------
 // Glyph rendering systems
 // ---------------------------------------------------------------------------
-
-/// Zone-local tile (0..ZONE_WIDTH) from world tile, stable for negative `x`/`y`.
-fn zone_local_from_world(x: i32, y: i32) -> Vec2 {
-  Vec2::new(
-    x.rem_euclid(ZONE_WIDTH as i32) as f32,
-    y.rem_euclid(ZONE_HEIGHT as i32) as f32,
-  )
-}
 
 /// `true` if `a` and `b` are the same or orthogonally/diagonally adjacent on the grid.
 /// If the logical local tile jumps further (e.g. zone wrap: 0 → 47), a lerp would cross the
@@ -329,14 +309,12 @@ fn track_movement(
   let f = frame.0;
   for (loc, mut vis) in params.p0().iter_mut() {
     if let Some(world_pos) = loc.as_vec2() {
-      let wx = world_pos.x.trunc() as i32;
-      let wy = world_pos.y.trunc() as i32;
-      let local = zone_local_from_world(wx, wy);
+      let local = Vec2::new(world_pos.x, world_pos.y);
       apply_visuals_move(&mut vis, f, local);
     }
   }
   if let Ok((pos, mut vis)) = params.p1().single_mut() {
-    let local = zone_local_from_world(pos.x, pos.y);
+    let local = Vec2::new(pos.x as f32, pos.y as f32);
     apply_visuals_move(&mut vis, f, local);
   }
 }
@@ -380,14 +358,12 @@ fn interpolate_visual_positions(
   let f = frame.0;
   for (loc, mut vis) in params.p0().iter_mut() {
     if let Some(world_pos) = loc.as_vec2() {
-      let wx = world_pos.x.trunc() as i32;
-      let wy = world_pos.y.trunc() as i32;
-      let local = zone_local_from_world(wx, wy);
+      let local = Vec2::new(world_pos.x, world_pos.y);
       interpolate_visual_one(&mut vis, f, local);
     }
   }
   if let Ok((pos, mut vis)) = params.p1().single_mut() {
-    let local = zone_local_from_world(pos.x, pos.y);
+    let local = Vec2::new(pos.x as f32, pos.y as f32);
     interpolate_visual_one(&mut vis, f, local);
   }
 }
@@ -399,7 +375,8 @@ fn setup_glyph_visuals(
 ) {
   for (entity, glyph, location) in query.iter() {
     if let Location::Coords { x, y, .. } = location {
-      let (lx, ly) = world_to_local(*x, *y);
+      let lx = *x;
+      let ly = *y;
       let local = Vec2::new(lx as f32, ly as f32);
       let pos = tile_screen_pos(lx as f32, ly as f32, ZONE_WIDTH, ZONE_HEIGHT)
         + Vec3::new(0.0, 0.0, 2.0);
@@ -457,80 +434,6 @@ fn main() {
     space_main();
 }
 
-fn fantasy_main() {
-  let world = worldgen::generate_world(worldgen::WORLD_SEED);
-  let fov = FovGrid::new(ZONE_WIDTH, ZONE_HEIGHT);
-
-  App::new()
-    .add_plugins(haalka::HaalkaPlugin::default())
-    .add_plugins(
-      DefaultPlugins
-        // Bilinear filtering: artwork is scaled to TILE_SIZE and looks harsh with nearest.
-        .set(ImagePlugin::default_linear())
-        .set(WindowPlugin {
-      primary_window: Some(Window {
-        title: "trl".into(),
-        resolution: (1200u32, 800u32).into(),
-        ..default()
-      }),
-      ..default()
-    }))
-    .insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.05)))
-    .insert_resource(GameWorld(world))
-    .init_resource::<RenderFrame>()
-    .init_resource::<TurnBasedWorldState>()
-    .insert_resource(Clock::new())
-    .insert_resource(TimeModeAuto(true))
-    .init_resource::<ChestOpenPending>()
-    .insert_resource(UiState::default())
-    .insert_resource(Fov(fov))
-    .insert_resource(TileEntityIndex::default())
-    .add_plugins(ui::UiPlugin)
-    .add_systems(Startup, (setup, ui::spawn_haalka_root).chain())
-    .configure_sets(Update, SimStep.run_if(should_run_sim_step))
-    .add_systems(
-      Update,
-      (
-        bump_render_frame,
-        maintain_tile_index,
-        setup_glyph_visuals,
-        update_time_mode,
-        handle_world_map,
-        handle_dialogue,
-        handle_menus,
-        handle_interact,
-        handle_utility_menus,
-        player_input,
-      )
-        .chain()
-    )
-    .add_systems(
-      Update,
-      (
-        ApplyDeferred,
-        enemy_death_check.in_set(SimStep),
-        apply_gravity.in_set(SimStep),
-        enemy_ai.in_set(SimStep),
-        update_fov.in_set(SimStep),
-      )
-        .chain()
-    )
-    .add_systems(
-      Update,
-      (
-        track_movement,
-        interpolate_visual_positions,
-        sync_entity_positions,
-        update_entity_visibility,
-        camera_follow,
-        update_fov_visuals,
-        update_tile_hover_highlight,
-      )
-        .chain()
-    )
-    .run();
-}
-
 // ---------------------------------------------------------------------------
 // Coordinate helpers
 // ---------------------------------------------------------------------------
@@ -586,378 +489,28 @@ pub fn try_pick_level_tile_at_cursor(
     .then_some((tx, ty))
 }
 
-fn world_to_local(wx: i32, wy: i32) -> (usize, usize) {
-  (wx as usize % ZONE_WIDTH, wy as usize % ZONE_HEIGHT)
-}
-
-pub fn world_to_zone(wx: i32, wy: i32) -> (usize, usize) {
-  (wx as usize / ZONE_WIDTH, wy as usize / ZONE_HEIGHT)
-}
-
-/// Recompute FoV every sim step so door toggles, entity moves, etc. are automatically reflected.
-fn update_fov(
-  mut fov: ResMut<Fov>,
-  gw: Res<GameWorld>,
-  player_q: Query<&PlayerPos, With<Player>>,
-  sight_q: Query<&Location, With<BlocksSight>>,
-) {
-  let Ok(pos) = player_q.single() else { return };
-  let (zx, zy) = world_to_zone(pos.x, pos.y);
-  let (lx, ly) = world_to_local(pos.x, pos.y);
-  compute_fov_with_sight_entities(
-    &mut fov.0,
-    gw.0.zone(zx, zy, pos.z),
-    lx as i32,
-    ly as i32,
-    FOV_RADIUS,
-    &sight_q,
-    zx,
-    zy,
-    pos.z,
-  );
-}
-
-/// Level-local cells occupied by entities with [`BlocksSight`] (same rules as opaque tiles for FoV).
-fn sight_blocking_cells(
-  q: &Query<&Location, With<BlocksSight>>,
-  zx: usize,
-  zy: usize,
-  z: usize,
-) -> HashSet<(i32, i32)> {
-  q.iter()
-    .filter_map(|loc| {
-      if let Location::Coords { x, y, z: ez, zx: lzx, zy: lzy } = *loc
-        && ez == z
-        && lzx == zx
-        && lzy == zy
-      {
-        let lx = x.rem_euclid(ZONE_WIDTH as i32);
-        let ly = y.rem_euclid(ZONE_HEIGHT as i32);
-        Some((lx, ly))
-      } else {
-        None
-      }
-    })
-    .collect()
-}
-
-fn compute_fov_with_sight_entities(
-  fov: &mut FovGrid,
-  level: &level::Level,
-  lx: i32,
-  ly: i32,
-  radius: i32,
-  sight_q: &Query<&Location, With<BlocksSight>>,
-  zx: usize,
-  zy: usize,
-  z: usize,
-) {
-  let blockers = sight_blocking_cells(sight_q, zx, zy, z);
-  compute_fov(fov, level, lx, ly, radius, |tx, ty| blockers.contains(&(tx, ty)));
-}
-
-/// Startup FoV: entities are not in a `Query` until deferred spawn applies; use world coords of props that will get [`BlocksSight`].
-fn compute_fov_with_prespawned_sight_coords(
-  fov: &mut FovGrid,
-  level: &level::Level,
-  lx: i32,
-  ly: i32,
-  radius: i32,
-  world_coords: &[(i32, i32)],
-  zx: usize,
-  zy: usize,
-  z: usize,
-) {
-  let blockers: HashSet<(i32, i32)> = if z != SURFACE_Z {
-    HashSet::new()
-  } else {
-    world_coords
-      .iter()
-      .filter_map(|&(wx, wy)| {
-        let (tzx, tzy) = world_to_zone(wx, wy);
-        (tzx == zx && tzy == zy).then_some((
-          wx.rem_euclid(ZONE_WIDTH as i32),
-          wy.rem_euclid(ZONE_HEIGHT as i32),
-        ))
-      })
-      .collect()
-  };
-  compute_fov(fov, level, lx, ly, radius, |tx, ty| blockers.contains(&(tx, ty)));
-}
-
-// ---------------------------------------------------------------------------
-// Setup
-// ---------------------------------------------------------------------------
-
-fn setup(
-  mut commands: Commands,
-  asset_server: Res<AssetServer>,
-  gw: Res<GameWorld>,
-  mut fov: ResMut<Fov>,
-  mut images: ResMut<Assets<Image>>,
-  mut world_map: ResMut<WorldMapView>,
-) {
-  const START_ZX: usize = 4;
-  const START_ZY: usize = 4;
-  const START_Z:  usize = SURFACE_Z;
-
-  // FXAA softens edges on upscaled sprites; MSAA off avoids stacking cost (Bevy AA example pattern).
-  commands.spawn((Camera2d, Fxaa::default(), Msaa::Off));
-
-  spawn_level_tiles(&mut commands, &asset_server, &gw.0, START_ZX, START_ZY, START_Z);
-
-  let hover_img = white_pixel_image(&mut images);
-  commands.spawn((
-    TileHoverHighlight,
-    Sprite {
-      image: hover_img,
-      custom_size: Some(Vec2::splat(TILE_SIZE)),
-      color: Color::srgba(0.95, 0.92, 0.45, 0.28),
-      ..default()
-    },
-    Transform::from_translation(Vec3::new(0.0, 0.0, 0.25)),
-    Visibility::Hidden,
-  ));
-
-  let level = gw.0.zone(START_ZX, START_ZY, START_Z);
-  let (lx, ly) = find_walkable(level, ZONE_WIDTH / 2, ZONE_HEIGHT / 2);
-  let (px, py) = (
-    (START_ZX * ZONE_WIDTH) as i32 + lx as i32,
-    (START_ZY * ZONE_HEIGHT) as i32 + ly as i32,
-  );
-
-  let start_local = Vec2::new(lx as f32, ly as f32);
-  commands.spawn((
-    Sprite {
-      image: asset_server.load("textures/retro-future_post-apocalyptic_settlement_guard.png"),
-      custom_size: Some(Vec2::splat(TILE_SIZE)),
-      color: Color::WHITE,
-      ..default()
-    },
-    Transform::from_translation(
-      tile_screen_pos(lx as f32, ly as f32, ZONE_WIDTH, ZONE_HEIGHT) + Vec3::Z
-    ),
-    Player,
-    PlayerPos { x: px, y: py, z: START_Z },
-    Stats { hp: 20, max_hp: 20, attack: 5, move_speed: 3.0, attack_speed: 1.0 },
-    Inventory::default(),
-    GlyphVisual,
-    Visuals {
-      prev: start_local,
-      last_move_start_frame: None,
-      display: start_local,
-      last_pos: start_local,
-    },
-  ));
-
-  // Spawn enemies and NPCs — compute walkable in local coords, convert to world
-  let (lex1, ley1) = find_walkable(level, lx + 5, ly);
-  let (ex1, ey1) = (
-    (START_ZX * ZONE_WIDTH) as i32 + lex1 as i32,
-    (START_ZY * ZONE_HEIGHT) as i32 + ley1 as i32,
-  );
-  let (lex2, ley2) = find_walkable(level, lx + 3, ly + 4);
-  let (ex2, ey2) = (
-    (START_ZX * ZONE_WIDTH) as i32 + lex2 as i32,
-    (START_ZY * ZONE_HEIGHT) as i32 + ley2 as i32,
-  );
-  let (lcx1, lcy1) = find_walkable(level, lx.saturating_sub(4), ly + 2);
-  let (cx1, cy1) = (
-    (START_ZX * ZONE_WIDTH) as i32 + lcx1 as i32,
-    (START_ZY * ZONE_HEIGHT) as i32 + lcy1 as i32,
-  );
-
-  Object::rat_soldier().spawn_at(&mut commands, ex1, ey1, START_Z);
-  Object::armored_rat_soldier().spawn_at(&mut commands, ex2, ey2, START_Z);
-  npcs::mira::mira().spawn_at(&mut commands, cx1, cy1, START_Z);
-
-  let (lnpc2x, lnpc2y) = find_walkable(level, lx.saturating_sub(6), ly.saturating_sub(3));
-  let (npc2x, npc2y) = (
-    (START_ZX * ZONE_WIDTH) as i32 + lnpc2x as i32,
-    (START_ZY * ZONE_HEIGHT) as i32 + lnpc2y as i32,
-  );
-  npcs::chronos::chronos().spawn_at(&mut commands, npc2x, npc2y, START_Z);
-
-  let (lnpc3x, lnpc3y) = find_walkable(level, lx + 7, ly.saturating_sub(2));
-  let (npc3x, npc3y) = (
-    (START_ZX * ZONE_WIDTH) as i32 + lnpc3x as i32,
-    (START_ZY * ZONE_HEIGHT) as i32 + lnpc3y as i32,
-  );
-  npcs::unit7::unit7().spawn_at(&mut commands, npc3x, npc3y, START_Z);
-
-  let (lnpc4x, lnpc4y) = find_walkable(level, lx + 2, ly + 6);
-  let (npc4x, npc4y) = (
-    (START_ZX * ZONE_WIDTH) as i32 + lnpc4x as i32,
-    (START_ZY * ZONE_HEIGHT) as i32 + lnpc4y as i32,
-  );
-  npcs::kong::kong().spawn_at(&mut commands, npc4x, npc4y, START_Z);
-
-  let (lnpc5x, lnpc5y) = find_walkable(level, lx.saturating_sub(2), ly.saturating_sub(5));
-  let (npc5x, npc5y) = (
-    (START_ZX * ZONE_WIDTH) as i32 + lnpc5x as i32,
-    (START_ZY * ZONE_HEIGHT) as i32 + lnpc5y as i32,
-  );
-  npcs::guard::guard().spawn_at(&mut commands, npc5x, npc5y, START_Z);
-
-  for &(wx, wy) in &gw.0.tree_sites {
-    if (wx - px).abs() <= 1 && (wy - py).abs() <= 1 {
-      continue;
-    }
-    Object::tree().spawn_at(&mut commands, wx, wy, START_Z);
-  }
-
-  for &(wx, wy, z) in &gw.0.chest_sites {
-    Object::loot_chest().spawn_at(&mut commands, wx, wy, z);
-  }
-
-  compute_fov_with_prespawned_sight_coords(
-    &mut fov.0,
-    level,
-    lx as i32,
-    ly as i32,
-    FOV_RADIUS,
-    &gw.0.tree_sites,
-    START_ZX,
-    START_ZY,
-    START_Z,
-  );
-
-  world_map.image = generate_world_map_image(&gw.0, &mut images);
-}
-
-fn find_walkable(level: &level::Level, hint_x: usize, hint_y: usize) -> (usize, usize) {
-  let (hx, hy) = (hint_x as i32, hint_y as i32);
-  std::iter::once((0i32, 0i32))
-    .chain((1..30i32).flat_map(|r| (-r..=r).flat_map(move |dy| (-r..=r).map(move |dx| (dx, dy)))))
-    .map(|(dx, dy)| (hx + dx, hy + dy))
-    .filter(|&(x, y)| x >= 0 && y >= 0)
-    .find(|&(x, y)| level.walkable(x, y))
-    .map(|(x, y)| (x as usize, y as usize))
-    .unwrap_or((hint_x, hint_y))
-}
-
-// ---------------------------------------------------------------------------
-// Level rendering
-// ---------------------------------------------------------------------------
-
-fn spawn_level_tiles(
-  commands: &mut Commands,
-  asset_server: &AssetServer,
-  world: &ZoneWorld,
-  zx: usize,
-  zy: usize,
-  z: usize,
-) {
-  let level = world.zone(zx, zy, z);
-  for y in 0..level.height {
-    for x in 0..level.width {
-      let tile = level.tiles[y][x];
-      if tile == Tile::Air {
-        continue;
-      }
-      let pos = tile_screen_pos(x as f32, y as f32, ZONE_WIDTH, ZONE_HEIGHT);
-      if tile == Tile::Door || tile == Tile::AirlockDoor {
-        let [r, g, b] = tile.color();
-        let wx = (zx * ZONE_WIDTH + x) as i32;
-        let wy = (zy * ZONE_HEIGHT + y) as i32;
-        commands.spawn((
-          Door { open: false, closed_color: Color::srgb(r, g, b) },
-          Collidable(true),
-          BlocksSight,
-          Glyph::ascii('+', Color::srgb(r, g, b)),
-          Location::xyz(wx, wy, z),
-          Named { name: tile.name(), flavor: "Press Space to open." },
-        ));
-      } else if let Some(path) = tile.texture_path() {
-        commands.spawn((
-          Sprite {
-            image: asset_server.load(path),
-            custom_size: Some(Vec2::splat(TILE_SIZE)),
-            color: Color::srgba(0.0, 0.0, 0.0, 0.0),
-            ..default()
-          },
-          Transform::from_translation(pos),
-          TileGlyph { x, y },
-          TilePng,
-        ));
-      } else {
-        let [r, g, b] = tile.color();
-        commands.spawn((
-          Text2d::new(tile.glyph()),
-          TextFont { font_size: TILE_SIZE, ..default() },
-          TextColor(Color::srgba(r, g, b, 0.0)),
-          Transform::from_translation(pos),
-          TileGlyph { x, y },
-        ));
-      };
-
-      if let Some(item) = level.items[y][x] {
-        let [r, g, b] = item.color();
-        commands.spawn((
-          Text2d::new(item.glyph()),
-          TextFont { font_size: TILE_SIZE, ..default() },
-          TextColor(Color::srgba(r, g, b, 0.0)),
-          Transform::from_translation(
-            tile_screen_pos(x as f32, y as f32, ZONE_WIDTH, ZONE_HEIGHT) + Vec3::new(0.0, 0.0, 1.0)
-          ),
-          ItemGlyph { x, y }
-        ));
-      }
-    }
-  }
-}
-
-fn despawn_level_tiles(commands: &mut Commands, query: &Query<Entity, With<TileGlyph>>) {
-  for entity in query.iter() {
-    commands.entity(entity).despawn();
-  }
-}
-
-fn rebuild_level(
-  commands: &mut Commands,
-  asset_server: &AssetServer,
-  tile_query: &Query<Entity, With<TileGlyph>>,
-  world: &ZoneWorld,
-  zx: usize,
-  zy: usize,
-  z: usize,
-) {
-  despawn_level_tiles(commands, tile_query);
-  spawn_level_tiles(commands, asset_server, world, zx, zy, z);
-}
-
 // ---------------------------------------------------------------------------
 // Gravity
 // ---------------------------------------------------------------------------
 
-/// Show entities on the current z-level in the current zone only if their tile is in the FoV.
+/// Show entities on the current z-level only if their tile is in the FoV.
 fn update_entity_visibility(
   player_q: Query<&PlayerPos, With<Player>>,
   fov: Res<Fov>,
   mut entity_q: Query<(&Location, &mut Visibility), With<GlyphVisual>>,
 ) {
   if let Ok(pos) = player_q.single() {
-    let (player_zx, player_zy) = world_to_zone(pos.x, pos.y);
     for (location, mut vis) in entity_q.iter_mut() {
       *vis = if let Location::Coords { x, y, z, .. } = location
-        && world_to_zone(*x, *y) == (player_zx, player_zy)
         && *z == pos.z
+        && fov.0.is_visible(*x as usize, *y as usize)
       {
-        let (lx, ly) = world_to_local(*x, *y);
-        if fov.0.is_visible(lx, ly) { Visibility::Visible } else { Visibility::Hidden }
+        Visibility::Visible
       } else {
         Visibility::Hidden
       };
     }
   }
-}
-
-fn should_fall(gw: &ZoneWorld, wx: i32, wy: i32, z: usize) -> bool {
-  let (zx, zy) = world_to_zone(wx, wy);
-  let (lx, ly) = world_to_local(wx, wy);
-  let here = gw.zone(zx, zy, z).tiles[ly][lx];
-  let below = z.checked_sub(1).map(|z1| gw.zone(zx, zy, z1).tiles[ly][lx]);
-  here.causes_falling() || below.is_some_and(|t| t.causes_falling())
 }
 
 /// Despawn enemies with 0 or fewer HP. Runs in SimStep so dead enemies
@@ -973,81 +526,9 @@ fn enemy_death_check(
   }
 }
 
-/// Drop entities with Gravity standing on open space or over a void.
-/// Non-player entities: update their Location z. Player: rebuild level display.
-fn apply_gravity(
-  gw: Res<GameWorld>,
-  asset_server: Res<AssetServer>,
-  mut fov: ResMut<Fov>,
-  mut commands: Commands,
-  tile_query: Query<Entity, With<TileGlyph>>,
-  mut player_q: Query<&mut PlayerPos, With<Player>>,
-  mut entity_q: Query<&mut Location, (With<Gravity>, Without<Player>, Without<BlocksSight>)>,
-  sight_q: Query<&Location, With<BlocksSight>>,
-) {
-  if let Ok(mut pos) = player_q.single_mut() {
-    let (player_zx, player_zy) = world_to_zone(pos.x, pos.y);
-
-    // Non-player gravity entities: only simulate current zone
-    for mut location in entity_q.iter_mut() {
-      if let Location::Coords { x, y, z, .. } = *location
-        && world_to_zone(x, y) == (player_zx, player_zy)
-        && z == pos.z
-        && z > 0
-        && should_fall(&gw.0, x, y, z)
-      {
-        *location = Location::xyz(x, y, z - 1);
-      }
-    }
-
-    // Player gravity
-    if pos.z > 0 && should_fall(&gw.0, pos.x, pos.y, pos.z) {
-      pos.z -= 1;
-      let (lx, ly) = world_to_local(pos.x, pos.y);
-      rebuild_level(&mut commands, &asset_server, &tile_query, &gw.0, player_zx, player_zy, pos.z);
-      fov.0 = FovGrid::new(ZONE_WIDTH, ZONE_HEIGHT);
-      compute_fov_with_sight_entities(
-        &mut fov.0,
-        gw.0.zone(player_zx, player_zy, pos.z),
-        lx as i32,
-        ly as i32,
-        FOV_RADIUS,
-        &sight_q,
-        player_zx,
-        player_zy,
-        pos.z,
-      );
-    }
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Camera follow
 // ---------------------------------------------------------------------------
-
-fn camera_follow(
-  player_q: Query<&Visuals, With<Player>>,
-  mut cam_q: Query<&mut Transform, With<Camera2d>>,
-  windows: Query<&Window>,
-) {
-  if let Ok(vis) = player_q.single()
-    && let Ok(mut cam_tf) = cam_q.single_mut()
-    && let Ok(win) = windows.single()
-  {
-    let w = win.resolution.width();
-    let h = win.resolution.height();
-    let screen_center = Vec2::new(w / 2.0, h / 2.0);
-    let viewport_center = Vec2::new(w * 0.35, (h - STATUS_BAR_HEIGHT) / 2.0);
-    let offset = viewport_center - screen_center;
-
-    let local = vis.display;
-    let world_pos = Vec2::new(
-      (local.x - ZONE_WIDTH as f32 / 2.0) * TILE_SIZE,
-      (ZONE_HEIGHT as f32 / 2.0 - local.y) * TILE_SIZE,
-    );
-    cam_tf.translation = (world_pos - offset).extend(0.0);
-  }
-}
 
 // ---------------------------------------------------------------------------
 // FOV visuals
@@ -1068,7 +549,7 @@ fn white_pixel_image(images: &mut Assets<Image>) -> Handle<Image> {
 fn update_tile_hover_highlight(
   windows: Query<&Window>,
   camera_q: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
-  gw: Res<GameWorld>,
+  current: Res<CurrentZone>,
   fov: Res<Fov>,
   player_q: Query<&PlayerPos, With<Player>>,
   world_map: Res<WorldMapView>,
@@ -1081,8 +562,7 @@ fn update_tile_hover_highlight(
       && let Ok((camera, cam_transform)) = camera_q.single()
       && let Ok(player_pos) = player_q.single()
     {
-      let (zx, zy) = world_to_zone(player_pos.x, player_pos.y);
-      let level = gw.0.zone(zx, zy, player_pos.z);
+      let level = current.0.level(player_pos.z);
       if let Some((tx, ty)) =
         try_pick_level_tile_at_cursor(window, camera, cam_transform, level.width, level.height)
       {
@@ -1091,7 +571,7 @@ fn update_tile_hover_highlight(
         if visible || revealed {
           *vis = Visibility::Visible;
           transform.translation =
-            tile_screen_pos(tx as f32, ty as f32, ZONE_WIDTH, ZONE_HEIGHT)
+            tile_screen_pos(tx as f32, ty as f32, current.0.width, current.0.height)
               + Vec3::new(0.0, 0.0, 0.25);
         }
       }
@@ -1101,14 +581,13 @@ fn update_tile_hover_highlight(
 
 fn update_fov_visuals(
   fov: Res<Fov>,
-  gw: Res<GameWorld>,
+  current: Res<CurrentZone>,
   player_q: Query<&PlayerPos, With<Player>>,
   mut glyph_tiles: Query<(&TileGlyph, &mut TextColor), Without<TilePng>>,
   mut sprite_tiles: Query<(&TileGlyph, &mut Sprite), With<TilePng>>,
 ) {
   if let Ok(pos) = player_q.single() {
-    let (zx, zy) = world_to_zone(pos.x, pos.y);
-    let level = gw.0.zone(zx, zy, pos.z);
+    let level = current.0.level(pos.z);
     for (tg, mut color) in glyph_tiles.iter_mut() {
       let tile = level.tiles[tg.y][tg.x];
       let [r, g, b] = tile.color();
@@ -1149,11 +628,9 @@ fn update_time_mode(
     return;
   }
   let enemy_near = player_q.single().is_ok_and(|pos| {
-    let (pzx, pzy) = world_to_zone(pos.x, pos.y);
     enemy_q.iter().any(|loc| {
       if let Location::Coords { x, y, z, .. } = *loc {
-        world_to_zone(x, y) == (pzx, pzy)
-          && z == pos.z
+        z == pos.z
           && (x - pos.x).abs() <= ENEMY_ALERT_RADIUS
           && (y - pos.y).abs() <= ENEMY_ALERT_RADIUS
       } else {
@@ -1231,16 +708,14 @@ fn resolve_move(level: &level::Level, px: i32, py: i32, dx: i32, dy: i32) -> (i3
 
 fn handle_menus(
   keys: Res<ButtonInput<KeyCode>>,
-  asset_server: Res<AssetServer>,
   mut ui: ResMut<UiState>,
   mut world_map: ResMut<WorldMapView>,
   mut commands: Commands,
   pause_overlay_q: Query<Entity, With<PauseOverlay>>,
-  mut gw: ResMut<GameWorld>,
+  mut gw: ResMut<CurrentZone>,
   mut clock: ResMut<Clock>,
   mut tb: ResMut<TurnBasedWorldState>,
   mut log: ResMut<LogEntries>,
-  tile_query: Query<Entity, With<TileGlyph>>,
   mut player_query: Query<(&mut PlayerPos, &mut Inventory), With<Player>>,
   mut door_q: Query<(&mut Door, &mut Glyph, &mut Collidable)>,
   mut pending_chest: ResMut<ChestOpenPending>,
@@ -1296,14 +771,12 @@ fn handle_menus(
       } else {
         execute_interaction(
           &option.action,
-          &mut gw,
+          &mut gw.0,
           &mut clock,
           &mut *tb,
           &mut ui,
           &mut *log,
           &mut commands,
-          &asset_server,
-          &tile_query,
           &mut player_query,
         );
       }
@@ -1450,7 +923,7 @@ fn gather_interactions(
         let dir = if here { "here".to_string() } else { direction_name(dx, dy) };
 
         match tile {
-          Tile::StairsUp if here && z + 1 < WORLD_DEPTH => {
+          Tile::StairsUp if here && z + 1 < 32 => {
             options.push(InteractionOption {
               label: format!("Go upstairs ({dir})"),
               action: InteractionAction::Ascend
@@ -1518,7 +991,7 @@ fn apply_open_chest(
   else {
     return;
   };
-  let bundles = loot::roll_chest_loot(worldgen::WORLD_SEED, *cx, *cy, *cz);
+  let bundles = loot::roll_chest_loot(42u64, *cx, *cy, *cz);
   let kinds = bundles.len();
   for (item, qty) in bundles {
     *inventory.0.entry(item).or_insert(0) += qty;
@@ -1624,14 +1097,12 @@ fn handle_utility_menus(
 
 fn execute_interaction(
   action: &InteractionAction,
-  gw: &mut ResMut<GameWorld>,
+  zone: &mut ActiveZone,
   clock: &mut Clock,
   tb: &mut TurnBasedWorldState,
   ui: &mut UiState,
   log: &mut LogEntries,
   commands: &mut Commands,
-  asset_server: &AssetServer,
-  tile_query: &Query<Entity, With<TileGlyph>>,
   player_query: &mut Query<(&mut PlayerPos, &mut Inventory), With<Player>>,
 ) {
   // No player/position needed; must not sit behind `player_query` or logging can be skipped.
@@ -1642,25 +1113,9 @@ fn execute_interaction(
     return;
   }
 
-  if let Ok((mut pos, mut inventory)) = player_query.single_mut() {
-    let (zx, zy) = world_to_zone(pos.x, pos.y);
+  if let Ok((pos, mut inventory)) = player_query.single_mut() {
     match action {
-      InteractionAction::Ascend => {
-        if pos.z + 1 < WORLD_DEPTH {
-          pos.z += 1;
-          rebuild_level(commands, asset_server, tile_query, &gw.0, zx, zy, pos.z);
-          clock.advance(PlayerAction::Ascend.time_cost());
-          note_player_turn_moved_world(clock, tb);
-        }
-      }
-      InteractionAction::Descend => {
-        if pos.z > 0 {
-          pos.z -= 1;
-          rebuild_level(commands, asset_server, tile_query, &gw.0, zx, zy, pos.z);
-          clock.advance(PlayerAction::Descend.time_cost());
-          note_player_turn_moved_world(clock, tb);
-        }
-      }
+      InteractionAction::Ascend | InteractionAction::Descend => {}
       InteractionAction::ToggleDoor(_) => {}
       InteractionAction::Talk { .. } => unreachable!(),
       InteractionAction::ChopTree(entity) => {
@@ -1670,15 +1125,11 @@ fn execute_interaction(
         note_player_turn_moved_world(clock, tb);
       }
       InteractionAction::PickUpItem(wx, wy) => {
-        let (izx, izy) = world_to_zone(*wx, *wy);
-        let (ilx, ily) = world_to_local(*wx, *wy);
-        let level = gw.0.zone(izx, izy, pos.z);
-        if ily < level.height && ilx < level.width {
-          if let Some(item) = level.items[ily][ilx] {
+        let level = zone.level_mut(pos.z);
+        if (*wy as usize) < level.height && (*wx as usize) < level.width {
+          if let Some(item) = level.items[*wy as usize][*wx as usize] {
             *inventory.0.entry(item).or_insert(0) += 1;
-            gw.0
-              .zone_mut(izx, izy, pos.z)
-              .set_item(ilx as i32, ily as i32, None);
+            level.set_item(*wx, *wy, None);
           }
         }
         clock.advance(1);
@@ -1726,194 +1177,11 @@ fn execute_interaction(
 /// Check if pos would step off the zone edge in direction (dx, dy).
 /// If so and the adjacent zone exists and target tile is walkable, perform the transition.
 /// Returns true if a transition happened (or was blocked at world boundary) — caller skips normal move.
-fn try_zone_transition(
-  pos: &mut PlayerPos,
-  gw: &ZoneWorld,
-  fov: &mut FovGrid,
-  commands: &mut Commands,
-  asset_server: &AssetServer,
-  tile_query: &Query<Entity, With<TileGlyph>>,
-  dx: i32,
-  dy: i32,
-) -> bool {
-  let lx = pos.x % ZONE_WIDTH as i32;
-  let ly = pos.y % ZONE_HEIGHT as i32;
-  let (zx, zy) = world_to_zone(pos.x, pos.y);
-
-  let nlx = lx + dx;
-  let nly = ly + dy;
-
-  // Only handle transitions — steps within the zone are handled by normal resolve_move
-  let x_exit = nlx < 0 || nlx >= ZONE_WIDTH as i32;
-  let y_exit = nly < 0 || nly >= ZONE_HEIGHT as i32;
-  if !x_exit && !y_exit {
-    return false;
-  }
-
-  // Compute adjacent zone and wrapped local position
-  let (mut new_zx, mut new_zy) = (zx as i32, zy as i32);
-  let (mut new_lx, mut new_ly) = (nlx, nly);
-
-  if nlx < 0 {
-    new_zx -= 1;
-    new_lx = ZONE_WIDTH as i32 - 1;
-  } else if nlx >= ZONE_WIDTH as i32 {
-    new_zx += 1;
-    new_lx = 0;
-  }
-
-  if nly < 0 {
-    new_zy -= 1;
-    new_ly = ZONE_HEIGHT as i32 - 1;
-  } else if nly >= ZONE_HEIGHT as i32 {
-    new_zy += 1;
-    new_ly = 0;
-  }
-
-  // Block at world boundary
-  if !gw.in_bounds(new_zx, new_zy) {
-    return true; // consumed the move, player doesn't move
-  }
-
-  // Check walkability in the destination zone
-  let dest_zone = gw.zone(new_zx as usize, new_zy as usize, pos.z);
-  if !dest_zone.walkable(new_lx, new_ly) {
-    return true; // consumed — tile is impassable
-  }
-
-  // Perform transition: update world-space position
-  pos.x = new_zx * ZONE_WIDTH as i32 + new_lx;
-  pos.y = new_zy * ZONE_HEIGHT as i32 + new_ly;
-
-  rebuild_level(commands, asset_server, tile_query, gw, new_zx as usize, new_zy as usize, pos.z);
-  *fov = FovGrid::new(ZONE_WIDTH, ZONE_HEIGHT);
-
-  true
-}
-
-fn player_input(
-  keys: Res<ButtonInput<KeyCode>>,
-  asset_server: Res<AssetServer>,
-  gw: Res<GameWorld>,
-  ui: Res<UiState>,
-  world_map: Res<WorldMapView>,
-  mut clock: ResMut<Clock>,
-  mut tb: ResMut<TurnBasedWorldState>,
-  mut time_mode_auto: ResMut<TimeModeAuto>,
-  mut fov: ResMut<Fov>,
-  index: Res<TileEntityIndex>,
-  mut commands: Commands,
-  tile_query: Query<Entity, With<TileGlyph>>,
-  mut player_query: Query<(&mut PlayerPos, &Stats, &mut Inventory), With<Player>>,
-  mut enemy_query: Query<&mut Stats, (With<Enemy>, Without<Player>)>,
-  collidable_q: Query<&Collidable>,
-) {
-  if !ui.any_open() && !world_map.open && keys.just_pressed(KeyCode::KeyT) {
-    if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
-      time_mode_auto.0 = true;
-    } else {
-      time_mode_auto.0 = false;
-      clock.mode = match clock.mode {
-        TimeMode::RealTime => TimeMode::TurnBased,
-        TimeMode::TurnBased => {
-          tb.pending_enemy_phase = false;
-          TimeMode::RealTime
-        }
-      };
-    }
-  }
-
-  if !ui.any_open() && !world_map.open
-    && let Ok((mut pos, stats, mut inventory)) = player_query.single_mut()
-  {
-    let player_attack = stats.attack;
-    if clock.move_cooldown_frames > 0 {
-      clock.move_cooldown_frames -= 1;
-    }
-
-    let turn_based_block = clock.mode == TimeMode::TurnBased
-      && (clock.move_cooldown_frames > 0 || tb.pending_enemy_phase);
-
-    if !turn_based_block && keys.just_pressed(KeyCode::Period)
-      && !keys.pressed(KeyCode::ShiftLeft)
-      && !keys.pressed(KeyCode::ShiftRight)
-    {
-      clock.advance(PlayerAction::Wait.time_cost());
-      note_player_turn_moved_world(&*clock, &mut *tb);
-    } else if !turn_based_block
-      && (if clock.mode == TimeMode::TurnBased {
-        any_direction_just_pressed(&keys)
-      } else {
-        any_direction_pressed(&keys)
-      }) && clock.move_cooldown_frames == 0
-    {
-      let (zx, zy) = world_to_zone(pos.x, pos.y);
-      let (lx, ly) = (
-        (pos.x as usize % ZONE_WIDTH) as i32,
-        (pos.y as usize % ZONE_HEIGHT) as i32,
-      );
-      let level = gw.0.zone(zx, zy, pos.z);
-      let dir = read_direction(&keys);
-      let (raw_dx, raw_dy) = (dir.0, dir.1);
-
-      let transitioned = try_zone_transition(
-        &mut pos, &gw.0, &mut fov.0,
-        &mut commands, &asset_server, &tile_query,
-        raw_dx, raw_dy,
-      );
-
-      if transitioned {
-        clock.advance(PlayerAction::Move { dx: raw_dx, dy: raw_dy }.time_cost());
-        clock.move_cooldown_frames = RENDER_FRAMES_PER_SIM_STEP;
-        note_player_turn_moved_world(&*clock, &mut *tb);
-      } else {
-        let (dx, dy) = resolve_move(level, lx, ly, raw_dx, raw_dy);
-
-        if (dx, dy) != (0, 0) {
-          let target_wx = pos.x + dx;
-          let target_wy = pos.y + dy;
-
-          // Check for an enemy to bump-attack
-          let enemy_hit = index.0.get(&(target_wx, target_wy, pos.z))
-            .and_then(|entities| entities.iter().find(|&&e| enemy_query.get(e).is_ok()).copied());
-
-          if let Some(hostile) = enemy_hit {
-            if let Ok(mut es) = enemy_query.get_mut(hostile) {
-              es.hp -= player_attack;
-              if es.hp <= 0 {
-                commands.entity(hostile).despawn();
-              }
-            }
-          } else {
-            if !tile_blocked(level, target_wx, target_wy, pos.z, &index, &collidable_q) {
-              pos.x += dx;
-              pos.y += dy;
-
-              // Auto-pickup items underfoot
-              let (izx, izy) = world_to_zone(pos.x, pos.y);
-              let (ilx, ily) = world_to_local(pos.x, pos.y);
-              let lvl = gw.0.zone(izx, izy, pos.z);
-              if ily < lvl.height && ilx < lvl.width {
-                if let Some(item) = lvl.items[ily][ilx] {
-                  *inventory.0.entry(item).or_insert(0) += 1;
-                }
-              }
-            }
-          }
-
-          clock.advance(PlayerAction::Move { dx, dy }.time_cost());
-          clock.move_cooldown_frames = RENDER_FRAMES_PER_SIM_STEP;
-          note_player_turn_moved_world(&*clock, &mut *tb);
-        }
-      }
-    }
-  }
-}
 
 /// Separate system for Space key interactions to avoid Bevy's system param limit.
 fn handle_interact(
   keys: Res<ButtonInput<KeyCode>>,
-  gw: Res<GameWorld>,
+  current: Res<CurrentZone>,
   mut ui: ResMut<UiState>,
   world_map: Res<WorldMapView>,
   index: Res<TileEntityIndex>,
@@ -1947,13 +1215,8 @@ fn handle_interact(
   }
 
   if let Ok((pos, _)) = player_q.single() {
-    let (zx, zy) = world_to_zone(pos.x, pos.y);
-    let (lx, ly) = (
-      (pos.x as usize % ZONE_WIDTH) as i32,
-      (pos.y as usize % ZONE_HEIGHT) as i32,
-    );
-    let level = gw.0.zone(zx, zy, pos.z);
-    let mut options = gather_interactions(level, lx, ly, pos.z);
+    let level = current.0.level(pos.z);
+    let mut options = gather_interactions(level, pos.x, pos.y, pos.z);
 
     // Entity-based interactions: trees, dialogue, items
     for (dx, dy) in (-1i32..=1).flat_map(|dy| (-1i32..=1).map(move |dx| (dx, dy))) {
@@ -1995,9 +1258,8 @@ fn handle_interact(
         }
       }
       // Item pickup
-      let (ilx, ily) = (wx as usize % ZONE_WIDTH, wy as usize % ZONE_HEIGHT);
-      if ily < level.height && ilx < level.width
-        && level.items[ily][ilx].is_some()
+      if (wy as usize) < level.height && (wx as usize) < level.width
+        && level.items[wy as usize][wx as usize].is_some()
       {
         let dir = if dx == 0 && dy == 0 { "here".to_string() } else { direction_name(dx, dy) };
         options.push(InteractionOption {
@@ -2009,48 +1271,6 @@ fn handle_interact(
 
     show_interact_menu(&mut ui, options);
   }
-}
-
-// ---------------------------------------------------------------------------
-// World map overlay
-// ---------------------------------------------------------------------------
-
-fn generate_world_map_image(world: &ZoneWorld, images: &mut Assets<Image>) -> Handle<Image> {
-  use bevy::{
-    asset::RenderAssetUsages,
-    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
-  };
-  use level::{WORLD_COLS, WORLD_ROWS, ZONE_WIDTH, ZONE_HEIGHT};
-
-  let w = WORLD_COLS * ZONE_WIDTH;
-  let h = WORLD_ROWS * ZONE_HEIGHT;
-  let mut data = vec![0u8; w * h * 4];
-
-  for zy in 0..WORLD_ROWS {
-    for zx in 0..WORLD_COLS {
-      let zone = world.zone(zx, zy, SURFACE_Z);
-      for ty in 0..ZONE_HEIGHT {
-        for tx in 0..ZONE_WIDTH {
-          let wx = zx * ZONE_WIDTH + tx;
-          let wy = zy * ZONE_HEIGHT + ty;
-          let [r, g, b] = zone.tiles[ty][tx].minimap_color();
-          let idx = (wy * w + wx) * 4;
-          data[idx]     = (r * 255.0) as u8;
-          data[idx + 1] = (g * 255.0) as u8;
-          data[idx + 2] = (b * 255.0) as u8;
-          data[idx + 3] = 255;
-        }
-      }
-    }
-  }
-
-  images.add(Image::new(
-    Extent3d { width: w as u32, height: h as u32, depth_or_array_layers: 1 },
-    TextureDimension::D2,
-    data,
-    TextureFormat::Rgba8UnormSrgb,
-    RenderAssetUsages::RENDER_WORLD,
-  ))
 }
 
 fn handle_world_map(
@@ -2100,10 +1320,7 @@ fn space_main() {
 
     let fov = level::FovGrid::new(active.width, active.height);
 
-    // Stub GameWorld so shared systems (menus, gravity, etc.) don't panic.
-    // These systems operate on zone data that doesn't exist in space mode;
-    // they silently no-op on the empty vacuum world.
-    let stub_world = GameWorld(level::ZoneWorld::new(Tile::Vacuum));
+    let _ = &active; // Keep 'active' in scope for init
 
     App::new()
         .add_plugins(haalka::HaalkaPlugin::default())
@@ -2118,8 +1335,7 @@ fn space_main() {
                 ..default()
             }))
         .insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.05)))
-        .insert_resource(stub_world)
-        .insert_resource(galaxy)
+                .insert_resource(galaxy)
         .insert_resource(ship_res)
         .insert_resource(CurrentZone(active))
         .init_resource::<RenderFrame>()
@@ -2131,7 +1347,7 @@ fn space_main() {
         .insert_resource(Fov(fov))
         .insert_resource(TileEntityIndex::default())
         .add_plugins(ui::UiPlugin)
-        .add_systems(Startup, (space_setup, ui::spawn_haalka_root).chain())
+        .add_systems(Startup, (setup, ui::spawn_haalka_root).chain())
         .configure_sets(Update, SimStep.run_if(should_run_sim_step))
         .add_systems(Update, (
             bump_render_frame,
@@ -2143,28 +1359,27 @@ fn space_main() {
             handle_menus,
             handle_interact,
             handle_utility_menus,
-            space_player_input,
+            player_input,
         ).chain())
         .add_systems(Update, (
             ApplyDeferred,
             enemy_death_check.in_set(SimStep),
-            apply_gravity.in_set(SimStep),
             enemy_ai.in_set(SimStep),
-            space_update_fov.in_set(SimStep),
+            update_fov.in_set(SimStep),
         ).chain())
         .add_systems(Update, (
             track_movement,
             interpolate_visual_positions,
             sync_entity_positions,
             update_entity_visibility,
-            space_camera_follow,
+            camera_follow,
             update_fov_visuals,
             update_tile_hover_highlight,
         ).chain())
         .run();
 }
 
-fn space_setup(
+fn setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     current: Res<CurrentZone>,
@@ -2174,7 +1389,7 @@ fn space_setup(
 ) {
     commands.spawn((Camera2d, Fxaa::default(), Msaa::Off));
 
-    spawn_level_tiles_space(&mut commands, &asset_server, &current.0);
+    spawn_level_tiles(&mut commands, &asset_server, &current.0);
 
     let hover_img = white_pixel_image(&mut images);
     commands.spawn((
@@ -2208,7 +1423,7 @@ fn space_setup(
             tile_screen_pos(local_x as f32, local_y as f32, current.0.width, current.0.height) + Vec3::Z
         ),
         Player,
-        SpacePlayerPos { x: local_x, y: local_y, z: 0 },
+        PlayerPos { x: local_x, y: local_y, z: 0 },
         Stats { hp: 20, max_hp: 20, attack: 5, move_speed: 3.0, attack_speed: 1.0 },
         Inventory::default(),
         GlyphVisual,
@@ -2250,14 +1465,14 @@ fn space_setup(
     }
 
     let lvl = current.0.level(0);
-    compute_fov_space(&mut fov.0, lvl, local_x, local_y, FOV_RADIUS);
-    world_map.image = generate_map_from_active_zone(&current.0, &mut images);
+    compute_fov(&mut fov.0, lvl, local_x, local_y, FOV_RADIUS, |_, _| false);
+    world_map.image = generate_world_map_image(&current.0, &mut images);
 }
 
-fn space_update_fov(
+fn update_fov(
     mut fov: ResMut<Fov>,
     current: Res<CurrentZone>,
-    player_q: Query<&SpacePlayerPos, With<Player>>,
+    player_q: Query<&PlayerPos, With<Player>>,
     sight_q: Query<&Location, With<BlocksSight>>,
 ) {
     let Ok(pos) = player_q.single() else { return };
@@ -2280,7 +1495,7 @@ fn space_update_fov(
     });
 }
 
-fn spawn_level_tiles_space(
+fn spawn_level_tiles(
     commands: &mut Commands,
     asset_server: &AssetServer,
     zone: &active_zone::ActiveZone,
@@ -2345,7 +1560,7 @@ fn spawn_level_tiles_space(
     }
 }
 
-fn space_camera_follow(
+fn camera_follow(
     player_q: Query<&Visuals, With<Player>>,
     current: Res<CurrentZone>,
     mut cam_q: Query<&mut Transform, With<Camera2d>>,
@@ -2370,11 +1585,7 @@ fn space_camera_follow(
     }
 }
 
-fn compute_fov_space(fov: &mut level::FovGrid, level: &level::Level, lx: i32, ly: i32, radius: i32) {
-    compute_fov(fov, level, lx, ly, radius, |_, _| false);
-}
-
-fn generate_map_from_active_zone(
+fn generate_world_map_image(
     zone: &active_zone::ActiveZone,
     images: &mut Assets<Image>,
 ) -> Handle<Image> {
@@ -2410,7 +1621,7 @@ fn generate_map_from_active_zone(
     ))
 }
 
-fn space_player_input(
+fn player_input(
     keys: Res<ButtonInput<KeyCode>>,
     current: Res<CurrentZone>,
     ui: Res<UiState>,
@@ -2419,7 +1630,7 @@ fn space_player_input(
     mut tb: ResMut<TurnBasedWorldState>,
     mut time_mode_auto: ResMut<TimeModeAuto>,
     index: Res<TileEntityIndex>,
-    mut player_query: Query<(&mut SpacePlayerPos, &Stats, &mut Inventory), With<Player>>,
+    mut player_query: Query<(&mut PlayerPos, &Stats, &mut Inventory), With<Player>>,
     mut enemy_query: Query<&mut Stats, (With<Enemy>, Without<Player>)>,
     collidable_q: Query<&Collidable>,
 ) {

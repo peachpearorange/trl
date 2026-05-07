@@ -77,10 +77,8 @@ pub enum Location {
 }
 
 impl Location {
-  /// Construct `Coords` from world-space tile coordinates.
-  /// Zone indices are derived via `x / 48`, `y / 48` (must match `ZONE_WIDTH`/`ZONE_HEIGHT` in `level.rs`).
   pub fn xyz(x: i32, y: i32, z: usize) -> Self {
-    Location::Coords { x, y, z, zx: x as usize / 48, zy: y as usize / 48 }
+    Location::Coords { x, y, z, zx: 0, zy: 0 }
   }
 
   /// World-space tile coordinates as Vec2 (for interpolation). Returns None for non-Coords.

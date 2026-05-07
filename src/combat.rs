@@ -8,29 +8,19 @@ use {
 // Tile-entity spatial index
 // ---------------------------------------------------------------------------
 
-/// Maps (x, y, z) world tile coords to entities at that position.
+/// Maps (x, y, z) local tile coords to entities at that position.
 /// Rebuilt from scratch each frame — simple, always correct.
-/// Only indexes entities in the player's current zone.
 #[derive(Resource, Default)]
 pub struct TileEntityIndex(pub HashMap<(i32, i32, usize), Vec<Entity>>);
 
 pub fn maintain_tile_index(
   mut index: ResMut<TileEntityIndex>,
   query: Query<(Entity, &Location)>,
-  player_q: Query<&crate::PlayerPos, With<crate::Player>>,
 ) {
   index.0.clear();
-  if let Ok(pos) = player_q.single() {
-    let player_zx = pos.x as usize / crate::level::ZONE_WIDTH;
-    let player_zy = pos.y as usize / crate::level::ZONE_HEIGHT;
-    for (entity, location) in query.iter() {
-      if let Location::Coords { x, y, z, .. } = location {
-        let ezx = *x as usize / crate::level::ZONE_WIDTH;
-        let ezy = *y as usize / crate::level::ZONE_HEIGHT;
-        if ezx == player_zx && ezy == player_zy {
-          index.0.entry((*x, *y, *z)).or_default().push(entity);
-        }
-      }
+  for (entity, location) in query.iter() {
+    if let Location::Coords { x, y, z, .. } = location {
+      index.0.entry((*x, *y, *z)).or_default().push(entity);
     }
   }
 }
@@ -79,26 +69,24 @@ fn step_toward(ex: i32, ey: i32, px: i32, py: i32) -> (i32, i32) {
   ((px - ex).signum(), (py - ey).signum())
 }
 
-/// True if the given world-space tile is impassable due to tile type or a collidable entity.
+/// True if the given local-space tile is impassable due to tile type or a collidable entity.
 pub fn tile_blocked(
   level: &crate::level::Level,
-  wx: i32,
-  wy: i32,
+  x: i32,
+  y: i32,
   z: usize,
   index: &TileEntityIndex,
   collidable_q: &Query<&Collidable>,
 ) -> bool {
-  let lx = wx as usize % crate::level::ZONE_WIDTH;
-  let ly = wy as usize % crate::level::ZONE_HEIGHT;
-  !level.walkable(lx as i32, ly as i32)
-    || index.0.get(&(wx, wy, z)).is_some_and(|entities| {
+  !level.walkable(x, y)
+    || index.0.get(&(x, y, z)).is_some_and(|entities| {
       entities.iter().any(|&e| collidable_q.get(e).is_ok_and(|c| c.0))
     })
 }
 
 pub fn enemy_ai(
   index: Res<TileEntityIndex>,
-  gw: Res<crate::GameWorld>,
+  current: Res<crate::CurrentZone>,
   clock: Res<crate::Clock>,
   mut tb: ResMut<crate::TurnBasedWorldState>,
   mut player_q: Query<(&crate::PlayerPos, &mut Stats), (With<crate::Player>, Without<Enemy>)>,
@@ -110,9 +98,7 @@ pub fn enemy_ai(
 ) {
   if let Ok((player_pos, mut player_stats)) = player_q.single_mut() {
     let (px, py) = (player_pos.x, player_pos.y);
-    let player_zx = px as usize / crate::level::ZONE_WIDTH;
-    let player_zy = py as usize / crate::level::ZONE_HEIGHT;
-    let level = gw.0.zone(player_zx, player_zy, player_pos.z);
+    let level = current.0.level(player_pos.z);
 
     let mut claimed: HashSet<(i32, i32)> = HashSet::new();
 
@@ -121,15 +107,6 @@ pub fn enemy_ai(
       timer.0 = timer.0.saturating_add(crate::RENDER_FRAMES_PER_SIM_STEP);
 
       if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location {
-        let ezx = ex as usize / crate::level::ZONE_WIDTH;
-        let ezy = ey as usize / crate::level::ZONE_HEIGHT;
-        if ezx != player_zx || ezy != player_zy || ez != player_pos.z { continue; }
-
-        // Convert to local coords for tile access
-        let lex = ex as usize % crate::level::ZONE_WIDTH;
-        let ley = ey as usize % crate::level::ZONE_HEIGHT;
-        let _ = (lex, ley); // used implicitly via world coord math below
-
         let dist = (px - ex).abs().max((py - ey).abs());
         let atk_fr = attack_interval_frames(enemy_stats.attack_speed);
         let mov_fr = move_interval_frames(enemy_stats.move_speed);
@@ -143,15 +120,13 @@ pub fn enemy_ai(
           timer.0 = 0;
         } else if timer.0 >= mov_fr {
           let (dx, dy) = step_toward(ex, ey, px, py);
-          let (nex, ney) = (ex + dx, ey + dy); // world coords
-          let nlx = nex as usize % crate::level::ZONE_WIDTH;
-          let nly = ney as usize % crate::level::ZONE_HEIGHT;
+          let (nex, ney) = (ex + dx, ey + dy);
           if !tile_blocked(level, nex, ney, ez, &index, &collidable_q)
             && !claimed.contains(&(nex, ney))
           {
             let below = ez.checked_sub(1)
-              .map(|z1| gw.0.zone(player_zx, player_zy, z1).tiles[nly][nlx]);
-            let nz = if (level.tiles[nly][nlx].causes_falling()
+              .map(|z1| current.0.level(z1).tiles[ney as usize][nex as usize]);
+            let nz = if (level.tiles[ney as usize][nex as usize].causes_falling()
               || below.is_some_and(|t| t.causes_falling()))
               && ez > 0
             {
