@@ -13,7 +13,7 @@ use {bevy::prelude::*,
      trl::entities::{BlocksSight, Collidable, Dialogue, DialogueNode, DialogueTree, Door,
                      Enemy, FlightConsole, Glyph, Location, LootChest, Named, Stats,
                      Tree, Visuals},
-     ui::{LogEntries, WorldMapView, log_message}};
+     ui::{LogEntries, log_message}};
 
 use trl::{active_zone::{self, ActiveZone},
           galaxy, galaxy_gen, prefabs, ship,
@@ -87,7 +87,7 @@ enum InteractionAction {
   ChopTree(Entity),
   PickUpItem(i32, i32),
   OpenChest(Entity),
-  OpenWorldMap,
+  ExamineFlightConsole,
   Salvage(Item),
   Craft(usize)
 }
@@ -229,7 +229,6 @@ enum FramePipeline {
   TileIndex,
   GlyphSetup,
   TimeMode,
-  WorldMapKey,
   DialogueKey,
   Menus,
   FlushChest,
@@ -516,7 +515,6 @@ fn main() {
             FramePipeline::TileIndex,
             FramePipeline::GlyphSetup,
             FramePipeline::TimeMode,
-            FramePipeline::WorldMapKey,
             FramePipeline::DialogueKey,
             FramePipeline::Menus,
             FramePipeline::FlushChest,
@@ -531,7 +529,6 @@ fn main() {
     .add_systems(Update, maintain_tile_index.in_set(FramePipeline::TileIndex))
     .add_systems(Update, setup_glyph_visuals.in_set(FramePipeline::GlyphSetup))
     .add_systems(Update, update_time_mode.in_set(FramePipeline::TimeMode))
-    .add_systems(Update, handle_world_map.in_set(FramePipeline::WorldMapKey))
     .add_systems(Update, handle_dialogue.in_set(FramePipeline::DialogueKey))
     .add_systems(Update, handle_menus.in_set(FramePipeline::Menus))
     .add_systems(Update, flush_pending_chest_open.in_set(FramePipeline::FlushChest))
@@ -633,13 +630,11 @@ fn update_tile_hover_highlight(
   current: Res<CurrentZone>,
   fov: Res<Fov>,
   player_q: Query<&PlayerPos, With<Player>>,
-  world_map: Res<WorldMapView>,
   mut q: Query<(&mut Transform, &mut Visibility), With<TileHoverHighlight>>
 ) {
   if let Ok((mut transform, mut vis)) = q.single_mut() {
     *vis = Visibility::Hidden;
-    if !world_map.open
-      && let Ok(window) = windows.single()
+    if let Ok(window) = windows.single()
       && let Ok((camera, cam_transform)) = camera_q.single()
       && let Ok(player_pos) = player_q.single()
     {
@@ -879,7 +874,6 @@ fn attach_glyph_visual_for_door(
 fn handle_menus(
   keys: Res<ButtonInput<KeyCode>>,
   mut ui: ResMut<UiState>,
-  mut world_map: ResMut<WorldMapView>,
   mut commands: Commands,
   mut gw: ResMut<CurrentZone>,
   mut clock: ResMut<Clock>,
@@ -893,11 +887,6 @@ fn handle_menus(
   mut pending_chest: ResMut<ChestOpenPending>,
   mut exit: MessageWriter<AppExit>
 ) {
-  if keys.just_pressed(KeyCode::Escape) && world_map.open {
-    world_map.open = false;
-    return;
-  }
-
   if let InteractMenu::Open { options } = &ui.interact {
     if keys.just_pressed(KeyCode::Escape) {
       ui.interact = InteractMenu::Closed;
@@ -958,7 +947,6 @@ fn handle_menus(
         execute_interaction(
           &option.action,
           &mut gw.0,
-          &mut world_map,
           &mut clock,
           &mut *tb,
           &mut ui,
@@ -1007,13 +995,12 @@ fn log_dialogue_node_block(log: &mut LogEntries, speaker: &str, node: &DialogueN
 
 fn handle_dialogue(
   keys: Res<ButtonInput<KeyCode>>,
-  world_map: Res<WorldMapView>,
   mut ui: ResMut<UiState>,
   mut log: ResMut<LogEntries>
 ) {
   // Digit keys are shared with the interact list; `handle_menus` runs after us. While the
   // interact overlay is up, that same key would otherwise apply to dialogue the same frame.
-  if world_map.open || matches!(&ui.interact, InteractMenu::Open { .. }) {
+  if matches!(&ui.interact, InteractMenu::Open { .. }) {
     return;
   }
 
@@ -1159,12 +1146,11 @@ fn build_craft_options(inv: &HashMap<Item, u32>) -> Vec<InteractionOption> {
 
 fn handle_utility_menus(
   keys: Res<ButtonInput<KeyCode>>,
-  world_map: Res<WorldMapView>,
   player_q: Query<(&PlayerPos, &Inventory), With<Player>>,
   mut ui: ResMut<UiState>,
   mut log: ResMut<LogEntries>
 ) {
-  if ui.any_open() || world_map.open {
+  if ui.any_open() {
     return;
   }
   if let Ok((_, inv)) = player_q.single() {
@@ -1189,7 +1175,6 @@ fn handle_utility_menus(
 fn execute_interaction(
   action: &InteractionAction,
   zone: &mut ActiveZone,
-  world_map: &mut WorldMapView,
   clock: &mut Clock,
   tb: &mut TurnBasedWorldState,
   ui: &mut UiState,
@@ -1202,18 +1187,15 @@ fn execute_interaction(
     let node = tree.find(tree.nodes[0].name);
     ui.dialogue = DialogueState::Open { speaker, tree, node_name: tree.nodes[0].name };
     log_dialogue_node_block(log, speaker, node);
-    return;
-  }
-
-  if let InteractionAction::OpenWorldMap = action {
-    world_map.open = true;
-    return;
-  }
-
-  if let Ok((pos, mut inventory)) = player_query.single_mut() {
+  } else if let InteractionAction::ExamineFlightConsole = action {
+    log_message(
+      log,
+      "Flight console: deck systems nominal. No astrogation chart is loaded.".into(),
+    );
+  } else if let Ok((pos, mut inventory)) = player_query.single_mut() {
     match action {
+      InteractionAction::Talk { .. } | InteractionAction::ExamineFlightConsole => unreachable!(),
       InteractionAction::ToggleDoor(_) => {}
-      InteractionAction::Talk { .. } => unreachable!(),
       InteractionAction::ChopTree(entity) => {
         commands.entity(*entity).despawn();
         *inventory.0.entry(Item::Wood).or_insert(0) += 1;
@@ -1262,7 +1244,6 @@ fn execute_interaction(
         clock.advance(2);
         note_player_turn_moved_world(clock, tb);
       }
-      InteractionAction::OpenWorldMap => unreachable!(),
     }
   }
 }
@@ -1289,55 +1270,81 @@ fn gather_interactions_at_tile(
   named_q: &Query<&Named>,
   flight_console_q: &Query<Entity, With<FlightConsole>>,
 ) -> Vec<InteractionOption> {
-  let mut tile_opts = Vec::new();
-  if let Some(entities) = tile_entities {
-    for &e in entities.iter() {
-      if tree_q.get(e).is_ok() {
-        tile_opts.push(InteractionOption {
-          label: format!("Chop tree ({dir_label})"),
-          action: InteractionAction::ChopTree(e)
-        });
-      }
-      if let Ok((named, dialogue)) = dialogue_q.get(e) {
-        tile_opts.push(InteractionOption {
-          label: format!("Talk to {}", named.name),
-          action: InteractionAction::Talk { speaker: named.name, tree: dialogue.0 }
-        });
-      }
-      if let Ok((chest, _, _)) = loot_chest_q.get(e)
-        && !chest.opened
-      {
-        tile_opts.push(InteractionOption {
-          label: format!("Open chest ({dir_label})"),
-          action: InteractionAction::OpenChest(e)
-        });
-      }
-      if let Ok(door) = door_q.get(e) {
-        let verb = if door.open { "Close" } else { "Open" };
-        let name = named_q.get(e).map_or("door", |n| n.name);
-        tile_opts.push(InteractionOption {
-          label: format!("{verb} {name} ({dir_label})"),
-          action: InteractionAction::ToggleDoor(e)
-        });
-      }
-      if flight_console_q.get(e).is_ok() {
-        tile_opts.push(InteractionOption {
-          label: format!("Use flight console ({dir_label})"),
-          action: InteractionAction::OpenWorldMap
-        });
-      }
-    }
-  }
-  if (wy as usize) < level.height
-    && (wx as usize) < level.width
-    && level.items[wy as usize][wx as usize].is_some()
-  {
-    tile_opts.push(InteractionOption {
-      label: format!("Pick up item ({dir_label})"),
-      action: InteractionAction::PickUpItem(wx, wy)
-    });
-  }
-  tile_opts
+  let on_tile: Vec<Entity> = tile_entities
+    .into_iter()
+    .flat_map(|entities| entities.iter().copied())
+    .collect();
+
+  on_tile
+    .into_iter()
+    .flat_map(|e| {
+      std::iter::empty::<InteractionOption>()
+        .chain(
+          tree_q
+            .get(e)
+            .ok()
+            .map(|_| InteractionOption {
+              label: format!("Chop tree ({dir_label})"),
+              action: InteractionAction::ChopTree(e),
+            })
+            .into_iter(),
+        )
+        .chain(
+          dialogue_q
+            .get(e)
+            .ok()
+            .map(|(named, dialogue)| InteractionOption {
+              label: format!("Talk to {}", named.name),
+              action: InteractionAction::Talk {
+                speaker: named.name,
+                tree: dialogue.0,
+              },
+            })
+            .into_iter(),
+        )
+        .chain(
+          loot_chest_q
+            .get_mut(e)
+            .ok()
+            .filter(|(c, _, _)| !c.opened)
+            .map(|_| InteractionOption {
+              label: format!("Open chest ({dir_label})"),
+              action: InteractionAction::OpenChest(e),
+            })
+            .into_iter(),
+        )
+        .chain(
+          door_q.get(e).ok().into_iter().map(move |door| {
+            let verb = if door.open { "Close" } else { "Open" };
+            let name = named_q.get(e).map_or("door", |n| n.name);
+            InteractionOption {
+              label: format!("{verb} {name} ({dir_label})"),
+              action: InteractionAction::ToggleDoor(e),
+            }
+          }),
+        )
+        .chain(
+          flight_console_q
+            .get(e)
+            .ok()
+            .map(|_| InteractionOption {
+              label: format!("Examine flight console ({dir_label})"),
+              action: InteractionAction::ExamineFlightConsole,
+            })
+            .into_iter(),
+        )
+    })
+    .chain(
+      ((wy as usize) < level.height
+        && (wx as usize) < level.width
+        && level.items[wy as usize][wx as usize].is_some())
+      .then_some(InteractionOption {
+        label: format!("Pick up item ({dir_label})"),
+        action: InteractionAction::PickUpItem(wx, wy),
+      })
+      .into_iter(),
+    )
+    .collect()
 }
 
 fn resolve_bump_interact(
@@ -1352,24 +1359,23 @@ fn resolve_bump_interact(
   named_q: Query<&Named>,
   flight_console_q: Query<Entity, With<FlightConsole>>,
 ) {
-  let Some((tx, ty, tz)) = pending.0.take() else {
-    return;
-  };
-  let level = current.0.level(tz);
-  let opts = gather_interactions_at_tile(
-    tx,
-    ty,
-    "ahead",
-    level,
-    index.0.get(&(tx, ty, tz)),
-    &tree_q,
-    &dialogue_q,
-    &mut loot_chest_q,
-    &door_q,
-    &named_q,
-    &flight_console_q,
-  );
-  if !opts.is_empty() {
+  if let Some((tx, ty, tz)) = pending.0.take()
+    && let level = current.0.level(tz)
+    && let opts = gather_interactions_at_tile(
+      tx,
+      ty,
+      "ahead",
+      level,
+      index.0.get(&(tx, ty, tz)),
+      &tree_q,
+      &dialogue_q,
+      &mut loot_chest_q,
+      &door_q,
+      &named_q,
+      &flight_console_q,
+    )
+    && !opts.is_empty()
+  {
     ui.interact = InteractMenu::Open { options: opts };
   }
 }
@@ -1400,7 +1406,6 @@ fn handle_interact(
   keys: Res<ButtonInput<KeyCode>>,
   current: Res<CurrentZone>,
   mut ui: ResMut<UiState>,
-  world_map: Res<WorldMapView>,
   index: Res<TileEntityIndex>,
   player_q: Query<&PlayerPos, With<Player>>,
   dialogue_q: Query<(&Named, &Dialogue)>,
@@ -1410,7 +1415,7 @@ fn handle_interact(
   named_q: Query<&Named>,
   flight_console_q: Query<Entity, With<FlightConsole>>,
 ) {
-  if ui.any_open() || world_map.open || !keys.just_pressed(KeyCode::Space) {
+  if ui.any_open() || !keys.just_pressed(KeyCode::Space) {
     return;
   }
 
@@ -1445,28 +1450,12 @@ fn handle_interact(
   }
 }
 
-fn handle_world_map(
-  keys: Res<ButtonInput<KeyCode>>,
-  mut world_map: ResMut<WorldMapView>,
-  ui: Res<UiState>
-) {
-  if !keys.just_pressed(KeyCode::KeyM) {
-    return;
-  }
-  if world_map.open {
-    world_map.open = false;
-  } else if !ui.any_open() {
-    world_map.open = true;
-  }
-}
-
 fn setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     current: Res<CurrentZone>,
     mut images: ResMut<Assets<Image>>,
     mut palette_cache: ResMut<PaletteImageCache>,
-  mut world_map: ResMut<WorldMapView>,
   mut log: ResMut<LogEntries>
 ) {
     commands.spawn((Camera2d, Msaa::Off));
@@ -1559,7 +1548,6 @@ fn setup(
         }
     }
 
-    world_map.image = generate_world_map_image(&current.0, &mut images);
 }
 
 fn update_fov(
@@ -1775,43 +1763,10 @@ fn camera_follow(
     }
 }
 
-fn generate_world_map_image(
-    zone: &active_zone::ActiveZone,
-  images: &mut Assets<Image>
-) -> Handle<Image> {
-  use bevy::{asset::RenderAssetUsages,
-             render::render_resource::{Extent3d, TextureDimension, TextureFormat}};
-
-    let w = zone.width;
-    let h = zone.height;
-    let mut data = vec![0u8; w * h * 4];
-
-    let level = zone.level(0);
-    for ty in 0..h {
-        for tx in 0..w {
-            let [r, g, b] = level.tiles[ty][tx].minimap_color();
-            let idx = (ty * w + tx) * 4;
-            data[idx]     = (r * 255.0) as u8;
-            data[idx + 1] = (g * 255.0) as u8;
-            data[idx + 2] = (b * 255.0) as u8;
-            data[idx + 3] = 255;
-        }
-    }
-
-    images.add(Image::new(
-    Extent3d { width: w as u32, height: h as u32, depth_or_array_layers: 1 },
-        TextureDimension::D2,
-        data,
-        TextureFormat::Rgba8UnormSrgb,
-    RenderAssetUsages::RENDER_WORLD
-    ))
-}
-
 fn player_input(
     keys: Res<ButtonInput<KeyCode>>,
     current: Res<CurrentZone>,
     ui: Res<UiState>,
-    world_map: Res<WorldMapView>,
     mut clock: ResMut<Clock>,
     mut tb: ResMut<TurnBasedWorldState>,
     mut time_mode_auto: ResMut<TimeModeAuto>,
@@ -1821,7 +1776,7 @@ fn player_input(
     mut enemy_query: Query<&mut Stats, (With<Enemy>, Without<Player>)>,
     collidable_q: Query<&Collidable>,
 ) {
-    if !ui.any_open() && !world_map.open && keys.just_pressed(KeyCode::KeyT) {
+    if !ui.any_open() && keys.just_pressed(KeyCode::KeyT) {
         if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
             time_mode_auto.0 = true;
         } else {
@@ -1837,7 +1792,6 @@ fn player_input(
     }
 
   if !ui.any_open()
-    && !world_map.open
         && let Ok((mut pos, stats, mut inventory)) = player_query.single_mut()
     {
         let player_attack = stats.attack;

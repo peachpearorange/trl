@@ -12,20 +12,13 @@
 //!   - **Row** (`flex_grow` 1): transparent game pane (`flex_grow`) \| [`sidebar_column`] (~30%).
 //!   - **Status bar** (fixed height).
 //! - **Layer 2 — [`overlay_signal`]**: fullscreen dim when pause / interact / dialogue is open.
-//! - **Layer 3 — [`world_map_signal`]**: fullscreen dim + map panel when the world map is open.
 
-use {
-  crate::{
-    utils::mapv,
-    Clock, try_pick_level_tile_at_cursor, GAME_VIEWPORT_WIDTH_FRAC, STATUS_BAR_HEIGHT,
-  },
-  bevy::prelude::*,
-  bevy::text::FontWeight,
-  haalka::jonmo::SignalProcessing,
-  haalka::prelude::*,
-  jonmo::{signal, prelude::*},
-  trl::entities::{Stats, Named},
-};
+use {crate::{Clock, GAME_VIEWPORT_WIDTH_FRAC, STATUS_BAR_HEIGHT, game_pane_rect,
+             utils::mapv, world_to_level_cell},
+     bevy::{prelude::*, text::FontWeight},
+     haalka::{jonmo::SignalProcessing, prelude::*},
+     jonmo::{prelude::*, signal},
+     trl::entities::{Named, Stats}};
 
 // ---------------------------------------------------------------------------
 // Data shapes — written by sync_ui, read by Haalka signals
@@ -34,13 +27,11 @@ use {
 #[derive(Resource, Clone)]
 pub struct ClockData {
   pub mode: &'static str,
-  pub tick: u64,
+  pub tick: u64
 }
 
 impl Default for ClockData {
-  fn default() -> Self {
-    Self { mode: "RT", tick: 0 }
-  }
+  fn default() -> Self { Self { mode: "RT", tick: 0 } }
 }
 
 #[derive(Resource, Clone, Default)]
@@ -51,7 +42,7 @@ pub struct PlayerData {
   pub speed: f32,
   pub x: i32,
   pub y: i32,
-  pub z: usize,
+  pub z: usize
 }
 
 #[derive(Resource, Clone, Default)]
@@ -60,7 +51,7 @@ pub struct HoverInfo {
   pub tile_name: String,
   pub entity_name: Option<String>,
   pub entity_hp: Option<(i32, i32)>,
-  pub flavor: Option<String>,
+  pub flavor: Option<String>
 }
 
 /// Accumulated messages; capped at 100 entries. Updated by game systems in `Update`.
@@ -71,7 +62,7 @@ pub struct LogEntries(pub Vec<String>);
 /// `reactive_text` (avoids `item_signal` + nested `Column` issues in Jonmo).
 #[derive(Resource, Clone, Default)]
 pub struct LogDisplayData {
-  pub text: String,
+  pub text: String
 }
 
 /// Push one line or multiline block; oldest entries are dropped to keep at most 100.
@@ -83,19 +74,6 @@ pub fn log_message(log: &mut LogEntries, line: String) {
   log.0.push(line);
 }
 
-/// Full-island map texture and visibility (game viewport overlay). Filled in `setup`; toggled with M.
-#[derive(Resource, Clone)]
-pub struct WorldMapView {
-  pub open: bool,
-  pub image: Handle<Image>,
-}
-
-impl Default for WorldMapView {
-  fn default() -> Self {
-    Self { open: false, image: Handle::default() }
-  }
-}
-
 #[derive(Resource, Clone, Debug, PartialEq)]
 pub enum OverlayKind {
   PauseMain,
@@ -103,13 +81,16 @@ pub enum OverlayKind {
   /// Numbered option labels, same format as `Interact` (1) text …).
   Interact(Vec<String>),
   /// While talking: show numbered replies (1) text …) over the playfield.
-  Dialogue { title: String, options: Vec<String> },
+  Dialogue {
+    title: String,
+    options: Vec<String>
+  }
 }
 
 /// Formatted inventory string, updated by sync_ui.
 #[derive(Resource, Clone, Default)]
 pub struct InvDisplayData {
-  pub formatted: String,
+  pub formatted: String
 }
 
 // ---------------------------------------------------------------------------
@@ -156,14 +137,14 @@ pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
   fn build(&self, app: &mut App) {
-    app.init_resource::<ClockData>()
+    app
+      .init_resource::<ClockData>()
       .init_resource::<PlayerData>()
       .init_resource::<HoverInfo>()
       .init_resource::<LogEntries>()
       .init_resource::<LogDisplayData>()
       .init_resource::<InvDisplayData>()
     .init_resource::<OverlayData>()
-    .init_resource::<WorldMapView>()
       .add_systems(PostUpdate, sync_ui.before(SignalProcessing));
   }
 }
@@ -184,12 +165,9 @@ fn build_ui_root() -> impl Element {
     })
     .layer(main_layout())
     .layer_signal(overlay_signal())
-    .layer_signal(world_map_signal())
 }
 
-pub fn spawn_haalka_root(world: &mut World) {
-  build_ui_root().spawn(world);
-}
+pub fn spawn_haalka_root(world: &mut World) { build_ui_root().spawn(world); }
 
 fn main_layout() -> impl Element {
   Column::<Node>::new()
@@ -209,14 +187,11 @@ fn main_layout() -> impl Element {
           n.align_items = AlignItems::Stretch;
         })
         // Game viewport (transparent — Camera2d renders behind); flex so it fills space left of sidebar.
-        .item(
-          El::<Node>::new()
-            .with_node(|mut n| {
+        .item(El::<Node>::new().with_node(|mut n| {
               n.flex_grow = 1.0;
               n.flex_shrink = 1.0;
               n.min_width = Val::Px(0.0);
-            })
-        )
+        }))
         // Sidebar column — fixed fraction of window width, flush right
         .item(sidebar_column())
     )
@@ -258,8 +233,14 @@ fn stats_panel() -> impl Element {
     .border_color(BorderColor::all(BORDER))
     .item(panel_label("Character"))
     .item(hp_bar_row())
-    .item(stat_row("ATK", signal::from_resource::<PlayerData>().map_in(|d| d.attack.to_string())))
-    .item(stat_row("SPD", signal::from_resource::<PlayerData>().map_in(|d| format!("{:.1}", d.speed))))
+    .item(stat_row(
+      "ATK",
+      signal::from_resource::<PlayerData>().map_in(|d| d.attack.to_string())
+    ))
+    .item(stat_row(
+      "SPD",
+      signal::from_resource::<PlayerData>().map_in(|d| format!("{:.1}", d.speed))
+    ))
     .item(z_level_label())
     .item(time_mode_label())
 }
@@ -289,10 +270,19 @@ fn hp_bar_row() -> impl Element {
             .map_in::<Option<El<Node>>, Option<El<Node>>, _>(|d| {
               let ratio = if d.max_hp > 0 { d.hp as f32 / d.max_hp as f32 } else { 0.0 };
               let pct = (ratio * 100.0).clamp(0.0, 100.0);
-              let color = if ratio > 0.66 { HP_GREEN } else if ratio > 0.33 { HP_YELLOW } else { HP_RED };
+              let color = if ratio > 0.66 {
+                HP_GREEN
+              } else if ratio > 0.33 {
+                HP_YELLOW
+              } else {
+                HP_RED
+              };
               Some(
                 El::<Node>::new()
-                  .with_node(move |mut n| { n.width = Val::Percent(pct); n.height = Val::Percent(100.0); })
+                  .with_node(move |mut n| {
+                    n.width = Val::Percent(pct);
+                    n.height = Val::Percent(100.0);
+                  })
                   .background_color(BackgroundColor(color))
               )
             })
@@ -301,11 +291,16 @@ fn hp_bar_row() -> impl Element {
     // "HP/max" text
     .item(reactive_text(
       signal::from_resource::<PlayerData>().map_in(|d| format!("{}/{}", d.hp, d.max_hp)),
-      FONT_SIZE_SMALL, LIGHT_TEXT, W_UI
+      FONT_SIZE_SMALL,
+      LIGHT_TEXT,
+      W_UI
     ))
 }
 
-fn stat_row(label: &str, value_sig: impl Signal<Item = String> + Clone + 'static) -> impl Element {
+fn stat_row(
+  label: &str,
+  value_sig: impl Signal<Item = String> + Clone + 'static
+) -> impl Element {
   Row::<Node>::new()
     .with_node(|mut n| {
       n.width = Val::Percent(100.);
@@ -324,11 +319,13 @@ fn z_level_label() -> impl Element {
         1 => "Shallow Cave",
         2 => "Surface",
         3 => "Building Upper",
-        z => return format!("Level {}", z),
+        z => return format!("Level {}", z)
       };
       format!("{} (z={})", name, d.z)
     }),
-    FONT_SIZE_SMALL, DIM_TEXT, W_UI
+    FONT_SIZE_SMALL,
+    DIM_TEXT,
+    W_UI
   )
 }
 
@@ -338,11 +335,13 @@ fn time_mode_label() -> impl Element {
       let icon = match d.mode {
         "RT" => "[Real Time]",
         "TB" => "[Turn Based]",
-        m => m,
+        m => m
       };
       format!("{} T:{:.0}", icon, d.tick)
     }),
-    FONT_SIZE_MODE, MODE_LINE, W_STRONG
+    FONT_SIZE_MODE,
+    MODE_LINE,
+    W_STRONG
   )
 }
 
@@ -397,15 +396,20 @@ fn hover_panel() -> impl Element {
 
 fn hover_coords_line() -> impl Element {
   reactive_text(
-    signal::from_resource::<HoverInfo>().map_in(|h| format!("({}, {})", h.coords.0, h.coords.1)),
-    FONT_SIZE_SMALL, DIM_TEXT, W_UI
+    signal::from_resource::<HoverInfo>()
+      .map_in(|h| format!("({}, {})", h.coords.0, h.coords.1)),
+    FONT_SIZE_SMALL,
+    DIM_TEXT,
+    W_UI
   )
 }
 
 fn hover_tile_line() -> impl Element {
   reactive_text(
     signal::from_resource::<HoverInfo>().map_in(|h| h.tile_name.clone()),
-    FONT_SIZE_BODY, LIGHT_TEXT, W_UI
+    FONT_SIZE_BODY,
+    LIGHT_TEXT,
+    W_UI
   )
 }
 
@@ -467,13 +471,16 @@ fn message_log() -> impl Element {
     .item(
       // Same pattern as `inventory_list`: one `reactive_text` driven by a sync-only resource.
       El::<Node>::new()
-        .with_node(|mut n| { n.width = Val::Percent(100.0); n.min_height = Val::Px(4.0); })
-        .child(
-          reactive_text(
+        .with_node(|mut n| {
+          n.width = Val::Percent(100.0);
+          n.min_height = Val::Px(4.0);
+        })
+        .child(reactive_text(
             signal::from_resource::<LogDisplayData>().map_in(|d| d.text.clone()),
-            FONT_SIZE_SMALL, DIM_TEXT, W_UI
-          )
-        )
+          FONT_SIZE_SMALL,
+          DIM_TEXT,
+          W_UI
+        ))
     )
 }
 
@@ -495,111 +502,65 @@ fn status_bar() -> impl Element {
     .align_content(Align::center())
     .child(
       Row::<Node>::new()
-        .with_node(|mut n| { n.align_items = AlignItems::Center; n.column_gap = Val::Px(16.0); })
+        .with_node(|mut n| {
+          n.align_items = AlignItems::Center;
+          n.column_gap = Val::Px(16.0);
+        })
         .item(reactive_text(
           signal::from_resource::<HoverInfo>().map_in(|h| h.tile_name.clone()),
-          FONT_SIZE_SMALL, DIM_TEXT, W_UI
+          FONT_SIZE_SMALL,
+          DIM_TEXT,
+          W_UI
         ))
         .item(reactive_text(
-          signal::from_resource::<HoverInfo>().map_in(|h| format!("({},{})", h.coords.0, h.coords.1)),
-          FONT_SIZE_SMALL, DIM_TEXT, W_UI
+          signal::from_resource::<HoverInfo>()
+            .map_in(|h| format!("({},{})", h.coords.0, h.coords.1)),
+          FONT_SIZE_SMALL,
+          DIM_TEXT,
+          W_UI
         ))
         .item(
           Row::<Node>::new()
-            .with_node(|mut n| { n.column_gap = Val::Px(10.0); n.align_items = AlignItems::Center; })
+            .with_node(|mut n| {
+              n.column_gap = Val::Px(10.0);
+              n.align_items = AlignItems::Center;
+            })
             .item(reactive_text(
               signal::from_resource::<ClockData>().map_in(|d| {
                 (d.mode == "TB").then_some("TURN-BASED MODE").unwrap_or("").to_string()
               }),
-              FONT_SIZE_MODE, TURN_BASED_BADGE, W_STRONG
+              FONT_SIZE_MODE,
+              TURN_BASED_BADGE,
+              W_STRONG
             ))
             .item(reactive_text(
-              signal::from_resource::<ClockData>().map_in(|d| format!("{} T:{}", d.mode, d.tick)),
-              FONT_SIZE_SMALL, MODE_LINE, W_STRONG
+              signal::from_resource::<ClockData>()
+                .map_in(|d| format!("{} T:{}", d.mode, d.tick)),
+              FONT_SIZE_SMALL,
+              MODE_LINE,
+              W_STRONG
             ))
         )
     )
-}
-
-// World map — same column width as the game view, shows full generated island
-// ---------------------------------------------------------------------------
-
-fn world_map_signal() -> impl Signal<Item = Option<impl Element>> {
-  signal::from_resource::<WorldMapView>().map_in(|m| {
-    m.open.then_some(
-      El::<Node>::new()
-        .with_node(|mut n| {
-          n.width = Val::Percent(100.);
-          n.height = Val::Percent(100.);
-          n.position_type = PositionType::Absolute;
-          n.align_items = AlignItems::Center;
-          n.justify_content = JustifyContent::Center;
-        })
-        .background_color(BackgroundColor(OVERLAY_DIM))
-        .child(
-          Column::<Node>::new()
-            .with_node(|mut n| {
-              n.width = Val::Percent(GAME_VIEWPORT_PERCENT);
-              n.max_height = Val::Percent(96.);
-              n.padding = UiRect::all(Val::Px(14.));
-              n.column_gap = Val::Px(8.0);
-              n.align_items = AlignItems::Center;
-            })
-            .background_color(BackgroundColor(DARK_BG))
-            .border_color(BorderColor::all(BORDER))
-            .item(static_text("World map", FONT_SIZE_TITLE, ACCENT, W_STRONG))
-            .item(
-              // Square region: the texture is 1:1; avoid non-square flex slots (they caused Stretch to flatten).
-              El::<Node>::new()
-                .with_node(|mut n| {
-                  n.width = Val::Percent(100.);
-                  n.aspect_ratio = Some(1.0);
-                })
-                .align(Align::center())
-                .child(
-                  El::<ImageNode>::new()
-                    .with_node(|mut n| {
-                      n.width = Val::Percent(100.);
-                      n.height = Val::Percent(100.);
-                    })
-                    .with_builder(|builder| {
-                      builder.on_spawn_with_system(
-                        |In(entity): In<Entity>, map: Res<WorldMapView>, mut commands: Commands| {
-                          if let Ok(mut e) = commands.get_entity(entity) {
-                            e.insert(ImageNode::new(map.image.clone()));
-                          }
-                        },
-                      )
-                    })
-                )
-            )
-            .item(static_text("M  or  Esc  to close  ·  one pixel = one world tile", FONT_SIZE_SMALL, DIM_TEXT, W_OVERLAY))
-        )
-    )
-  })
 }
 
 // Overlays — centred on top of everything
 // ---------------------------------------------------------------------------
 
 fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
-  signal::from_resource::<OverlayData>()
-    .map_in(|data| {
+  signal::from_resource::<OverlayData>().map_in(|data| {
       data.kind.as_ref().map(|kind| {
         let label = match kind {
           OverlayKind::PauseMain => "Paused",
           OverlayKind::PauseControls => "Controls",
           OverlayKind::Interact(_) => "Use what?",
-          OverlayKind::Dialogue { title, .. } => title,
+        OverlayKind::Dialogue { title, .. } => title
         };
         let lines: Vec<String> = match kind {
           OverlayKind::Dialogue { options, .. } => {
             // Same layout as Interact: numbered options, empty line, Esc.
-            let mut l: Vec<String> = options
-              .iter()
-              .enumerate()
-              .map(|(i, t)| format!("{}) {}", i + 1, t))
-              .collect();
+          let mut l: Vec<String> =
+            options.iter().enumerate().map(|(i, t)| format!("{}) {}", i + 1, t)).collect();
             l.push(String::new());
             l.push("Esc to cancel".into());
             l
@@ -618,16 +579,20 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
             "?               controls".into(),
             "Esc             menu / back".into(),
           ],
-          OverlayKind::Interact(opts) => opts.iter()
+        OverlayKind::Interact(opts) => opts
+          .iter()
             .enumerate()
             .map(|(i, o)| format!("{}) {}", i + 1, o))
             .chain(core::iter::once(String::new()))
             .chain(core::iter::once("Esc to cancel".into()))
-            .collect(),
+          .collect()
         };
 
         El::<Node>::new()
-          .with_node(|mut n| { n.width = Val::Percent(100.); n.height = Val::Percent(100.0); })
+        .with_node(|mut n| {
+          n.width = Val::Percent(100.);
+          n.height = Val::Percent(100.0);
+        })
           .background_color(BackgroundColor(OVERLAY_DIM))
           .align(Align::center())
           .align_content(Align::center())
@@ -641,7 +606,11 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
               .background_color(BackgroundColor(DARK_BG))
               .border_color(BorderColor::all(BORDER))
               .item(static_text(label, FONT_SIZE_TITLE, LIGHT_TEXT, W_STRONG))
-              .items(lines.into_iter().map(|l| static_text(l, FONT_SIZE_BODY, LIGHT_TEXT, W_OVERLAY)))
+            .items(
+              lines
+                .into_iter()
+                .map(|l| static_text(l, FONT_SIZE_BODY, LIGHT_TEXT, W_OVERLAY))
+            )
           )
       })
     })
@@ -649,7 +618,7 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
 
 #[derive(Resource, Clone, Default)]
 pub struct OverlayData {
-  pub kind: Option<OverlayKind>,
+  pub kind: Option<OverlayKind>
 }
 
 // ---------------------------------------------------------------------------
@@ -672,15 +641,15 @@ fn sync_ui(
   mut inv_display: ResMut<InvDisplayData>,
   mut overlay: ResMut<OverlayData>,
   res_log: Res<LogEntries>,
-  mut log_display: ResMut<LogDisplayData>,
+  mut log_display: ResMut<LogDisplayData>
 ) {
   // ── Clock ──
   *clock_data = ClockData {
     mode: match clock.mode {
       crate::TimeMode::RealTime => "RT",
-      crate::TimeMode::TurnBased => "TB",
+      crate::TimeMode::TurnBased => "TB"
     },
-    tick: clock.time,
+    tick: clock.time
   };
 
   // ── Player stats ──
@@ -692,39 +661,39 @@ fn sync_ui(
       speed: stats.move_speed,
       x: pos.x,
       y: pos.y,
-      z: pos.z,
+      z: pos.z
     };
 
     inv_display.formatted = if inv.0.is_empty() {
       "(empty)".into()
     } else {
-      mapv(|(item, count)| format!("{}x {}", count, item.name()), &inv.0)
-        .join("\n")
+      mapv(|(item, count)| format!("{}x {}", count, item.name()), &inv.0).join("\n")
     };
   }
 
   // ── Hover info ──
-  *hover_info = compute_hover_info(
-    &windows, &camera_q, &current, player_q, &fov, &index, &named_q
-  );
+  *hover_info =
+    compute_hover_info(&windows, &camera_q, &current, player_q, &fov, &index, &named_q);
 
   // ── Overlay state ──
   overlay.kind = match ui.pause {
     crate::PauseMenu::Closed => None,
     crate::PauseMenu::Main => Some(OverlayKind::PauseMain),
-    crate::PauseMenu::Controls => Some(OverlayKind::PauseControls),
-  }.or_else(|| match &ui.interact {
+    crate::PauseMenu::Controls => Some(OverlayKind::PauseControls)
+  }
+  .or_else(|| match &ui.interact {
     crate::InteractMenu::Open { options } => {
       Some(OverlayKind::Interact(mapv(|o| o.label.clone(), options)))
     }
-    crate::InteractMenu::Closed => None,
-  }).or_else(|| match &ui.dialogue {
+    crate::InteractMenu::Closed => None
+  })
+  .or_else(|| match &ui.dialogue {
     crate::DialogueState::Open { speaker, tree, node_name } => {
       let node = tree.find(node_name);
       let options: Vec<String> = mapv(|c| c.text.to_string(), node.choices);
       Some(OverlayKind::Dialogue { title: format!("What do you say? ({speaker})"), options })
     }
-    crate::DialogueState::Closed => None,
+    crate::DialogueState::Closed => None
   });
 
   // ── Log: oldest at top, newest at bottom; keep last 50 *messages* ──
@@ -751,14 +720,14 @@ fn compute_hover_info(
   player_q: Query<(&crate::PlayerPos, &Stats, &crate::Inventory), With<crate::Player>>,
   fov: &crate::Fov,
   index: &crate::combat::TileEntityIndex,
-  named_q: &Query<(&Named, Option<&Stats>)>,
+  named_q: &Query<(&Named, Option<&Stats>)>
 ) -> HoverInfo {
   let empty = HoverInfo {
     coords: (0, 0),
     tile_name: "—".into(),
     entity_name: None,
     entity_hp: None,
-    flavor: None,
+    flavor: None
   };
 
   if let Ok(window) = windows.single()
@@ -766,9 +735,21 @@ fn compute_hover_info(
     && let Ok((pos, _, _)) = player_q.single()
   {
     let level = current.0.level(pos.z);
-    if let Some((tx, ty)) =
-      try_pick_level_tile_at_cursor(window, camera, cam_tf, level.width, level.height)
-    {
+    let pick = |w: &Window,
+                c: &Camera,
+                ct: &GlobalTransform,
+                lw: usize,
+                lh: usize|
+     -> Option<(i32, i32)> {
+      let cursor = w.cursor_position()?;
+      game_pane_rect(w)
+        .contains(cursor)
+        .then(|| c.viewport_to_world_2d(ct, cursor).ok())
+        .flatten()
+        .map(|world| world_to_level_cell(world, lw, lh))
+        .filter(|&(tx, ty)| tx >= 0 && ty >= 0 && (tx as usize) < lw && (ty as usize) < lh)
+    };
+    if let Some((tx, ty)) = pick(window, camera, cam_tf, level.width, level.height) {
       let visible = fov.0.is_visible(tx as usize, ty as usize);
       let revealed = fov.0.is_revealed(tx as usize, ty as usize);
       if visible || revealed {
@@ -790,7 +771,7 @@ fn compute_hover_info(
                   (
                     Some(named.name.into()),
                     stats.map(|s| (s.hp, s.max_hp)),
-                    Some(named.flavor.into()),
+                    Some(named.flavor.into())
                   )
                 })
               })
@@ -800,13 +781,7 @@ fn compute_hover_info(
           (None, None, None)
         };
 
-        HoverInfo {
-          coords: (tx, ty),
-          tile_name,
-          entity_name,
-          entity_hp,
-          flavor,
-        }
+        HoverInfo { coords: (tx, ty), tile_name, entity_name, entity_hp, flavor }
       } else {
         empty
       }
@@ -826,7 +801,12 @@ fn panel_label(text: &str) -> impl Element {
   static_text(text, FONT_SIZE_LABEL, ACCENT, W_STRONG)
 }
 
-fn static_text(text: impl Into<String>, size: f32, color: Color, weight: FontWeight) -> impl Element {
+fn static_text(
+  text: impl Into<String>,
+  size: f32,
+  color: Color,
+  weight: FontWeight
+) -> impl Element {
   El::<Text>::new()
     .text(Text::new(text))
     .text_font(TextFont { font_size: size, weight, ..default() })
@@ -837,12 +817,10 @@ fn reactive_text(
   sig: impl Signal<Item = String> + Clone + 'static,
   size: f32,
   color: Color,
-  weight: FontWeight,
+  weight: FontWeight
 ) -> impl Element {
   El::<Text>::new()
     .text_font(TextFont { font_size: size, weight, ..default() })
     .text_color(TextColor(color))
-    .with_builder(|b| b.component_signal::<Text>(
-      sig.map_in(|s| Some(Text::new(s)))
-    ))
+    .with_builder(|b| b.component_signal::<Text>(sig.map_in(|s| Some(Text::new(s)))))
 }
