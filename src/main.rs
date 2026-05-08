@@ -701,7 +701,10 @@ fn update_fov_visuals(
   frame: Res<RenderFrame>,
   index: Res<TileEntityIndex>,
   mut player_q: Query<(Entity, &PlayerPos, &mut Visibility), With<Player>>,
-  mut glyph_tiles: Query<(&TileGlyph, &mut TextColor), Without<TilePng>>,
+  mut glyph_tiles: Query<
+    (&TileGlyph, &mut TextColor),
+    (Without<TilePng>, Without<ItemGlyph>)
+  >,
   mut sprite_tiles: Query<(&TileGlyph, &mut Sprite), With<TilePng>>,
   mut item_q: Query<(Entity, &ItemGlyph, &mut TextColor, &mut Visibility)>,
   mut entity_q: Query<(Entity, &Location, &mut Visibility), With<GlyphVisual>>
