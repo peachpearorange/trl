@@ -85,34 +85,7 @@ impl ActiveZone {
             .map(|_| Level::new(total_w, total_h, crate::level::Tile::Vacuum))
             .collect();
 
-        // Copy ship tiles
-        for y in 0..ship_loc.height {
-            for x in 0..ship_loc.width {
-                for z in 0..ship_loc.depth {
-                    let tile = ship_loc.levels[z].tiles[y][x];
-                    let lx = ship_origin.0 + x as i32;
-                    let ly = ship_origin.1 + y as i32;
-                    if lx >= 0 && ly >= 0
-                        && (lx as usize) < total_w
-                        && (ly as usize) < total_h
-                    {
-                        levels[z].set(lx, ly, tile);
-                    }
-                    if let Some(item) = ship_loc.levels[z].items[y][x] {
-                        let lx = ship_origin.0 + x as i32;
-                        let ly = ship_origin.1 + y as i32;
-                        if lx >= 0 && ly >= 0
-                            && (lx as usize) < total_w
-                            && (ly as usize) < total_h
-                        {
-                            levels[z].set_item(lx, ly, Some(item));
-                        }
-                    }
-                }
-            }
-        }
-
-        // Copy destination tiles
+        // Copy destination tiles first (planet / station surface).
         for y in 0..dest.height {
             for x in 0..dest.width {
                 for z in 0..dest.depth {
@@ -128,6 +101,33 @@ impl ActiveZone {
                     if let Some(item) = dest.levels[z].items[y][x] {
                         let lx = dest_origin_shifted.0 + x as i32;
                         let ly = dest_origin_shifted.1 + y as i32;
+                        if lx >= 0 && ly >= 0
+                            && (lx as usize) < total_w
+                            && (ly as usize) < total_h
+                        {
+                            levels[z].set_item(lx, ly, Some(item));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Ship tiles last so hull and deck win where bounding boxes overlap.
+        for y in 0..ship_loc.height {
+            for x in 0..ship_loc.width {
+                for z in 0..ship_loc.depth {
+                    let tile = ship_loc.levels[z].tiles[y][x];
+                    let lx = ship_origin.0 + x as i32;
+                    let ly = ship_origin.1 + y as i32;
+                    if lx >= 0 && ly >= 0
+                        && (lx as usize) < total_w
+                        && (ly as usize) < total_h
+                    {
+                        levels[z].set(lx, ly, tile);
+                    }
+                    if let Some(item) = ship_loc.levels[z].items[y][x] {
+                        let lx = ship_origin.0 + x as i32;
+                        let ly = ship_origin.1 + y as i32;
                         if lx >= 0 && ly >= 0
                             && (lx as usize) < total_w
                             && (ly as usize) < total_h

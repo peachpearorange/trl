@@ -7,6 +7,13 @@ pub const SHIP_WIDTH: usize = 20;
 pub const SHIP_HEIGHT: usize = 15;
 pub const SHIP_DEPTH: usize = 1;
 
+/// Display name for logs and UI.
+pub const SHIP_NAME: &str = "Mongoose";
+
+/// Ship-local tile for the companion cat (open deck; see `starting_ship` layout).
+pub const SPACE_CAT_X: i32 = 10;
+pub const SPACE_CAT_Y: i32 = 8;
+
 /// The position of the airlock within the ship's local tile grid.
 pub const AIRLOCK_X: i32 = 10;
 pub const AIRLOCK_Y: i32 = 14; // south wall, bottom row

@@ -465,7 +465,7 @@ fn main() {
         .add_plugins(haalka::HaalkaPlugin::default())
     .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()).set(WindowPlugin {
                 primary_window: Some(Window {
-                    title: "trl — space".into(),
+                    title: format!("{} — space", ship::SHIP_NAME).into(),
                     resolution: (1200u32, 800u32).into(),
                     ..default()
                 }),
@@ -1348,7 +1348,8 @@ fn setup(
     current: Res<CurrentZone>,
     mut images: ResMut<Assets<Image>>,
     mut palette_cache: ResMut<PaletteImageCache>,
-  mut world_map: ResMut<WorldMapView>
+  mut world_map: ResMut<WorldMapView>,
+  mut log: ResMut<LogEntries>
 ) {
     commands.spawn((Camera2d, Msaa::Off));
 
@@ -1413,7 +1414,20 @@ fn setup(
 
     prefabs::Prefab::starting_ship().stamp_entities(&mut commands, sox, soy, 0);
 
-    Object::space_cat().spawn_at(&mut commands, sox + 9, soy + 6, 0);
+    Object::space_cat().spawn_at(
+      &mut commands,
+      sox + ship::SPACE_CAT_X,
+      soy + ship::SPACE_CAT_Y,
+      0,
+    );
+
+    log_message(
+      &mut *log,
+      format!(
+        "{} — deck gravity nominal. You're on your ship (docked at the origin world).",
+        ship::SHIP_NAME
+      ),
+    );
 
     // Spawn starter planet NPCs at destination-local coords mapped into the active zone
     if let Some((dox, doy)) = current.0.dest_origin {
@@ -1432,7 +1446,8 @@ fn setup(
         }
 
         // Spawn trees as entities at destination coords
-        for &(lx, ly) in &[(5, 5), (8, 12), (40, 8), (38, 30)] {
+        // Trees on open grass, away from crystal markers (see starter_planet_surface.txt)
+        for &(lx, ly) in &[(3, 3), (45, 3), (3, 45), (45, 45)] {
             let wx = dox + lx;
             let wy = doy + ly;
             Object::tree().spawn_at(&mut commands, wx, wy, 0);
