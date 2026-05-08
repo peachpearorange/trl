@@ -15,7 +15,7 @@ pub struct TileEntityIndex(pub HashMap<(i32, i32, usize), Vec<Entity>>);
 
 pub fn maintain_tile_index(
   mut index: ResMut<TileEntityIndex>,
-  query: Query<(Entity, &Location)>,
+  query: Query<(Entity, &Location), Without<crate::Player>>
 ) {
   index.0.clear();
   for (entity, location) in query.iter() {

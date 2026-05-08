@@ -336,7 +336,7 @@ fn apply_visuals_move(vis: &mut Visuals, f: u64, local: Vec2) {
 fn track_movement(
   frame: Res<RenderFrame>,
   mut params: ParamSet<(
-    Query<(&Location, &mut Visuals)>,
+    Query<(&Location, &mut Visuals), Without<Player>>,
     Query<(&PlayerPos, &mut Visuals), With<Player>>
   )>
 ) {
@@ -385,7 +385,7 @@ fn interpolate_visual_one(vis: &mut Visuals, f: u64, local: Vec2) {
 fn interpolate_visual_positions(
   frame: Res<RenderFrame>,
   mut params: ParamSet<(
-    Query<(&Location, &mut Visuals)>,
+    Query<(&Location, &mut Visuals), Without<Player>>,
     Query<(&PlayerPos, &mut Visuals), With<Player>>
   )>
 ) {
@@ -462,6 +462,12 @@ fn sync_entity_positions(mut query: Query<(&Visuals, &mut Transform), With<Glyph
     transform.translation =
       tile_screen_pos(vis.display.x, vis.display.y, ZONE_WIDTH, ZONE_HEIGHT)
         + Vec3::new(0.0, 0.0, 2.0);
+  }
+}
+
+fn sync_player_location(mut player_q: Query<(&PlayerPos, &mut Location), With<Player>>) {
+  if let Ok((pos, mut location)) = player_q.single_mut() {
+    *location = Location::xyz(pos.x, pos.y, pos.z);
   }
 }
 
@@ -545,7 +551,10 @@ fn main() {
         .chain()
     )
     .add_systems(Update, apply_pending_navigation.in_set(FramePipeline::ApplyNavigation))
-    .add_systems(Update, bump_render_frame.in_set(FramePipeline::BumpRender))
+    .add_systems(
+      Update,
+      (bump_render_frame, sync_player_location).chain().in_set(FramePipeline::BumpRender)
+    )
     .add_systems(Update, maintain_tile_index.in_set(FramePipeline::TileIndex))
     .add_systems(Update, setup_glyph_visuals.in_set(FramePipeline::GlyphSetup))
     .add_systems(Update, update_time_mode.in_set(FramePipeline::TimeMode))
@@ -707,7 +716,10 @@ fn update_fov_visuals(
   >,
   mut sprite_tiles: Query<(&TileGlyph, &mut Sprite), With<TilePng>>,
   mut item_q: Query<(Entity, &ItemGlyph, &mut TextColor, &mut Visibility)>,
-  mut entity_q: Query<(Entity, &Location, &mut Visibility), With<GlyphVisual>>
+  mut entity_q: Query<
+    (Entity, &Location, &mut Visibility),
+    (With<GlyphVisual>, Without<Player>)
+  >
 ) {
   if let Ok((player_ent, pos, mut player_vis)) = player_q.single_mut() {
     let level = current.0.level(pos.z);
@@ -1775,7 +1787,10 @@ fn apply_pending_navigation(
   item_glyphs: Query<Entity, With<ItemGlyph>>,
   glyph_vis: Query<Entity, (With<GlyphVisual>, Without<Player>)>,
   located: Query<Entity, With<Location>>,
-  mut player: Query<(&mut PlayerPos, &mut Visuals, &mut Transform), With<Player>>
+  mut player: Query<
+    (&mut PlayerPos, &mut Location, &mut Visuals, &mut Transform),
+    With<Player>
+  >
 ) {
   let Some(dest) = pending.0.take() else {
     return;
@@ -1819,10 +1834,11 @@ fn apply_pending_navigation(
   let local_x = sox + start_x as i32;
   let local_y = soy + start_y as i32;
   let start_local = Vec2::new(local_x as f32, local_y as f32);
-  if let Ok((mut pos, mut vis, mut tf)) = player.single_mut() {
+  if let Ok((mut pos, mut location, mut vis, mut tf)) = player.single_mut() {
     pos.x = local_x;
     pos.y = local_y;
     pos.z = 0;
+    *location = Location::xyz(local_x, local_y, 0);
     vis.prev = start_local;
     vis.display = start_local;
     vis.last_pos = start_local;
@@ -1899,6 +1915,7 @@ fn setup(
     ),
     Player,
     PlayerPos { x: local_x, y: local_y, z: 0 },
+    Location::xyz(local_x, local_y, 0),
     Stats { hp: 20, max_hp: 20, attack: 5, move_speed: 3.0, attack_speed: 1.0 },
     Inventory::default(),
     GlyphVisual,
