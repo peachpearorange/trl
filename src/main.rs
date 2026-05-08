@@ -715,7 +715,10 @@ fn update_fov_visuals(
     (Without<TilePng>, Without<ItemGlyph>)
   >,
   mut sprite_tiles: Query<(&TileGlyph, &mut Sprite), With<TilePng>>,
-  mut item_q: Query<(Entity, &ItemGlyph, &mut TextColor, &mut Visibility)>,
+  mut item_q: Query<
+    (Entity, &ItemGlyph, &mut TextColor, &mut Visibility),
+    (Without<Player>, Without<GlyphVisual>)
+  >,
   mut entity_q: Query<
     (Entity, &Location, &mut Visibility),
     (With<GlyphVisual>, Without<Player>)
