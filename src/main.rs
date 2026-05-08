@@ -7,17 +7,17 @@ mod npcs;
 mod utils;
 
 use {bevy::prelude::*,
-  combat::{TileEntityIndex, enemy_ai, maintain_tile_index},
-  level::{FovGrid, Item, Tile, ZONE_HEIGHT, ZONE_WIDTH, compute_fov},
-  std::collections::{HashMap, HashSet},
+     combat::{TileEntityIndex, enemy_ai, maintain_tile_index},
+     level::{FovGrid, Item, Tile, ZONE_HEIGHT, ZONE_WIDTH, compute_fov},
+     std::collections::{HashMap, HashSet},
      trl::entities::{BlocksSight, Collidable, Dialogue, DialogueNode, DialogueTree, Door,
-                     Enemy, FlightConsole, Glyph, Location, LootChest, Named, Stats,
-                     Tree, Visuals},
+                     Enemy, FlightConsole, Glyph, Location, LootChest, Named, Stats, Tree,
+                     Visuals},
      ui::{LogEntries, log_message}};
 
 use trl::{active_zone::{self, ActiveZone},
           docking, galaxy, galaxy_gen, prefabs, ship,
-          sprites::{palette_sprite_handle, PaletteImageCache}};
+          sprites::{PaletteImageCache, palette_sprite_handle}};
 
 /// Tile art is authored at this resolution (e.g. space_qud masks).
 pub const SPRITE_TEXELS: f32 = 20.0;
@@ -199,8 +199,10 @@ struct PendingNavigation(pub Option<galaxy::LocationId>);
 #[derive(Resource, Default)]
 struct BumpInteractFlash(pub Option<InteractionOption>);
 
-#[derive(Resource, Default)]
-struct VisibilityCycle(pub usize);
+#[derive(Component)]
+struct AirlockDoor {
+  opened_at_frame: Option<u64>
+}
 
 fn note_player_turn_moved_world(clock: &Clock, tb: &mut TurnBasedWorldState) {
   if clock.mode == TimeMode::TurnBased {
@@ -268,8 +270,8 @@ pub struct Player;
 
 #[derive(Component)]
 pub struct PlayerPos {
-    pub x: i32,
-    pub y: i32,
+  pub x: i32,
+  pub y: i32,
   pub z: usize
 }
 
@@ -467,25 +469,22 @@ fn sync_entity_positions(mut query: Query<(&Visuals, &mut Transform), With<Glyph
 // ---------------------------------------------------------------------------
 
 fn main() {
-    let mut galaxy = galaxy::Galaxy::new();
-    let ship_id: galaxy::LocationId = (-1, -1, -1);
+  let mut galaxy = galaxy::Galaxy::new();
+  let ship_id: galaxy::LocationId = (-1, -1, -1);
 
-    let ship_location = ship::build_ship_interior();
-    galaxy.insert(ship_id, ship_location.clone());
+  let ship_location = ship::build_ship_interior();
+  galaxy.insert(ship_id, ship_location.clone());
 
-    // Add starter planet at origin
-    let origin: galaxy::LocationId = galaxy_gen::ID_STARTER_PLANET;
-    let starter_planet = galaxy_gen::generate_starter_planet();
-    galaxy.insert(origin, starter_planet.clone());
-    galaxy.insert(
-      galaxy_gen::ID_ASTEROID_FIELD,
-      galaxy_gen::generate_asteroid_field(),
-    );
+  // Add starter planet at origin
+  let origin: galaxy::LocationId = galaxy_gen::ID_STARTER_PLANET;
+  let starter_planet = galaxy_gen::generate_starter_planet();
+  galaxy.insert(origin, starter_planet.clone());
+  galaxy.insert(galaxy_gen::ID_ASTEROID_FIELD, galaxy_gen::generate_asteroid_field());
 
-    // Ship starts docked at the starter planet
-    let active = active_zone::ActiveZone::docked(
-        &ship_location,
-        &starter_planet,
+  // Ship starts docked at the starter planet
+  let active = active_zone::ActiveZone::docked(
+    &ship_location,
+    &starter_planet,
     0 // first landing spot
   )
   .expect("ship should dock at starter planet");
@@ -493,62 +492,58 @@ fn main() {
   let ship_res =
     ship::Ship { location_id: ship_id, docked_at: Some(origin), fuel: 500, max_fuel: 500 };
 
-    let fov = level::FovGrid::new(active.width, active.height);
+  let fov = level::FovGrid::new(active.width, active.height);
 
-    let _ = &active; // Keep 'active' in scope for init
+  let _ = &active; // Keep 'active' in scope for init
 
-    App::new()
-        .add_plugins(haalka::HaalkaPlugin::default())
+  App::new()
+    .add_plugins(haalka::HaalkaPlugin::default())
     .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()).set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: format!("{} — space", ship::SHIP_NAME).into(),
-                    resolution: (1200u32, 800u32).into(),
-                    ..default()
-                }),
-                ..default()
-            }))
-        .insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.05)))
-            .insert_resource(galaxy)
-        .insert_resource(ship_res)
-        .insert_resource(CurrentZone(active))
-        .init_resource::<RenderFrame>()
-        .init_resource::<TurnBasedWorldState>()
-        .insert_resource(Clock::new())
-        .insert_resource(TimeModeAuto(true))
-        .init_resource::<ChestOpenPending>()
-        .init_resource::<PendingNavigation>()
-        .init_resource::<BumpInteractFlash>()
-        .init_resource::<PendingBumpInteract>()
-        .init_resource::<VisibilityCycle>()
-        .init_resource::<PaletteImageCache>()
-        .insert_resource(UiState::default())
-        .insert_resource(Fov(fov))
-        .insert_resource(TileEntityIndex::default())
-        .add_plugins(ui::UiPlugin)
-        .add_systems(Startup, (setup, ui::spawn_haalka_root).chain())
-        .configure_sets(Update, SimStep.run_if(should_run_sim_step))
-        .configure_sets(
-          Update,
-          (
-            FramePipeline::ApplyNavigation,
-            FramePipeline::BumpRender,
-            FramePipeline::TileIndex,
-            FramePipeline::GlyphSetup,
-            FramePipeline::TimeMode,
-            FramePipeline::DialogueKey,
-            FramePipeline::Menus,
-            FramePipeline::FlushChest,
-            FramePipeline::InteractKey,
-            FramePipeline::UtilityMenus,
-            FramePipeline::PlayerMove,
-            FramePipeline::BumpResolve,
-          )
-            .chain(),
-        )
-    .add_systems(
+      primary_window: Some(Window {
+        title: format!("{} — space", ship::SHIP_NAME).into(),
+        resolution: (1200u32, 800u32).into(),
+        ..default()
+      }),
+      ..default()
+    }))
+    .insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.05)))
+    .insert_resource(galaxy)
+    .insert_resource(ship_res)
+    .insert_resource(CurrentZone(active))
+    .init_resource::<RenderFrame>()
+    .init_resource::<TurnBasedWorldState>()
+    .insert_resource(Clock::new())
+    .insert_resource(TimeModeAuto(true))
+    .init_resource::<ChestOpenPending>()
+    .init_resource::<PendingNavigation>()
+    .init_resource::<BumpInteractFlash>()
+    .init_resource::<PendingBumpInteract>()
+    .init_resource::<PaletteImageCache>()
+    .insert_resource(UiState::default())
+    .insert_resource(Fov(fov))
+    .insert_resource(TileEntityIndex::default())
+    .add_plugins(ui::UiPlugin)
+    .add_systems(Startup, (setup, ui::spawn_haalka_root).chain())
+    .configure_sets(Update, SimStep.run_if(should_run_sim_step))
+    .configure_sets(
       Update,
-      apply_pending_navigation.in_set(FramePipeline::ApplyNavigation),
+      (
+        FramePipeline::ApplyNavigation,
+        FramePipeline::BumpRender,
+        FramePipeline::TileIndex,
+        FramePipeline::GlyphSetup,
+        FramePipeline::TimeMode,
+        FramePipeline::DialogueKey,
+        FramePipeline::Menus,
+        FramePipeline::FlushChest,
+        FramePipeline::InteractKey,
+        FramePipeline::UtilityMenus,
+        FramePipeline::PlayerMove,
+        FramePipeline::BumpResolve
+      )
+        .chain()
     )
+    .add_systems(Update, apply_pending_navigation.in_set(FramePipeline::ApplyNavigation))
     .add_systems(Update, bump_render_frame.in_set(FramePipeline::BumpRender))
     .add_systems(Update, maintain_tile_index.in_set(FramePipeline::TileIndex))
     .add_systems(Update, setup_glyph_visuals.in_set(FramePipeline::GlyphSetup))
@@ -559,18 +554,19 @@ fn main() {
     .add_systems(Update, handle_interact.in_set(FramePipeline::InteractKey))
     .add_systems(Update, handle_utility_menus.in_set(FramePipeline::UtilityMenus))
     .add_systems(Update, player_input.in_set(FramePipeline::PlayerMove))
+    .add_systems(Update, auto_close_airlocks.after(FramePipeline::PlayerMove))
     .add_systems(
       Update,
       (resolve_bump_interact, apply_bump_auto_interact)
         .chain()
-        .in_set(FramePipeline::BumpResolve),
+        .in_set(FramePipeline::BumpResolve)
     )
     .add_systems(
       Update,
       (
-            ApplyDeferred,
-            enemy_death_check.in_set(SimStep),
-            enemy_ai.in_set(SimStep),
+        ApplyDeferred,
+        enemy_death_check.in_set(SimStep),
+        enemy_ai.in_set(SimStep),
         update_fov.in_set(SimStep)
       )
         .chain()
@@ -578,17 +574,17 @@ fn main() {
     .add_systems(
       Update,
       (
-            track_movement,
-            interpolate_visual_positions,
-            sync_entity_positions,
-            camera_follow,
-            update_fov_visuals,
+        track_movement,
+        interpolate_visual_positions,
+        sync_entity_positions,
+        camera_follow,
+        update_fov_visuals,
         hide_tile_under_occupants,
         update_tile_hover_highlight
       )
         .chain()
     )
-        .run();
+    .run();
 }
 
 // ---------------------------------------------------------------------------
@@ -701,20 +697,21 @@ fn update_tile_hover_highlight(
 fn update_fov_visuals(
   fov: Res<Fov>,
   current: Res<CurrentZone>,
-  _frame: Res<RenderFrame>,
-  cycle: Res<VisibilityCycle>,
+  frame: Res<RenderFrame>,
   index: Res<TileEntityIndex>,
   player_q: Query<&PlayerPos, With<Player>>,
   player_entity: Query<Entity, With<Player>>,
   mut glyph_tiles: Query<(&TileGlyph, &mut TextColor), Without<TilePng>>,
   mut sprite_tiles: Query<(&TileGlyph, &mut Sprite), With<TilePng>>,
-  mut entity_q: Query<(Entity, &Location, &mut Visibility), With<GlyphVisual>>,
+  mut entity_q: Query<(Entity, &Location, &mut Visibility), With<GlyphVisual>>
 ) {
   if let Ok(pos) = player_q.single()
     && let Ok(player_ent) = player_entity.single()
   {
     let level = current.0.level(pos.z);
     let z = pos.z;
+    let t = frame.0 as f32 * 0.052;
+    let tau = std::f32::consts::TAU;
     let mut stacks: HashMap<(i32, i32), Vec<Entity>> = HashMap::new();
     for (&(x, y, zz), ents) in index.0.iter() {
       if zz != z || ents.len() <= 1 {
@@ -770,12 +767,18 @@ fn update_fov_visuals(
       if let Some(list) = stacks.get(&key)
         && list.len() > 1
       {
-        let winner = list[cycle.0 % list.len()];
-        *vis = if entity == winner {
-          Visibility::Visible
-        } else {
-          Visibility::Hidden
-        };
+        let n = list.len() as f32;
+        let winner = list
+          .iter()
+          .enumerate()
+          .max_by(|(i, _), (j, _)| {
+            let a = (t + *i as f32 * tau / n).sin();
+            let b = (t + *j as f32 * tau / n).sin();
+            a.total_cmp(&b)
+          })
+          .map(|(_, &e)| e)
+          .unwrap_or(entity);
+        *vis = if entity == winner { Visibility::Visible } else { Visibility::Hidden };
       } else {
         *vis = Visibility::Visible;
       }
@@ -789,17 +792,17 @@ fn hide_tile_under_occupants(
   current: Res<CurrentZone>,
   player_q: Query<&PlayerPos, With<Player>>,
   mut tile_png: Query<(&TileGlyph, &mut Visibility), With<TilePng>>,
-  mut tile_text: Query<(&TileGlyph, &mut Visibility), (Without<TilePng>, Without<ItemGlyph>)>,
+  mut tile_text: Query<
+    (&TileGlyph, &mut Visibility),
+    (Without<TilePng>, Without<ItemGlyph>)
+  >
 ) {
   let Ok(pos) = player_q.single() else {
     return;
   };
   let level = current.0.level(pos.z);
   let occluded = |ix: i32, iy: i32| {
-    index
-      .0
-      .get(&(ix, iy, pos.z))
-      .is_some_and(|ents| !ents.is_empty())
+    index.0.get(&(ix, iy, pos.z)).is_some_and(|ents| !ents.is_empty())
       || (iy >= 0
         && ix >= 0
         && (iy as usize) < level.height
@@ -809,20 +812,12 @@ fn hide_tile_under_occupants(
   for (tg, mut vis) in tile_png.iter_mut() {
     let ix = tg.x as i32;
     let iy = tg.y as i32;
-    *vis = if occluded(ix, iy) {
-      Visibility::Hidden
-    } else {
-      Visibility::Visible
-    };
+    *vis = if occluded(ix, iy) { Visibility::Hidden } else { Visibility::Visible };
   }
   for (tg, mut vis) in tile_text.iter_mut() {
     let ix = tg.x as i32;
     let iy = tg.y as i32;
-    *vis = if occluded(ix, iy) {
-      Visibility::Hidden
-    } else {
-      Visibility::Visible
-    };
+    *vis = if occluded(ix, iy) { Visibility::Hidden } else { Visibility::Visible };
   }
 }
 
@@ -929,7 +924,7 @@ fn attach_glyph_visual_for_door(
   location: &Location,
   palette_cache: &mut PaletteImageCache,
   images: &mut Assets<Image>,
-  asset_server: &AssetServer,
+  asset_server: &AssetServer
 ) {
   let Location::Coords { x, y, .. } = *location else {
     return;
@@ -959,29 +954,16 @@ fn attach_glyph_visual_for_door(
       },
       Transform::from_translation(pos),
       GlyphVisual,
-      Visuals {
-        prev: local,
-        last_move_start_frame: None,
-        display: local,
-        last_pos: local,
-      },
+      Visuals { prev: local, last_move_start_frame: None, display: local, last_pos: local }
     ));
   } else {
     commands.entity(entity).insert((
       Text2d::new(glyph.ch.to_string()),
-      TextFont {
-        font_size: TILE_SIZE,
-        ..default()
-      },
+      TextFont { font_size: TILE_SIZE, ..default() },
       TextColor(glyph.color),
       Transform::from_translation(pos),
       GlyphVisual,
-      Visuals {
-        prev: local,
-        last_move_start_frame: None,
-        display: local,
-        last_pos: local,
-      },
+      Visuals { prev: local, last_move_start_frame: None, display: local, last_pos: local }
     ));
   }
 }
@@ -998,7 +980,14 @@ fn handle_menus(
   asset_server: Res<AssetServer>,
   mut palette_cache: ResMut<PaletteImageCache>,
   mut images: ResMut<Assets<Image>>,
-  mut door_q: Query<(&mut Door, &mut Glyph, Option<&mut Collidable>, &Location)>,
+  frame: Res<RenderFrame>,
+  mut door_q: Query<(
+    &mut Door,
+    &mut Glyph,
+    Option<&mut Collidable>,
+    &Location,
+    Option<&mut AirlockDoor>
+  )>,
   mut pending_chest: ResMut<ChestOpenPending>,
   mut pending_nav: ResMut<PendingNavigation>,
   mut exit: MessageWriter<AppExit>
@@ -1038,38 +1027,39 @@ fn handle_menus(
         &asset_server,
         &mut palette_cache,
         &mut images,
+        frame.0
       );
     }
   } else {
-  match ui.pause {
-    PauseMenu::Closed => {
-      let open = keys.just_pressed(KeyCode::Escape)
-        || (keys.just_pressed(KeyCode::Slash)
-          && (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight)));
+    match ui.pause {
+      PauseMenu::Closed => {
+        let open = keys.just_pressed(KeyCode::Escape)
+          || (keys.just_pressed(KeyCode::Slash)
+            && (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight)));
 
-      if open {
-        ui.pause = if keys.just_pressed(KeyCode::Slash) {
-          PauseMenu::Controls
-        } else {
-          PauseMenu::Main
-        };
+        if open {
+          ui.pause = if keys.just_pressed(KeyCode::Slash) {
+            PauseMenu::Controls
+          } else {
+            PauseMenu::Main
+          };
+        }
+      }
+      PauseMenu::Main => {
+        if keys.just_pressed(KeyCode::Escape) || keys.just_pressed(KeyCode::Digit1) {
+          ui.pause = PauseMenu::Closed;
+        } else if keys.just_pressed(KeyCode::Digit2) {
+          ui.pause = PauseMenu::Controls;
+        } else if keys.just_pressed(KeyCode::Digit3) {
+          exit.write(AppExit::Success);
+        }
+      }
+      PauseMenu::Controls => {
+        if keys.just_pressed(KeyCode::Escape) {
+          ui.pause = PauseMenu::Main;
+        }
       }
     }
-    PauseMenu::Main => {
-      if keys.just_pressed(KeyCode::Escape) || keys.just_pressed(KeyCode::Digit1) {
-        ui.pause = PauseMenu::Closed;
-      } else if keys.just_pressed(KeyCode::Digit2) {
-        ui.pause = PauseMenu::Controls;
-      } else if keys.just_pressed(KeyCode::Digit3) {
-        exit.write(AppExit::Success);
-      }
-    }
-    PauseMenu::Controls => {
-      if keys.just_pressed(KeyCode::Escape) {
-        ui.pause = PauseMenu::Main;
-      }
-    }
-  }
   }
 }
 
@@ -1155,32 +1145,28 @@ fn apply_open_chest(
     && let &Location::Coords { x: cx, y: cy, z: cz, .. } = loc
   {
     let bundles = loot::roll_chest_loot(42u64, cx, cy, cz);
-  let kinds = bundles.len();
-  for (item, qty) in bundles {
-    *inventory.0.entry(item).or_insert(0) += qty;
+    let kinds = bundles.len();
+    for (item, qty) in bundles {
+      *inventory.0.entry(item).or_insert(0) += qty;
+    }
+    chest.opened = true;
+    glyph.texture = None;
+    glyph.sprite_palette = None;
+    glyph.ch = '□';
+    glyph.color = Color::srgb(0.45, 0.38, 0.32);
+    commands.entity(entity).remove::<Sprite>();
+    commands.entity(entity).insert((
+      Text2d::new(glyph.ch.to_string()),
+      TextFont { font_size: TILE_SIZE, ..default() },
+      TextColor(glyph.color)
+    ));
+    log_message(
+      log,
+      format!("You empty the chest ({} stack{}).", kinds, if kinds == 1 { "" } else { "s" })
+    );
+    clock.advance(1);
+    note_player_turn_moved_world(clock, tb);
   }
-  chest.opened = true;
-  glyph.texture = None;
-  glyph.sprite_palette = None;
-  glyph.ch = '□';
-  glyph.color = Color::srgb(0.45, 0.38, 0.32);
-  commands.entity(entity).remove::<Sprite>();
-  commands.entity(entity).insert((
-    Text2d::new(glyph.ch.to_string()),
-    TextFont { font_size: TILE_SIZE, ..default() },
-    TextColor(glyph.color),
-  ));
-  log_message(
-    log,
-    format!(
-      "You empty the chest ({} stack{}).",
-      kinds,
-      if kinds == 1 { "" } else { "s" }
-    ),
-  );
-  clock.advance(1);
-  note_player_turn_moved_world(clock, tb);
-}
 }
 
 fn salvage_label(item: Item) -> String {
@@ -1232,14 +1218,10 @@ fn handle_utility_menus(
   keys: Res<ButtonInput<KeyCode>>,
   player_q: Query<(&PlayerPos, &Inventory), With<Player>>,
   mut ui: ResMut<UiState>,
-  mut cycle: ResMut<VisibilityCycle>,
   mut log: ResMut<LogEntries>
 ) {
   if ui.any_open() {
     return;
-  }
-  if keys.just_pressed(KeyCode::KeyV) {
-    cycle.0 = cycle.0.wrapping_add(1);
   }
   if let Ok((_, inv)) = player_q.single() {
     if keys.just_pressed(KeyCode::KeyG) {
@@ -1344,10 +1326,17 @@ fn dispatch_interactive_choice(
   player_query: &mut Query<(&mut PlayerPos, &mut Inventory), With<Player>>,
   pending_chest: &mut ChestOpenPending,
   pending_nav: &mut PendingNavigation,
-  door_q: &mut Query<(&mut Door, &mut Glyph, Option<&mut Collidable>, &Location)>,
+  door_q: &mut Query<(
+    &mut Door,
+    &mut Glyph,
+    Option<&mut Collidable>,
+    &Location,
+    Option<&mut AirlockDoor>
+  )>,
   asset_server: &AssetServer,
   palette_cache: &mut PaletteImageCache,
   images: &mut Assets<Image>,
+  frame: u64
 ) {
   match &option.action {
     InteractionAction::OpenChest(ent) => {
@@ -1357,7 +1346,9 @@ fn dispatch_interactive_choice(
       pending_nav.0 = Some(*dest);
     }
     InteractionAction::ToggleDoor(entity) => {
-      if let Ok((mut door, mut glyph, _collidable, location)) = door_q.get_mut(*entity) {
+      if let Ok((mut door, mut glyph, _collidable, location, airlock)) =
+        door_q.get_mut(*entity)
+      {
         door.open = !door.open;
         if door.open {
           commands.entity(*entity).remove::<Collidable>();
@@ -1366,7 +1357,7 @@ fn dispatch_interactive_choice(
             "textures/space_qud/door open (2).png",
             '/',
             DOOR_OPEN_PRI,
-            DOOR_OPEN_SEC,
+            DOOR_OPEN_SEC
           );
         } else {
           commands.entity(*entity).insert((Collidable(true), BlocksSight));
@@ -1374,8 +1365,11 @@ fn dispatch_interactive_choice(
             "textures/space_qud/door closed (1).png",
             '+',
             DOOR_CLOSED_PRI,
-            DOOR_CLOSED_SEC,
+            DOOR_CLOSED_SEC
           );
+        }
+        if let Some(mut airlock) = airlock {
+          airlock.opened_at_frame = door.open.then_some(frame);
         }
         attach_glyph_visual_for_door(
           commands,
@@ -1384,22 +1378,50 @@ fn dispatch_interactive_choice(
           location,
           palette_cache,
           images,
-          asset_server,
+          asset_server
         );
       }
       clock.advance(1);
       note_player_turn_moved_world(clock, tb);
     }
     other => {
-      execute_interaction(
-        other,
-        zone,
-        clock,
-        tb,
-        ui,
-        log,
-        commands,
-        player_query,
+      execute_interaction(other, zone, clock, tb, ui, log, commands, player_query);
+    }
+  }
+}
+
+fn auto_close_airlocks(
+  mut commands: Commands,
+  frame: Res<RenderFrame>,
+  asset_server: Res<AssetServer>,
+  mut palette_cache: ResMut<PaletteImageCache>,
+  mut images: ResMut<Assets<Image>>,
+  mut airlock_q: Query<(Entity, &mut Door, &mut Glyph, &Location, &mut AirlockDoor)>
+) {
+  const AUTO_CLOSE_FRAMES: u64 = 60 * 10;
+  for (entity, mut door, mut glyph, location, mut airlock) in airlock_q.iter_mut() {
+    if door.open
+      && airlock
+        .opened_at_frame
+        .is_some_and(|opened| frame.0.saturating_sub(opened) >= AUTO_CLOSE_FRAMES)
+    {
+      door.open = false;
+      airlock.opened_at_frame = None;
+      commands.entity(entity).insert((Collidable(true), BlocksSight));
+      *glyph = Glyph::palette_sprite(
+        "textures/space_qud/door closed (1).png",
+        '+',
+        DOOR_CLOSED_PRI,
+        DOOR_CLOSED_SEC
+      );
+      attach_glyph_visual_for_door(
+        &mut commands,
+        entity,
+        &*glyph,
+        location,
+        &mut palette_cache,
+        &mut images,
+        &asset_server
       );
     }
   }
@@ -1425,7 +1447,7 @@ fn gather_interactions_at_tile(
   loot_chest_q: &mut Query<(&mut LootChest, &mut Glyph, &Location)>,
   door_q: &Query<&Door>,
   named_q: &Query<&Named>,
-  flight_console_q: &Query<Entity, With<FlightConsole>>,
+  flight_console_q: &Query<Entity, With<FlightConsole>>
 ) -> Vec<InteractionOption> {
   tile_entities
     .into_iter()
@@ -1438,9 +1460,9 @@ fn gather_interactions_at_tile(
             .ok()
             .map(|_| InteractionOption {
               label: format!("Chop tree ({dir_label})"),
-              action: InteractionAction::ChopTree(e),
+              action: InteractionAction::ChopTree(e)
             })
-            .into_iter(),
+            .into_iter()
         )
         .chain(
           dialogue_q
@@ -1448,12 +1470,9 @@ fn gather_interactions_at_tile(
             .ok()
             .map(|(named, dialogue)| InteractionOption {
               label: format!("Talk to {}", named.name),
-              action: InteractionAction::Talk {
-                speaker: named.name,
-                tree: dialogue.0,
-              },
+              action: InteractionAction::Talk { speaker: named.name, tree: dialogue.0 }
             })
-            .into_iter(),
+            .into_iter()
         )
         .chain(
           loot_chest_q
@@ -1462,39 +1481,31 @@ fn gather_interactions_at_tile(
             .filter(|(c, _, _)| !c.opened)
             .map(|_| InteractionOption {
               label: format!("Open chest ({dir_label})"),
-              action: InteractionAction::OpenChest(e),
+              action: InteractionAction::OpenChest(e)
             })
-            .into_iter(),
-        )
-        .chain(
-          door_q.get(e).ok().into_iter().map(move |door| {
-            let verb = if door.open { "Close" } else { "Open" };
-            let name = named_q.get(e).map_or("door", |n| n.name);
-            InteractionOption {
-              label: format!("{verb} {name} ({dir_label})"),
-              action: InteractionAction::ToggleDoor(e),
-            }
-          }),
-        )
-        .chain(
-          flight_console_q.get(e).ok().into_iter().flat_map(|_| {
-            [
-              InteractionOption {
-                label: "Chart course — Origin planet".into(),
-                action: InteractionAction::Navigate {
-                  dest: galaxy_gen::ID_STARTER_PLANET,
-                },
-              },
-              InteractionOption {
-                label: "Chart course — Space asteroid field".into(),
-                action: InteractionAction::Navigate {
-                  dest: galaxy_gen::ID_ASTEROID_FIELD,
-                },
-              },
-            ]
             .into_iter()
-          }),
         )
+        .chain(door_q.get(e).ok().into_iter().map(move |door| {
+          let verb = if door.open { "Close" } else { "Open" };
+          let name = named_q.get(e).map_or("door", |n| n.name);
+          InteractionOption {
+            label: format!("{verb} {name} ({dir_label})"),
+            action: InteractionAction::ToggleDoor(e)
+          }
+        }))
+        .chain(flight_console_q.get(e).ok().into_iter().flat_map(|_| {
+          [
+            InteractionOption {
+              label: "Chart course — Origin planet".into(),
+              action: InteractionAction::Navigate { dest: galaxy_gen::ID_STARTER_PLANET }
+            },
+            InteractionOption {
+              label: "Chart course — Space asteroid field".into(),
+              action: InteractionAction::Navigate { dest: galaxy_gen::ID_ASTEROID_FIELD }
+            }
+          ]
+          .into_iter()
+        }))
     })
     .chain(
       ((wy as usize) < level.height
@@ -1502,9 +1513,9 @@ fn gather_interactions_at_tile(
         && level.items[wy as usize][wx as usize].is_some())
       .then_some(InteractionOption {
         label: format!("Pick up item ({dir_label})"),
-        action: InteractionAction::PickUpItem(wx, wy),
+        action: InteractionAction::PickUpItem(wx, wy)
       })
-      .into_iter(),
+      .into_iter()
     )
     .collect()
 }
@@ -1520,7 +1531,7 @@ fn resolve_bump_interact(
   mut loot_chest_q: Query<(&mut LootChest, &mut Glyph, &Location)>,
   door_q: Query<&Door>,
   named_q: Query<&Named>,
-  flight_console_q: Query<Entity, With<FlightConsole>>,
+  flight_console_q: Query<Entity, With<FlightConsole>>
 ) {
   let Some((tx, ty, tz)) = pending.0.take() else {
     return;
@@ -1537,7 +1548,7 @@ fn resolve_bump_interact(
     &mut loot_chest_q,
     &door_q,
     &named_q,
-    &flight_console_q,
+    &flight_console_q
   );
   if opts.is_empty() {
     return;
@@ -1560,10 +1571,17 @@ fn apply_bump_auto_interact(
   mut player_query: Query<(&mut PlayerPos, &mut Inventory), With<Player>>,
   mut pending_chest: ResMut<ChestOpenPending>,
   mut pending_nav: ResMut<PendingNavigation>,
-  mut door_q: Query<(&mut Door, &mut Glyph, Option<&mut Collidable>, &Location)>,
+  mut door_q: Query<(
+    &mut Door,
+    &mut Glyph,
+    Option<&mut Collidable>,
+    &Location,
+    Option<&mut AirlockDoor>
+  )>,
   asset_server: Res<AssetServer>,
   mut palette_cache: ResMut<PaletteImageCache>,
   mut images: ResMut<Assets<Image>>,
+  frame: Res<RenderFrame>
 ) {
   let Some(option) = flash.0.take() else {
     return;
@@ -1583,6 +1601,7 @@ fn apply_bump_auto_interact(
     &asset_server,
     &mut palette_cache,
     &mut images,
+    frame.0
   );
 }
 
@@ -1593,7 +1612,7 @@ fn flush_pending_chest_open(
   mut loot_chest_q: Query<(&mut LootChest, &mut Glyph, &Location)>,
   mut log: ResMut<LogEntries>,
   mut clock: ResMut<Clock>,
-  mut tb: ResMut<TurnBasedWorldState>,
+  mut tb: ResMut<TurnBasedWorldState>
 ) {
   if let Some(ent) = pending_chest.0.take() {
     apply_open_chest(
@@ -1603,7 +1622,7 @@ fn flush_pending_chest_open(
       &mut loot_chest_q,
       &mut *log,
       &mut *clock,
-      &mut *tb,
+      &mut *tb
     );
   }
 }
@@ -1619,7 +1638,7 @@ fn handle_interact(
   mut loot_chest_q: Query<(&mut LootChest, &mut Glyph, &Location)>,
   door_q: Query<&Door>,
   named_q: Query<&Named>,
-  flight_console_q: Query<Entity, With<FlightConsole>>,
+  flight_console_q: Query<Entity, With<FlightConsole>>
 ) {
   if ui.any_open() || !keys.just_pressed(KeyCode::Space) {
     return;
@@ -1645,7 +1664,7 @@ fn handle_interact(
           &mut loot_chest_q,
           &door_q,
           &named_q,
-          &flight_console_q,
+          &flight_console_q
         ));
       }
     }
@@ -1662,15 +1681,9 @@ fn spawn_zone_geometry(
   palette_cache: &mut PaletteImageCache,
   images: &mut Assets<Image>,
   zone: &active_zone::ActiveZone,
-  docked_at: Option<galaxy::LocationId>,
+  docked_at: Option<galaxy::LocationId>
 ) {
-  spawn_level_tiles(
-    commands,
-    asset_server,
-    palette_cache,
-    images,
-    zone,
-  );
+  spawn_level_tiles(commands, asset_server, palette_cache, images, zone);
   let (sox, soy) = zone.ship_origin;
   prefabs::Prefab::starting_ship().stamp_entities(commands, sox, soy, 0);
   if docked_at == Some(galaxy_gen::ID_STARTER_PLANET)
@@ -1686,7 +1699,7 @@ fn spawn_zone_geometry(
         (26, 22) => (npcs::unit7::unit7(), 0, 0),
         (22, 21) => (npcs::kong::kong(), 0, 0),
         (24, 23) => (npcs::guard::guard(), 0, 0),
-        _ => continue,
+        _ => continue
       };
       obj.spawn_at(commands, wx, wy, 0);
     }
@@ -1708,7 +1721,7 @@ fn apply_pending_navigation(
   item_glyphs: Query<Entity, With<ItemGlyph>>,
   glyph_vis: Query<Entity, (With<GlyphVisual>, Without<Player>)>,
   located: Query<Entity, With<Location>>,
-  mut player: Query<(&mut PlayerPos, &mut Visuals, &mut Transform), With<Player>>,
+  mut player: Query<(&mut PlayerPos, &mut Visuals, &mut Transform), With<Player>>
 ) {
   let Some(dest) = pending.0.take() else {
     return;
@@ -1716,15 +1729,12 @@ fn apply_pending_navigation(
   if ship.docked_at == Some(dest) {
     log_message(
       &mut *log,
-      "Astrogation: already holding position at that chart solution.".into(),
+      "Astrogation: already holding position at that chart solution.".into()
     );
     return;
   }
   let Some(new_zone) = docking::dock(&galaxy, &mut ship, dest, 0) else {
-    log_message(
-      &mut *log,
-      "Astrogation: cannot plot a dock for that destination.".into(),
-    );
+    log_message(&mut *log, "Astrogation: cannot plot a dock for that destination.".into());
     return;
   };
   for e in tile_glyphs.iter() {
@@ -1747,7 +1757,7 @@ fn apply_pending_navigation(
     &mut palette_cache,
     &mut images,
     &current.0,
-    ship.docked_at,
+    ship.docked_at
   );
   let (sox, soy) = current.0.ship_origin;
   let start_x = ship::SHIP_WIDTH / 2;
@@ -1770,119 +1780,115 @@ fn apply_pending_navigation(
   let dest_name = match dest {
     galaxy_gen::ID_STARTER_PLANET => "origin planet",
     galaxy_gen::ID_ASTEROID_FIELD => "asteroid field",
-    _ => "destination",
+    _ => "destination"
   };
-  log_message(
-    &mut *log,
-    format!("Astrogation: docked — {dest_name} sector."),
-  );
+  log_message(&mut *log, format!("Astrogation: docked — {dest_name} sector."));
 }
 
 fn setup(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    current: Res<CurrentZone>,
-    ship: Res<ship::Ship>,
-    mut images: ResMut<Assets<Image>>,
-    mut palette_cache: ResMut<PaletteImageCache>,
+  mut commands: Commands,
+  asset_server: Res<AssetServer>,
+  current: Res<CurrentZone>,
+  ship: Res<ship::Ship>,
+  mut images: ResMut<Assets<Image>>,
+  mut palette_cache: ResMut<PaletteImageCache>,
   mut log: ResMut<LogEntries>
 ) {
-    commands.spawn((Camera2d, Msaa::Off));
+  commands.spawn((Camera2d, Msaa::Off));
 
-    spawn_zone_geometry(
-      &mut commands,
-      &asset_server,
-      &mut palette_cache,
-      &mut images,
-      &current.0,
-      ship.docked_at,
-    );
+  spawn_zone_geometry(
+    &mut commands,
+    &asset_server,
+    &mut palette_cache,
+    &mut images,
+    &current.0,
+    ship.docked_at
+  );
 
-    let hover_img = white_pixel_image(&mut images);
-    commands.spawn((
-        TileHoverHighlight,
-        Sprite {
-            image: hover_img,
-            custom_size: Some(Vec2::splat(TILE_SIZE)),
-            color: Color::srgba(0.95, 0.92, 0.45, 0.28),
-            ..default()
-        },
-        Transform::from_translation(Vec3::new(0.0, 0.0, 0.25)),
+  let hover_img = white_pixel_image(&mut images);
+  commands.spawn((
+    TileHoverHighlight,
+    Sprite {
+      image: hover_img,
+      custom_size: Some(Vec2::splat(TILE_SIZE)),
+      color: Color::srgba(0.95, 0.92, 0.45, 0.28),
+      ..default()
+    },
+    Transform::from_translation(Vec3::new(0.0, 0.0, 0.25)),
     Visibility::Hidden
-    ));
+  ));
 
-    let start_x: i32 = ship::SHIP_WIDTH as i32 / 2;
-    let start_y: i32 = ship::SHIP_HEIGHT as i32 / 2;
-    let (sox, soy) = current.0.ship_origin;
-    let local_x = sox + start_x;
-    let local_y = soy + start_y;
+  let start_x: i32 = ship::SHIP_WIDTH as i32 / 2;
+  let start_y: i32 = ship::SHIP_HEIGHT as i32 / 2;
+  let (sox, soy) = current.0.ship_origin;
+  let local_x = sox + start_x;
+  let local_y = soy + start_y;
 
-    let start_local = Vec2::new(local_x as f32, local_y as f32);
+  let start_local = Vec2::new(local_x as f32, local_y as f32);
 
-    commands.spawn((
-        Sprite {
+  commands.spawn((
+    Sprite {
       image: palette_sprite_handle(
         "textures/space_qud/mongus.png",
         Color::srgb(0.18, 0.42, 0.92),
         Color::srgb(0.98, 0.88, 0.22),
         &mut palette_cache,
-        &mut images,
+        &mut images
       ),
-            custom_size: Some(Vec2::splat(TILE_SIZE)),
-            color: Color::WHITE,
-            ..default()
-        },
-        Transform::from_translation(
+      custom_size: Some(Vec2::splat(TILE_SIZE)),
+      color: Color::WHITE,
+      ..default()
+    },
+    Transform::from_translation(
       tile_screen_pos(local_x as f32, local_y as f32, current.0.width, current.0.height)
         + Vec3::Z
-        ),
-        Player,
-        PlayerPos { x: local_x, y: local_y, z: 0 },
-        Stats { hp: 20, max_hp: 20, attack: 5, move_speed: 3.0, attack_speed: 1.0 },
-        Inventory::default(),
-        GlyphVisual,
-        Visuals {
-            prev: start_local,
-            last_move_start_frame: None,
-            display: start_local,
+    ),
+    Player,
+    PlayerPos { x: local_x, y: local_y, z: 0 },
+    Stats { hp: 20, max_hp: 20, attack: 5, move_speed: 3.0, attack_speed: 1.0 },
+    Inventory::default(),
+    GlyphVisual,
+    Visuals {
+      prev: start_local,
+      last_move_start_frame: None,
+      display: start_local,
       last_pos: start_local
     }
-    ));
+  ));
 
-    log_message(
-      &mut *log,
-      format!(
-        "{} — deck gravity nominal. You're on your ship (docked at the origin world).",
-        ship::SHIP_NAME
-      ),
-    );
-
+  log_message(
+    &mut *log,
+    format!(
+      "{} — deck gravity nominal. You're on your ship (docked at the origin world).",
+      ship::SHIP_NAME
+    )
+  );
 }
 
 fn update_fov(
-    mut fov: ResMut<Fov>,
-    current: Res<CurrentZone>,
-    player_q: Query<&PlayerPos, With<Player>>,
+  mut fov: ResMut<Fov>,
+  current: Res<CurrentZone>,
+  player_q: Query<&PlayerPos, With<Player>>,
   sight_q: Query<&Location, With<BlocksSight>>
 ) {
-    let Ok(pos) = player_q.single() else { return };
-    let level = current.0.level(pos.z);
-    // Space mode uses contiguous local coords: no zone wrapping.
-    let blockers: HashSet<(i32, i32)> = sight_q
-        .iter()
-        .filter_map(|loc| {
-            if let Location::Coords { x, y, z, .. } = *loc
-                && z == pos.z
-            {
-                Some((x, y))
-            } else {
-                None
-            }
-        })
-        .collect();
-    compute_fov(&mut fov.0, level, pos.x, pos.y, FOV_RADIUS, |tx, ty| {
-        blockers.contains(&(tx, ty))
-    });
+  let Ok(pos) = player_q.single() else { return };
+  let level = current.0.level(pos.z);
+  // Space mode uses contiguous local coords: no zone wrapping.
+  let blockers: HashSet<(i32, i32)> = sight_q
+    .iter()
+    .filter_map(|loc| {
+      if let Location::Coords { x, y, z, .. } = *loc
+        && z == pos.z
+      {
+        Some((x, y))
+      } else {
+        None
+      }
+    })
+    .collect();
+  compute_fov(&mut fov.0, level, pos.x, pos.y, FOV_RADIUS, |tx, ty| {
+    blockers.contains(&(tx, ty))
+  });
 }
 
 /// Space Qud mask sprites — under `assets/textures/space_qud/` (sync script).
@@ -1892,296 +1898,300 @@ fn space_qud_tile_sprite(tile: Tile) -> Option<(&'static str, Color, Color)> {
     Tile::DeckPlate => Some((
       "textures/space_qud/grid.png",
       Color::srgb(0.38, 0.42, 0.48),
-      Color::srgb(0.72, 0.76, 0.82),
+      Color::srgb(0.72, 0.76, 0.82)
     )),
     Tile::StationFloor => Some((
       "textures/space_qud/grid.png",
       Color::srgb(0.52, 0.56, 0.62),
-      Color::srgb(0.88, 0.90, 0.94),
+      Color::srgb(0.88, 0.90, 0.94)
     )),
     Tile::Bulkhead | Tile::StationWall | Tile::DerelictWall => Some((
       "textures/space_qud/wall hashtag.png",
       Color::srgb(0.28, 0.30, 0.34),
-      Color::srgb(0.48, 0.52, 0.56),
+      Color::srgb(0.48, 0.52, 0.56)
     )),
     Tile::Window => Some((
       "textures/space_qud/window.png",
       Color::srgb(0.22, 0.32, 0.52),
-      Color::srgb(0.62, 0.76, 0.94),
+      Color::srgb(0.62, 0.76, 0.94)
     )),
     Tile::Conduit => Some((
       "textures/space_qud/grid.png",
       Color::srgb(0.40, 0.28, 0.14),
-      Color::srgb(0.88, 0.62, 0.22),
+      Color::srgb(0.88, 0.62, 0.22)
     )),
     Tile::Vacuum => Some((
       "textures/space_qud/space background.png",
       Color::srgb(0.04, 0.06, 0.14),
-      Color::srgb(0.62, 0.72, 0.92),
+      Color::srgb(0.62, 0.72, 0.92)
     )),
     Tile::AlienGrass => Some((
       "textures/space_qud/grass.png",
       Color::srgb(0.38, 0.16, 0.52),
-      Color::srgb(0.68, 0.52, 0.88),
+      Color::srgb(0.68, 0.52, 0.88)
     )),
     Tile::Grass | Tile::TallGrass => Some((
       "textures/space_qud/grass.png",
       Color::srgb(0.22, 0.48, 0.18),
-      Color::srgb(0.52, 0.72, 0.28),
+      Color::srgb(0.52, 0.72, 0.28)
     )),
     Tile::ShallowWater => Some((
       "textures/space_qud/wavy.png",
       Color::srgb(0.18, 0.42, 0.62),
-      Color::srgb(0.45, 0.68, 0.88),
+      Color::srgb(0.45, 0.68, 0.88)
     )),
     Tile::Sand => Some((
       "textures/space_qud/wavy.png",
       Color::srgb(0.72, 0.62, 0.38),
-      Color::srgb(0.92, 0.86, 0.62),
+      Color::srgb(0.92, 0.86, 0.62)
     )),
     Tile::AsteroidRock => Some((
       "textures/space_qud/wall hashtag.png",
       Color::srgb(0.42, 0.38, 0.36),
-      Color::srgb(0.58, 0.54, 0.52),
+      Color::srgb(0.58, 0.54, 0.52)
     )),
     Tile::AsteroidFloor | Tile::Regolith => Some((
       "textures/space_qud/ground.png",
       Color::srgb(0.48, 0.46, 0.44),
-      Color::srgb(0.72, 0.70, 0.68),
+      Color::srgb(0.72, 0.70, 0.68)
     )),
-    _ => None,
+    _ => None
   }
 }
 
 fn spawn_level_tiles(
-    commands: &mut Commands,
-    asset_server: &AssetServer,
-    palette_cache: &mut PaletteImageCache,
-    images: &mut Assets<Image>,
+  commands: &mut Commands,
+  asset_server: &AssetServer,
+  palette_cache: &mut PaletteImageCache,
+  images: &mut Assets<Image>,
   zone: &active_zone::ActiveZone
 ) {
-    for z in 0..zone.depth {
-        let level = zone.level(z);
-        for y in 0..level.height {
-            for x in 0..level.width {
-                let tile = level.tiles[y][x];
-                if tile == Tile::Air {
-                    continue;
-                }
-                let pos = tile_screen_pos(x as f32, y as f32, zone.width, zone.height);
-
-                if tile == Tile::Vacuum {
-                    if let Some((path, c1, c2)) = space_qud_tile_sprite(tile) {
-                        let handle = palette_sprite_handle(path, c1, c2, palette_cache, images);
-                        commands.spawn((
-                            Sprite {
-                                image: handle,
-                                custom_size: Some(Vec2::splat(TILE_SIZE)),
-                                color: Color::srgba(0.0, 0.0, 0.0, 0.0),
-                                ..default()
-                            },
-                            Transform::from_translation(pos),
-                            TileGlyph { x, y },
-                            TilePng,
-                            Visibility::Visible,
-                        ));
-                    }
-                    continue;
-                }
-
-                if tile == Tile::Door || tile == Tile::AirlockDoor {
-                    let [r, g, b] = tile.color();
-                    commands.spawn((
-                        Door { open: false, closed_color: Color::srgb(r, g, b) },
-                        Collidable(true),
-                        BlocksSight,
-                        Glyph::palette_sprite(
-                            "textures/space_qud/door closed (1).png",
-                            '+',
-                            DOOR_CLOSED_PRI,
-                            DOOR_CLOSED_SEC,
-                        ),
-                        Location::xyz(x as i32, y as i32, z),
-            Named { name: tile.name(), flavor: "Press Space to open." }
-                    ));
-                } else {
-                let tex_palette = space_qud_tile_sprite(tile).map(|(p, c1, c2)| (p, Some((c1, c2))));
-                let tex_plain = tile.texture_path().map(|p| (p, None));
-                let tex = tex_palette.or(tex_plain);
-                if let Some((path, palette_opt)) = tex {
-                    let handle = if let Some((primary, secondary)) = palette_opt {
-                      palette_sprite_handle(path, primary, secondary, palette_cache, images)
-                    } else {
-                      asset_server.load(path)
-                    };
-                    commands.spawn((
-                        Sprite {
-                            image: handle,
-                            custom_size: Some(Vec2::splat(TILE_SIZE)),
-                            color: Color::srgba(0.0, 0.0, 0.0, 0.0),
-                            ..default()
-                        },
-                        Transform::from_translation(pos),
-                        TileGlyph { x, y },
-            TilePng,
-                        Visibility::Visible
-                    ));
-                } else {
-                    let [r, g, b] = tile.color();
-                    commands.spawn((
-                        Text2d::new(tile.glyph()),
-                        TextFont { font_size: TILE_SIZE, ..default() },
-                        TextColor(Color::srgba(r, g, b, 0.0)),
-                        Transform::from_translation(pos),
-            TileGlyph { x, y },
-                        Visibility::Visible
-                    ));
-                }
-                }
-
-                if let Some(item) = level.items[y][x] {
-                    let [r, g, b] = item.color();
-                    commands.spawn((
-                        Text2d::new(item.glyph()),
-                        TextFont { font_size: TILE_SIZE, ..default() },
-                        TextColor(Color::srgba(r, g, b, 0.0)),
-                        Transform::from_translation(
-                            tile_screen_pos(x as f32, y as f32, zone.width, zone.height)
-                                + Vec3::new(0.0, 0.0, 1.0)
-                        ),
-            ItemGlyph { x, y }
-                    ));
-                }
-            }
+  for z in 0..zone.depth {
+    let level = zone.level(z);
+    for y in 0..level.height {
+      for x in 0..level.width {
+        let tile = level.tiles[y][x];
+        if tile == Tile::Air {
+          continue;
         }
+        let pos = tile_screen_pos(x as f32, y as f32, zone.width, zone.height);
+
+        if tile == Tile::Vacuum {
+          if let Some((path, c1, c2)) = space_qud_tile_sprite(tile) {
+            let handle = palette_sprite_handle(path, c1, c2, palette_cache, images);
+            commands.spawn((
+              Sprite {
+                image: handle,
+                custom_size: Some(Vec2::splat(TILE_SIZE)),
+                color: Color::srgba(0.0, 0.0, 0.0, 0.0),
+                ..default()
+              },
+              Transform::from_translation(pos),
+              TileGlyph { x, y },
+              TilePng,
+              Visibility::Visible
+            ));
+          }
+          continue;
+        }
+
+        if tile == Tile::Door || tile == Tile::AirlockDoor {
+          let [r, g, b] = tile.color();
+          let mut spawned = commands.spawn((
+            Door { open: false, closed_color: Color::srgb(r, g, b) },
+            Collidable(true),
+            BlocksSight,
+            Glyph::palette_sprite(
+              "textures/space_qud/door closed (1).png",
+              '+',
+              DOOR_CLOSED_PRI,
+              DOOR_CLOSED_SEC
+            ),
+            Location::xyz(x as i32, y as i32, z),
+            Named { name: tile.name(), flavor: "Press Space to open." }
+          ));
+          if tile == Tile::AirlockDoor {
+            spawned.insert(AirlockDoor { opened_at_frame: None });
+          }
+        } else {
+          let tex_palette =
+            space_qud_tile_sprite(tile).map(|(p, c1, c2)| (p, Some((c1, c2))));
+          let tex_plain = tile.texture_path().map(|p| (p, None));
+          let tex = tex_palette.or(tex_plain);
+          if let Some((path, palette_opt)) = tex {
+            let handle = if let Some((primary, secondary)) = palette_opt {
+              palette_sprite_handle(path, primary, secondary, palette_cache, images)
+            } else {
+              asset_server.load(path)
+            };
+            commands.spawn((
+              Sprite {
+                image: handle,
+                custom_size: Some(Vec2::splat(TILE_SIZE)),
+                color: Color::srgba(0.0, 0.0, 0.0, 0.0),
+                ..default()
+              },
+              Transform::from_translation(pos),
+              TileGlyph { x, y },
+              TilePng,
+              Visibility::Visible
+            ));
+          } else {
+            let [r, g, b] = tile.color();
+            commands.spawn((
+              Text2d::new(tile.glyph()),
+              TextFont { font_size: TILE_SIZE, ..default() },
+              TextColor(Color::srgba(r, g, b, 0.0)),
+              Transform::from_translation(pos),
+              TileGlyph { x, y },
+              Visibility::Visible
+            ));
+          }
+        }
+
+        if let Some(item) = level.items[y][x] {
+          let [r, g, b] = item.color();
+          commands.spawn((
+            Text2d::new(item.glyph()),
+            TextFont { font_size: TILE_SIZE, ..default() },
+            TextColor(Color::srgba(r, g, b, 0.0)),
+            Transform::from_translation(
+              tile_screen_pos(x as f32, y as f32, zone.width, zone.height)
+                + Vec3::new(0.0, 0.0, 1.0)
+            ),
+            ItemGlyph { x, y }
+          ));
+        }
+      }
     }
+  }
 }
 
 fn camera_follow(
-    player_q: Query<&Visuals, With<Player>>,
-    current: Res<CurrentZone>,
-    mut cam_q: Query<&mut Transform, With<Camera2d>>,
+  player_q: Query<&Visuals, With<Player>>,
+  current: Res<CurrentZone>,
+  mut cam_q: Query<&mut Transform, With<Camera2d>>,
   windows: Query<&Window>
 ) {
-    if let Ok(vis) = player_q.single()
-        && let Ok(mut cam_tf) = cam_q.single_mut()
-        && let Ok(win) = windows.single()
-    {
-        let w = win.resolution.width();
-        let h = win.resolution.height();
-        let screen_center = Vec2::new(w / 2.0, h / 2.0);
-        let viewport_center = Vec2::new(w * 0.35, (h - STATUS_BAR_HEIGHT) / 2.0);
-        let offset = viewport_center - screen_center;
+  if let Ok(vis) = player_q.single()
+    && let Ok(mut cam_tf) = cam_q.single_mut()
+    && let Ok(win) = windows.single()
+  {
+    let w = win.resolution.width();
+    let h = win.resolution.height();
+    let screen_center = Vec2::new(w / 2.0, h / 2.0);
+    let viewport_center = Vec2::new(w * 0.35, (h - STATUS_BAR_HEIGHT) / 2.0);
+    let offset = viewport_center - screen_center;
 
-        let local = vis.display;
-        let world_pos = Vec2::new(
-            (local.x - current.0.width as f32 / 2.0) * TILE_SIZE,
+    let local = vis.display;
+    let world_pos = Vec2::new(
+      (local.x - current.0.width as f32 / 2.0) * TILE_SIZE,
       (current.0.height as f32 / 2.0 - local.y) * TILE_SIZE
-        );
-        let mut t = (world_pos - offset).extend(0.0);
-        t.x = t.x.round();
-        t.y = t.y.round();
-        cam_tf.translation = t;
-    }
+    );
+    let mut t = (world_pos - offset).extend(0.0);
+    t.x = t.x.round();
+    t.y = t.y.round();
+    cam_tf.translation = t;
+  }
 }
 
 fn player_input(
-    keys: Res<ButtonInput<KeyCode>>,
-    current: Res<CurrentZone>,
-    ui: Res<UiState>,
-    mut clock: ResMut<Clock>,
-    mut tb: ResMut<TurnBasedWorldState>,
-    mut time_mode_auto: ResMut<TimeModeAuto>,
-    index: Res<TileEntityIndex>,
-    mut pending_bump: ResMut<PendingBumpInteract>,
-    mut player_query: Query<(&mut PlayerPos, &Stats, &mut Inventory), With<Player>>,
-    mut enemy_query: Query<&mut Stats, (With<Enemy>, Without<Player>)>,
-    collidable_q: Query<&Collidable>,
+  keys: Res<ButtonInput<KeyCode>>,
+  current: Res<CurrentZone>,
+  ui: Res<UiState>,
+  mut clock: ResMut<Clock>,
+  mut tb: ResMut<TurnBasedWorldState>,
+  mut time_mode_auto: ResMut<TimeModeAuto>,
+  index: Res<TileEntityIndex>,
+  mut pending_bump: ResMut<PendingBumpInteract>,
+  mut player_query: Query<(&mut PlayerPos, &Stats, &mut Inventory), With<Player>>,
+  mut enemy_query: Query<&mut Stats, (With<Enemy>, Without<Player>)>,
+  collidable_q: Query<&Collidable>
 ) {
-    if !ui.any_open() && keys.just_pressed(KeyCode::KeyT) {
-        if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
-            time_mode_auto.0 = true;
-        } else {
-            time_mode_auto.0 = false;
-            clock.mode = match clock.mode {
-                TimeMode::RealTime => TimeMode::TurnBased,
-                TimeMode::TurnBased => {
-                    tb.pending_enemy_phase = false;
-                    TimeMode::RealTime
-                }
-            };
+  if !ui.any_open() && keys.just_pressed(KeyCode::KeyT) {
+    if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
+      time_mode_auto.0 = true;
+    } else {
+      time_mode_auto.0 = false;
+      clock.mode = match clock.mode {
+        TimeMode::RealTime => TimeMode::TurnBased,
+        TimeMode::TurnBased => {
+          tb.pending_enemy_phase = false;
+          TimeMode::RealTime
         }
+      };
     }
+  }
 
   if !ui.any_open()
-        && let Ok((mut pos, stats, mut inventory)) = player_query.single_mut()
-    {
-        let player_attack = stats.attack;
-        if clock.move_cooldown_frames > 0 {
-            clock.move_cooldown_frames -= 1;
-        }
+    && let Ok((mut pos, stats, mut inventory)) = player_query.single_mut()
+  {
+    let player_attack = stats.attack;
+    if clock.move_cooldown_frames > 0 {
+      clock.move_cooldown_frames -= 1;
+    }
 
-        let turn_based_block = clock.mode == TimeMode::TurnBased
-            && (clock.move_cooldown_frames > 0 || tb.pending_enemy_phase);
+    let turn_based_block = clock.mode == TimeMode::TurnBased
+      && (clock.move_cooldown_frames > 0 || tb.pending_enemy_phase);
 
     if !turn_based_block
       && keys.just_pressed(KeyCode::Period)
-            && !keys.pressed(KeyCode::ShiftLeft)
-            && !keys.pressed(KeyCode::ShiftRight)
-        {
-            clock.advance(PlayerAction::Wait.time_cost());
-            note_player_turn_moved_world(&*clock, &mut *tb);
-        } else if !turn_based_block
-            && (if clock.mode == TimeMode::TurnBased {
-                any_direction_just_pressed(&keys)
-            } else {
-                any_direction_pressed(&keys)
+      && !keys.pressed(KeyCode::ShiftLeft)
+      && !keys.pressed(KeyCode::ShiftRight)
+    {
+      clock.advance(PlayerAction::Wait.time_cost());
+      note_player_turn_moved_world(&*clock, &mut *tb);
+    } else if !turn_based_block
+      && (if clock.mode == TimeMode::TurnBased {
+        any_direction_just_pressed(&keys)
+      } else {
+        any_direction_pressed(&keys)
       })
       && clock.move_cooldown_frames == 0
-        {
-            let level = current.0.level(pos.z);
-            let dir = read_direction(&keys);
-            let (raw_dx, raw_dy) = (dir.0, dir.1);
+    {
+      let level = current.0.level(pos.z);
+      let dir = read_direction(&keys);
+      let (raw_dx, raw_dy) = (dir.0, dir.1);
 
-            let (dx, dy) = resolve_move(level, pos.x, pos.y, raw_dx, raw_dy);
+      let (dx, dy) = resolve_move(level, pos.x, pos.y, raw_dx, raw_dy);
 
-            if (dx, dy) != (0, 0) {
-                let target_x = pos.x + dx;
-                let target_y = pos.y + dy;
+      if (dx, dy) != (0, 0) {
+        let target_x = pos.x + dx;
+        let target_y = pos.y + dy;
 
         let enemy_hit = index.0.get(&(target_x, target_y, pos.z)).and_then(|entities| {
           entities.iter().find(|&&e| enemy_query.get(e).is_ok()).copied()
         });
 
-                if let Some(hostile) = enemy_hit {
-                    if let Ok(mut es) = enemy_query.get_mut(hostile) {
-                        es.hp -= player_attack;
-                    }
-                } else {
-                    let blocked = !level.walkable(target_x, target_y)
+        if let Some(hostile) = enemy_hit {
+          if let Ok(mut es) = enemy_query.get_mut(hostile) {
+            es.hp -= player_attack;
+          }
+        } else {
+          let blocked = !level.walkable(target_x, target_y)
             || index.0.get(&(target_x, target_y, pos.z)).is_some_and(|entities| {
               entities.iter().any(|&e| collidable_q.get(e).is_ok_and(|c| c.0))
             });
 
-                    if !blocked {
-                        pos.x = target_x;
-                        pos.y = target_y;
+          if !blocked {
+            pos.x = target_x;
+            pos.y = target_y;
 
-                        let lvl = current.0.level(pos.z);
-                        if (pos.y as usize) < lvl.height && (pos.x as usize) < lvl.width {
-                            if let Some(item) = lvl.items[pos.y as usize][pos.x as usize] {
-                                *inventory.0.entry(item).or_insert(0) += 1;
-                            }
-                        }
-                    } else {
-                        pending_bump.0 = Some((target_x, target_y, pos.z));
-                    }
-                }
-
-                clock.advance(PlayerAction::Move { dx, dy }.time_cost());
-                clock.move_cooldown_frames = RENDER_FRAMES_PER_SIM_STEP;
-                note_player_turn_moved_world(&*clock, &mut *tb);
+            let lvl = current.0.level(pos.z);
+            if (pos.y as usize) < lvl.height && (pos.x as usize) < lvl.width {
+              if let Some(item) = lvl.items[pos.y as usize][pos.x as usize] {
+                *inventory.0.entry(item).or_insert(0) += 1;
+              }
             }
+          } else {
+            pending_bump.0 = Some((target_x, target_y, pos.z));
+          }
         }
+
+        clock.advance(PlayerAction::Move { dx, dy }.time_cost());
+        clock.move_cooldown_frames = RENDER_FRAMES_PER_SIM_STEP;
+        note_player_turn_moved_world(&*clock, &mut *tb);
+      }
     }
+  }
 }

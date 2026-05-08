@@ -15,7 +15,8 @@
 
 use {crate::{Clock, GAME_VIEWPORT_WIDTH_FRAC, STATUS_BAR_HEIGHT, game_pane_rect,
              utils::mapv, world_to_level_cell},
-     bevy::{prelude::*, text::FontWeight,
+     bevy::{prelude::*,
+            text::FontWeight,
             ui::{AlignItems, Display, FlexDirection, JustifyContent}},
      haalka::{jonmo::SignalProcessing, prelude::*},
      jonmo::{prelude::*, signal},
@@ -98,25 +99,25 @@ pub struct InvDisplayData {
 // Colours & constants
 // ---------------------------------------------------------------------------
 
-const DARK_BG:     Color = Color::srgb(0.10, 0.10, 0.18);
-const PANEL_BG:    Color = Color::srgb(0.12, 0.12, 0.20);
+const DARK_BG: Color = Color::srgb(0.10, 0.10, 0.18);
+const PANEL_BG: Color = Color::srgb(0.12, 0.12, 0.20);
 const DIALOGUE_PANEL_BG: Color = Color::srgb(0.04, 0.05, 0.10);
-const BORDER:      Color = Color::srgb(0.20, 0.20, 0.33);
-const LIGHT_TEXT:  Color = Color::srgb(0.94, 0.94, 0.97);
-const DIM_TEXT:    Color = Color::srgb(0.78, 0.80, 0.86);
-const ACCENT:      Color = Color::srgb(0.55, 0.88, 0.65);
+const BORDER: Color = Color::srgb(0.20, 0.20, 0.33);
+const LIGHT_TEXT: Color = Color::srgb(0.94, 0.94, 0.97);
+const DIM_TEXT: Color = Color::srgb(0.78, 0.80, 0.86);
+const ACCENT: Color = Color::srgb(0.55, 0.88, 0.65);
 /// Real-time / turn line in sidebar (mode name + tick).
-const MODE_LINE:   Color = Color::srgb(0.65, 0.95, 0.78);
+const MODE_LINE: Color = Color::srgb(0.65, 0.95, 0.78);
 /// “TURN-BASED MODE” banner in the status bar (high contrast).
 const TURN_BASED_BADGE: Color = Color::srgb(1.0, 0.88, 0.35);
-const HP_GREEN:    Color = Color::srgb(0.35, 0.75, 0.35);
-const HP_YELLOW:   Color = Color::srgb(0.85, 0.75, 0.25);
-const HP_RED:      Color = Color::srgb(0.85, 0.30, 0.30);
+const HP_GREEN: Color = Color::srgb(0.35, 0.75, 0.35);
+const HP_YELLOW: Color = Color::srgb(0.85, 0.75, 0.25);
+const HP_RED: Color = Color::srgb(0.85, 0.30, 0.30);
 const OVERLAY_DIM: Color = Color::srgba(0.0, 0.0, 0.0, 0.50);
 const DIALOGUE_OVERLAY_DIM: Color = Color::srgba(0.0, 0.0, 0.0, 0.68);
 
 const FONT_SIZE_LABEL: f32 = 15.0;
-const FONT_SIZE_BODY:  f32 = 17.0;
+const FONT_SIZE_BODY: f32 = 17.0;
 const FONT_SIZE_TITLE: f32 = 18.0;
 const FONT_SIZE_SMALL: f32 = 14.0;
 /// Sidebar clock mode + TB banner (slightly larger than body elsewhere).
@@ -126,7 +127,7 @@ const W_UI: FontWeight = FontWeight::SEMIBOLD;
 const W_STRONG: FontWeight = FontWeight::BOLD;
 const W_OVERLAY: FontWeight = FontWeight::MEDIUM;
 
-const PANEL_PAD:      f32 = 8.0;
+const PANEL_PAD: f32 = 8.0;
 
 /// Match `main.rs` Haalka row: sidebar width as a percent of the window width.
 const SIDEBAR_WIDTH_PERCENT: f32 = (1.0 - GAME_VIEWPORT_WIDTH_FRAC) * 100.0;
@@ -147,7 +148,7 @@ impl Plugin for UiPlugin {
       .init_resource::<LogEntries>()
       .init_resource::<LogDisplayData>()
       .init_resource::<InvDisplayData>()
-    .init_resource::<OverlayData>()
+      .init_resource::<OverlayData>()
       .add_systems(PostUpdate, sync_ui.before(SignalProcessing));
   }
 }
@@ -191,9 +192,9 @@ fn main_layout() -> impl Element {
         })
         // Game viewport (transparent — Camera2d renders behind); flex so it fills space left of sidebar.
         .item(El::<Node>::new().with_node(|mut n| {
-              n.flex_grow = 1.0;
-              n.flex_shrink = 1.0;
-              n.min_width = Val::Px(0.0);
+          n.flex_grow = 1.0;
+          n.flex_shrink = 1.0;
+          n.min_width = Val::Px(0.0);
         }))
         // Sidebar column — fixed fraction of window width, flush right
         .item(sidebar_column())
@@ -479,7 +480,7 @@ fn message_log() -> impl Element {
           n.min_height = Val::Px(4.0);
         })
         .child(reactive_text(
-            signal::from_resource::<LogDisplayData>().map_in(|d| d.text.clone()),
+          signal::from_resource::<LogDisplayData>().map_in(|d| d.text.clone()),
           FONT_SIZE_SMALL,
           DIM_TEXT,
           W_UI
@@ -554,11 +555,8 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
   signal::from_resource::<OverlayData>().map_in(|data| {
     data.kind.as_ref().map(|kind| {
       if let OverlayKind::Dialogue { title, options } = kind {
-        let mut lines: Vec<String> = options
-          .iter()
-          .enumerate()
-          .map(|(i, t)| format!("{}) {}", i + 1, t))
-          .collect();
+        let mut lines: Vec<String> =
+          options.iter().enumerate().map(|(i, t)| format!("{}) {}", i + 1, t)).collect();
         lines.push(String::new());
         lines.push("Esc to cancel".into());
         El::<Node>::new()
@@ -587,66 +585,65 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
               .items(
                 lines
                   .into_iter()
-                  .map(|l| static_text(l, FONT_SIZE_BODY, LIGHT_TEXT, W_OVERLAY)),
-              ),
+                  .map(|l| static_text(l, FONT_SIZE_BODY, LIGHT_TEXT, W_OVERLAY))
+              )
           )
       } else {
         let label = match kind {
-        OverlayKind::PauseMain => "Paused",
-        OverlayKind::PauseControls => "Controls",
-        OverlayKind::Interact(_) => "Use what?",
-        OverlayKind::Dialogue { .. } => "?"
-      };
-      let lines: Vec<String> = match kind {
-        OverlayKind::Dialogue { .. } => vec![],
-        OverlayKind::PauseMain => vec![
-          "1) Resume".into(),
-          "2) Controls".into(),
-          "3) Quit Game".into(),
-          String::new(),
-          "Esc to resume".into(),
-        ],
-        OverlayKind::PauseControls => vec![
-          "WASD / Arrows   move".into(),
-          "Space           use / interact".into(),
-          "V               cycle stacked visibility".into(),
-          ".               wait".into(),
-          "?               controls".into(),
-          "Esc             menu / back".into(),
-        ],
-        OverlayKind::Interact(opts) => opts
-          .iter()
-          .enumerate()
-          .map(|(i, o)| format!("{}) {}", i + 1, o))
-          .chain(core::iter::once(String::new()))
-          .chain(core::iter::once("Esc to cancel".into()))
-          .collect(),
-      };
+          OverlayKind::PauseMain => "Paused",
+          OverlayKind::PauseControls => "Controls",
+          OverlayKind::Interact(_) => "Use what?",
+          OverlayKind::Dialogue { .. } => "?"
+        };
+        let lines: Vec<String> = match kind {
+          OverlayKind::Dialogue { .. } => vec![],
+          OverlayKind::PauseMain => vec![
+            "1) Resume".into(),
+            "2) Controls".into(),
+            "3) Quit Game".into(),
+            String::new(),
+            "Esc to resume".into(),
+          ],
+          OverlayKind::PauseControls => vec![
+            "WASD / Arrows   move".into(),
+            "Space           use / interact".into(),
+            ".               wait".into(),
+            "?               controls".into(),
+            "Esc             menu / back".into(),
+          ],
+          OverlayKind::Interact(opts) => opts
+            .iter()
+            .enumerate()
+            .map(|(i, o)| format!("{}) {}", i + 1, o))
+            .chain(core::iter::once(String::new()))
+            .chain(core::iter::once("Esc to cancel".into()))
+            .collect()
+        };
 
-      El::<Node>::new()
-        .with_node(|mut n| {
-          n.width = Val::Percent(100.);
-          n.height = Val::Percent(100.0);
-        })
-        .background_color(BackgroundColor(OVERLAY_DIM))
-        .align(Align::center())
-        .align_content(Align::center())
-        .child(
-          Column::<Node>::new()
-            .with_node(|mut n| {
-              n.border_radius = BorderRadius::all(Val::Px(6.0));
-              n.padding = UiRect::all(Val::Px(16.));
-              n.column_gap = Val::Px(6.0);
-            })
-            .background_color(BackgroundColor(DARK_BG))
-            .border_color(BorderColor::all(BORDER))
-            .item(static_text(label, FONT_SIZE_TITLE, LIGHT_TEXT, W_STRONG))
-            .items(
-              lines
-                .into_iter()
-                .map(|l| static_text(l, FONT_SIZE_BODY, LIGHT_TEXT, W_OVERLAY)),
-            ),
-        )
+        El::<Node>::new()
+          .with_node(|mut n| {
+            n.width = Val::Percent(100.);
+            n.height = Val::Percent(100.0);
+          })
+          .background_color(BackgroundColor(OVERLAY_DIM))
+          .align(Align::center())
+          .align_content(Align::center())
+          .child(
+            Column::<Node>::new()
+              .with_node(|mut n| {
+                n.border_radius = BorderRadius::all(Val::Px(6.0));
+                n.padding = UiRect::all(Val::Px(16.));
+                n.column_gap = Val::Px(6.0);
+              })
+              .background_color(BackgroundColor(DARK_BG))
+              .border_color(BorderColor::all(BORDER))
+              .item(static_text(label, FONT_SIZE_TITLE, LIGHT_TEXT, W_STRONG))
+              .items(
+                lines
+                  .into_iter()
+                  .map(|l| static_text(l, FONT_SIZE_BODY, LIGHT_TEXT, W_OVERLAY))
+              )
+          )
       }
     })
   })
