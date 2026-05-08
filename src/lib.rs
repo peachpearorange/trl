@@ -1,6 +1,7 @@
 // Public API for the trl library
 
 pub mod active_zone;
+pub mod tiles;
 pub mod atmosphere;
 pub mod crew;
 pub mod docking;
