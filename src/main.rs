@@ -1789,7 +1789,7 @@ fn apply_pending_navigation(
   tile_glyphs: Query<Entity, With<TileGlyph>>,
   item_glyphs: Query<Entity, With<ItemGlyph>>,
   glyph_vis: Query<Entity, (With<GlyphVisual>, Without<Player>)>,
-  located: Query<Entity, With<Location>>,
+  located: Query<Entity, (With<Location>, Without<Player>)>,
   mut player: Query<
     (&mut PlayerPos, &mut Location, &mut Visuals, &mut Transform),
     With<Player>
@@ -1809,16 +1809,13 @@ fn apply_pending_navigation(
     log_message(&mut *log, "Astrogation: cannot plot a dock for that destination.".into());
     return;
   };
-  for e in tile_glyphs.iter() {
-    commands.entity(e).despawn();
-  }
-  for e in item_glyphs.iter() {
-    commands.entity(e).despawn();
-  }
-  for e in glyph_vis.iter() {
-    commands.entity(e).despawn();
-  }
-  for e in located.iter() {
+  let despawn_entities: HashSet<Entity> = tile_glyphs
+    .iter()
+    .chain(item_glyphs.iter())
+    .chain(glyph_vis.iter())
+    .chain(located.iter())
+    .collect();
+  for e in despawn_entities {
     commands.entity(e).despawn();
   }
   *current = CurrentZone(new_zone);
