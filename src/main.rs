@@ -1270,13 +1270,9 @@ fn gather_interactions_at_tile(
   named_q: &Query<&Named>,
   flight_console_q: &Query<Entity, With<FlightConsole>>,
 ) -> Vec<InteractionOption> {
-  let on_tile: Vec<Entity> = tile_entities
+  tile_entities
     .into_iter()
     .flat_map(|entities| entities.iter().copied())
-    .collect();
-
-  on_tile
-    .into_iter()
     .flat_map(|e| {
       std::iter::empty::<InteractionOption>()
         .chain(
