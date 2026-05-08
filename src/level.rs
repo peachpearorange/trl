@@ -223,7 +223,9 @@ pub struct TileProperties {
   pub opaque: bool,
   pub causes_falling: bool,
   pub name: &'static str,
-  pub has_atmosphere: bool
+  pub has_atmosphere: bool,
+  /// Space Qud palette sprite: (path, primary [r,g,b], secondary [r,g,b]).
+  pub space_qud_sprite: Option<(&'static str, [f32; 3], [f32; 3])>
 }
 
 impl Tile {
@@ -238,7 +240,8 @@ impl Tile {
         opaque: false,
         causes_falling: true,
         name: "Air",
-        has_atmosphere: false
+        has_atmosphere: false,
+        space_qud_sprite: None
       },
       Tile::Floor => TileProperties {
         glyph: ".",
@@ -249,7 +252,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Floor",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       Tile::Wall => TileProperties {
         glyph: "#",
@@ -260,7 +264,8 @@ impl Tile {
         opaque: true,
         causes_falling: false,
         name: "Wall",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       Tile::CobblestoneWall => TileProperties {
         glyph: "#",
@@ -271,7 +276,8 @@ impl Tile {
         opaque: true,
         causes_falling: false,
         name: "Cobblestone Wall",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       Tile::BrickWall => TileProperties {
         glyph: "#",
@@ -282,7 +288,8 @@ impl Tile {
         opaque: true,
         causes_falling: false,
         name: "Brick Wall",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       Tile::Grass => TileProperties {
         glyph: "\"",
@@ -293,7 +300,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Grass",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: Some(("textures/space_qud/grass.png", [0.22, 0.48, 0.18], [0.52, 0.72, 0.28]))
       },
       Tile::Water => TileProperties {
         glyph: "~",
@@ -304,7 +312,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Water",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       Tile::Sand => TileProperties {
         glyph: ",",
@@ -315,7 +324,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Sand",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: Some(("textures/space_qud/wavy.png", [0.72, 0.62, 0.38], [0.92, 0.86, 0.62]))
       },
       Tile::StairsUp => TileProperties {
         glyph: "<",
@@ -326,7 +336,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Stairs Up",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       Tile::StairsDown => TileProperties {
         glyph: ">",
@@ -337,7 +348,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Stairs Down",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       Tile::Door => TileProperties {
         glyph: "+",
@@ -348,7 +360,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Door",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       Tile::TallGrass => TileProperties {
         glyph: "\"",
@@ -359,7 +372,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Tall Grass",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: Some(("textures/space_qud/grass.png", [0.22, 0.48, 0.18], [0.52, 0.72, 0.28]))
       },
       Tile::Bush => TileProperties {
         glyph: "%",
@@ -370,7 +384,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Bush",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       Tile::Ash => TileProperties {
         glyph: ".",
@@ -381,7 +396,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Ash",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       Tile::Lava => TileProperties {
         glyph: "~",
@@ -392,7 +408,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Lava",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       Tile::ShallowWater => TileProperties {
         glyph: "~",
@@ -403,7 +420,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Shallow Water",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: Some(("textures/space_qud/wavy.png", [0.18, 0.42, 0.62], [0.45, 0.68, 0.88]))
       },
       Tile::DeepWater => TileProperties {
         glyph: "≈",
@@ -414,7 +432,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Deep Water",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       Tile::Road => TileProperties {
         glyph: "·",
@@ -425,7 +444,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Road",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       Tile::WoodWall => TileProperties {
         glyph: "#",
@@ -436,7 +456,8 @@ impl Tile {
         opaque: true,
         causes_falling: false,
         name: "Wooden Wall",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       Tile::WoodFloor => TileProperties {
         glyph: ".",
@@ -447,7 +468,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Wooden Floor",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       Tile::Fence => TileProperties {
         glyph: "+",
@@ -458,7 +480,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Fence",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       Tile::CaveWall => TileProperties {
         glyph: "#",
@@ -469,7 +492,8 @@ impl Tile {
         opaque: true,
         causes_falling: false,
         name: "Cave Wall",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       Tile::CaveFloor => TileProperties {
         glyph: ".",
@@ -480,7 +504,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Cave Floor",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       Tile::CrystalFormation => TileProperties {
         glyph: "*",
@@ -491,7 +516,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Crystal Formation",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       // --- Space tiles ---
       Tile::DeckPlate => TileProperties {
@@ -503,7 +529,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Deck Plate",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: Some(("textures/space_qud/floor .png", [0.38, 0.42, 0.48], [0.72, 0.76, 0.82]))
       },
       Tile::Bulkhead => TileProperties {
         glyph: "#",
@@ -514,7 +541,8 @@ impl Tile {
         opaque: true,
         causes_falling: false,
         name: "Bulkhead",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: Some(("textures/space_qud/wall hashtag.png", [0.28, 0.30, 0.34], [0.48, 0.52, 0.56]))
       },
       Tile::Window => TileProperties {
         glyph: "o",
@@ -525,7 +553,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Window",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: Some(("textures/space_qud/window.png", [0.22, 0.32, 0.52], [0.62, 0.76, 0.94]))
       },
       Tile::AirlockDoor => TileProperties {
         glyph: "+",
@@ -536,7 +565,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Airlock Door",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       Tile::StationFloor => TileProperties {
         glyph: ".",
@@ -547,7 +577,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Station Floor",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: Some(("textures/space_qud/grid.png", [0.52, 0.56, 0.62], [0.88, 0.90, 0.94]))
       },
       Tile::StationWall => TileProperties {
         glyph: "#",
@@ -558,7 +589,8 @@ impl Tile {
         opaque: true,
         causes_falling: false,
         name: "Station Wall",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: Some(("textures/space_qud/wall hashtag.png", [0.28, 0.30, 0.34], [0.48, 0.52, 0.56]))
       },
       Tile::DerelictFloor => TileProperties {
         glyph: ".",
@@ -569,7 +601,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Derelict Floor",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       Tile::DerelictWall => TileProperties {
         glyph: "#",
@@ -580,7 +613,8 @@ impl Tile {
         opaque: true,
         causes_falling: false,
         name: "Derelict Wall",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: Some(("textures/space_qud/wall hashtag.png", [0.28, 0.30, 0.34], [0.48, 0.52, 0.56]))
       },
       Tile::Conduit => TileProperties {
         glyph: "=",
@@ -591,7 +625,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Conduit",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: Some(("textures/space_qud/grid.png", [0.40, 0.28, 0.14], [0.88, 0.62, 0.22]))
       },
       Tile::AsteroidRock => TileProperties {
         glyph: "#",
@@ -602,7 +637,8 @@ impl Tile {
         opaque: true,
         causes_falling: false,
         name: "Asteroid Rock",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: Some(("textures/space_qud/wall hashtag.png", [0.42, 0.38, 0.36], [0.58, 0.54, 0.52]))
       },
       Tile::AsteroidFloor => TileProperties {
         glyph: ".",
@@ -613,7 +649,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Asteroid Floor",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: Some(("textures/space_qud/ground.png", [0.48, 0.46, 0.44], [0.72, 0.70, 0.68]))
       },
       Tile::Regolith => TileProperties {
         glyph: ",",
@@ -624,7 +661,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Regolith",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: Some(("textures/space_qud/ground.png", [0.48, 0.46, 0.44], [0.72, 0.70, 0.68]))
       },
       Tile::Vacuum => TileProperties {
         glyph: " ",
@@ -635,7 +673,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Vacuum",
-        has_atmosphere: false
+        has_atmosphere: false,
+        space_qud_sprite: Some(("textures/space_qud/space background.png", [0.04, 0.06, 0.14], [0.62, 0.72, 0.92]))
       },
       Tile::IceFloor => TileProperties {
         glyph: ",",
@@ -646,7 +685,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Ice Floor",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       Tile::IceWall => TileProperties {
         glyph: "#",
@@ -657,7 +697,8 @@ impl Tile {
         opaque: true,
         causes_falling: false,
         name: "Ice Wall",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       Tile::AlienSoil => TileProperties {
         glyph: ",",
@@ -668,7 +709,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Alien Soil",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       Tile::AlienGrass => TileProperties {
         glyph: "\"",
@@ -679,7 +721,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Alien Grass",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: Some(("textures/space_qud/grass.png", [0.38, 0.16, 0.52], [0.68, 0.52, 0.88]))
       },
       Tile::CrystalGrowth => TileProperties {
         glyph: "*",
@@ -690,7 +733,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Crystal Growth",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       },
       Tile::AlienFluid => TileProperties {
         glyph: "~",
@@ -701,7 +745,8 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Alien Fluid",
-        has_atmosphere: true
+        has_atmosphere: true,
+        space_qud_sprite: None
       }
     }
   }

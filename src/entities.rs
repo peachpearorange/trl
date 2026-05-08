@@ -151,6 +151,12 @@ pub struct Door {
   pub closed_color: Color
 }
 
+/// Marks a door as an airlock: auto-closes after a delay.
+#[derive(Component, Clone)]
+pub struct AirlockDoor {
+  pub opened_at_sim_time: Option<u64>
+}
+
 /// Wall construction material.
 #[derive(Component, Clone, Copy)]
 pub struct WallComp {
@@ -276,6 +282,9 @@ pub struct Visuals {
 }
 
 // ============ SPAWNABLE ============
+
+const DOOR_CLOSED_PRI: Color = Color::srgb(0.34, 0.37, 0.41);
+const DOOR_CLOSED_SEC: Color = Color::srgb(0.52, 0.55, 0.58);
 
 /// Composable entity blueprint. Chain constructor fns that delegate to
 /// each other, then call `.spawn()`.
@@ -419,8 +428,21 @@ impl Object {
       Named { name: "Chest", flavor: "Someone stashed supplies here." }
     ))
   }
-  pub fn door(open: bool, closed_color: Color) -> Self {
-    Self::structure(!open).add(Door { open, closed_color })
+  pub fn door() -> Self {
+    Self::structure(true)
+      .add(Door { open: false, closed_color: DOOR_CLOSED_PRI })
+      .add(BlocksSight)
+      .add(Glyph::palette_sprite(
+        "textures/space_qud/door closed (1).png",
+        '+',
+        DOOR_CLOSED_PRI,
+        DOOR_CLOSED_SEC,
+      ))
+      .add(Named { name: "Door", flavor: "Press Space to open." })
+  }
+
+  pub fn airlock_door() -> Self {
+    Self::door().add(AirlockDoor { opened_at_sim_time: None })
   }
   pub fn ground_item(item: Item) -> Self { Self::new(GroundItem(item)) }
   pub fn torch(radius: u32) -> Self { Self::new(LightSource { radius }) }

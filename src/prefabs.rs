@@ -40,7 +40,7 @@ impl Prefab {
     )
     .assoc('w', (Tile::StationWall, []))
     .assoc('f', (Tile::StationFloor, []))
-    .assoc('d', (Tile::Door, []))
+    .assoc('d', (Tile::Door, [Object::door()]))
     .assoc('n', (Tile::StationFloor, [resident()]))
   }
 
@@ -60,7 +60,7 @@ impl Prefab {
     .assoc('w', (Tile::Window, []))
     .assoc('.', (Tile::DeckPlate, []))
     .assoc('c', (Tile::DeckPlate, [Object::flight_console()]))
-    .assoc('a', (Tile::AirlockDoor, []))
+    .assoc('a', (Tile::AirlockDoor, [Object::airlock_door()]))
     .assoc('p', (Tile::DeckPlate, [ship_pilot()]))
   }
 
@@ -71,7 +71,7 @@ impl Prefab {
       .assoc('g', (Tile::AlienGrass, []))
       .assoc('w', (Tile::StationWall, []))
       .assoc('f', (Tile::StationFloor, []))
-      .assoc('d', (Tile::Door, []))
+      .assoc('d', (Tile::Door, [Object::door()]))
       .assoc('r', (Tile::Road, []))
       .assoc('c', (Tile::CrystalGrowth, []))
       .assoc('~', (Tile::AlienFluid, []))
@@ -102,7 +102,7 @@ W..................W
     .assoc('#', (Tile::Bulkhead, []))
     .assoc('.', (Tile::DeckPlate, []))
     .assoc('W', (Tile::Window, []))
-    .assoc('a', (Tile::AirlockDoor, []))
+    .assoc('a', (Tile::AirlockDoor, [Object::airlock_door()]))
     .assoc('=', (Tile::Conduit, []))
     .assoc('C', (Tile::DeckPlate, [Object::flight_console()]))
     .assoc('k', (Tile::DeckPlate, [Object::space_cat()]))
