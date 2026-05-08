@@ -201,7 +201,7 @@ struct BumpInteractFlash(pub Option<InteractionOption>);
 
 #[derive(Component)]
 struct AirlockDoor {
-  opened_at_frame: Option<u64>
+  opened_at_sim_time: Option<u64>
 }
 
 fn note_player_turn_moved_world(clock: &Clock, tb: &mut TurnBasedWorldState) {
@@ -288,7 +288,8 @@ struct TilePng;
 #[derive(Component)]
 struct ItemGlyph {
   x: usize,
-  y: usize
+  y: usize,
+  z: usize
 }
 
 #[derive(Component, Default)]
@@ -699,27 +700,32 @@ fn update_fov_visuals(
   current: Res<CurrentZone>,
   frame: Res<RenderFrame>,
   index: Res<TileEntityIndex>,
-  player_q: Query<&PlayerPos, With<Player>>,
-  player_entity: Query<Entity, With<Player>>,
+  mut player_q: Query<(Entity, &PlayerPos, &mut Visibility), With<Player>>,
   mut glyph_tiles: Query<(&TileGlyph, &mut TextColor), Without<TilePng>>,
   mut sprite_tiles: Query<(&TileGlyph, &mut Sprite), With<TilePng>>,
+  mut item_q: Query<(Entity, &ItemGlyph, &mut TextColor, &mut Visibility)>,
   mut entity_q: Query<(Entity, &Location, &mut Visibility), With<GlyphVisual>>
 ) {
-  if let Ok(pos) = player_q.single()
-    && let Ok(player_ent) = player_entity.single()
-  {
+  if let Ok((player_ent, pos, mut player_vis)) = player_q.single_mut() {
     let level = current.0.level(pos.z);
     let z = pos.z;
     let t = frame.0 as f32 * 0.052;
     let tau = std::f32::consts::TAU;
     let mut stacks: HashMap<(i32, i32), Vec<Entity>> = HashMap::new();
+    stacks.entry((pos.x, pos.y)).or_default().push(player_ent);
     for (&(x, y, zz), ents) in index.0.iter() {
-      if zz != z || ents.len() <= 1 {
+      if zz != z {
         continue;
       }
-      let mut sorted = ents.clone();
-      sorted.sort_by_key(|e| e.index());
-      stacks.insert((x, y), sorted);
+      stacks.entry((x, y)).or_default().extend(ents.iter().copied());
+    }
+    for (entity, item, _, _) in item_q.iter_mut() {
+      if item.z == z {
+        stacks.entry((item.x as i32, item.y as i32)).or_default().push(entity);
+      }
+    }
+    for ents in stacks.values_mut() {
+      ents.sort_by_key(|e| e.index());
     }
 
     for (tg, mut color) in glyph_tiles.iter_mut() {
@@ -755,10 +761,6 @@ fn update_fov_visuals(
         *vis = Visibility::Hidden;
         continue;
       }
-      if entity == player_ent {
-        *vis = Visibility::Visible;
-        continue;
-      }
       let Location::Coords { x, y, .. } = location else {
         *vis = Visibility::Hidden;
         continue;
@@ -783,6 +785,60 @@ fn update_fov_visuals(
         *vis = Visibility::Visible;
       }
     }
+    for (entity, item, mut color, mut vis) in item_q.iter_mut() {
+      let visible_in_fov = item.z == pos.z && fov.0.is_visible(item.x, item.y);
+      let revealed = item.z == pos.z && fov.0.is_revealed(item.x, item.y);
+      let item_kind = level.items[item.y][item.x];
+      *color = item_kind.map_or(TextColor(Color::NONE), |item_kind| {
+        let [r, g, b] = item_kind.color();
+        if visible_in_fov {
+          TextColor(Color::srgb(r, g, b))
+        } else if revealed {
+          TextColor(Color::srgb(r * DIM_FACTOR, g * DIM_FACTOR, b * DIM_FACTOR))
+        } else {
+          TextColor(Color::NONE)
+        }
+      });
+      if !visible_in_fov {
+        *vis = Visibility::Hidden;
+      } else if let Some(list) = stacks.get(&(item.x as i32, item.y as i32))
+        && list.len() > 1
+      {
+        let n = list.len() as f32;
+        let winner = list
+          .iter()
+          .enumerate()
+          .max_by(|(i, _), (j, _)| {
+            let a = (t + *i as f32 * tau / n).sin();
+            let b = (t + *j as f32 * tau / n).sin();
+            a.total_cmp(&b)
+          })
+          .map(|(_, &e)| e)
+          .unwrap_or(entity);
+        *vis = if entity == winner { Visibility::Visible } else { Visibility::Hidden };
+      } else {
+        *vis = Visibility::Visible;
+      }
+    }
+    let key = (pos.x, pos.y);
+    *player_vis = stacks.get(&key).map_or(Visibility::Visible, |list| {
+      if list.len() <= 1 {
+        Visibility::Visible
+      } else {
+        let n = list.len() as f32;
+        let winner = list
+          .iter()
+          .enumerate()
+          .max_by(|(i, _), (j, _)| {
+            let a = (t + *i as f32 * tau / n).sin();
+            let b = (t + *j as f32 * tau / n).sin();
+            a.total_cmp(&b)
+          })
+          .map(|(_, &e)| e)
+          .unwrap_or(player_ent);
+        if player_ent == winner { Visibility::Visible } else { Visibility::Hidden }
+      }
+    });
   }
 }
 
@@ -980,7 +1036,6 @@ fn handle_menus(
   asset_server: Res<AssetServer>,
   mut palette_cache: ResMut<PaletteImageCache>,
   mut images: ResMut<Assets<Image>>,
-  frame: Res<RenderFrame>,
   mut door_q: Query<(
     &mut Door,
     &mut Glyph,
@@ -1026,8 +1081,7 @@ fn handle_menus(
         &mut door_q,
         &asset_server,
         &mut palette_cache,
-        &mut images,
-        frame.0
+        &mut images
       );
     }
   } else {
@@ -1335,8 +1389,7 @@ fn dispatch_interactive_choice(
   )>,
   asset_server: &AssetServer,
   palette_cache: &mut PaletteImageCache,
-  images: &mut Assets<Image>,
-  frame: u64
+  images: &mut Assets<Image>
 ) {
   match &option.action {
     InteractionAction::OpenChest(ent) => {
@@ -1369,7 +1422,7 @@ fn dispatch_interactive_choice(
           );
         }
         if let Some(mut airlock) = airlock {
-          airlock.opened_at_frame = door.open.then_some(frame);
+          airlock.opened_at_sim_time = door.open.then_some(clock.time);
         }
         attach_glyph_visual_for_door(
           commands,
@@ -1392,21 +1445,21 @@ fn dispatch_interactive_choice(
 
 fn auto_close_airlocks(
   mut commands: Commands,
-  frame: Res<RenderFrame>,
+  clock: Res<Clock>,
   asset_server: Res<AssetServer>,
   mut palette_cache: ResMut<PaletteImageCache>,
   mut images: ResMut<Assets<Image>>,
   mut airlock_q: Query<(Entity, &mut Door, &mut Glyph, &Location, &mut AirlockDoor)>
 ) {
-  const AUTO_CLOSE_FRAMES: u64 = 60 * 10;
+  const AUTO_CLOSE_SIM_FRAMES: u64 = 100;
   for (entity, mut door, mut glyph, location, mut airlock) in airlock_q.iter_mut() {
     if door.open
       && airlock
-        .opened_at_frame
-        .is_some_and(|opened| frame.0.saturating_sub(opened) >= AUTO_CLOSE_FRAMES)
+        .opened_at_sim_time
+        .is_some_and(|opened| clock.time.saturating_sub(opened) >= AUTO_CLOSE_SIM_FRAMES)
     {
       door.open = false;
-      airlock.opened_at_frame = None;
+      airlock.opened_at_sim_time = None;
       commands.entity(entity).insert((Collidable(true), BlocksSight));
       *glyph = Glyph::palette_sprite(
         "textures/space_qud/door closed (1).png",
@@ -1580,8 +1633,7 @@ fn apply_bump_auto_interact(
   )>,
   asset_server: Res<AssetServer>,
   mut palette_cache: ResMut<PaletteImageCache>,
-  mut images: ResMut<Assets<Image>>,
-  frame: Res<RenderFrame>
+  mut images: ResMut<Assets<Image>>
 ) {
   let Some(option) = flash.0.take() else {
     return;
@@ -1600,8 +1652,7 @@ fn apply_bump_auto_interact(
     &mut door_q,
     &asset_server,
     &mut palette_cache,
-    &mut images,
-    frame.0
+    &mut images
   );
 }
 
@@ -2011,7 +2062,7 @@ fn spawn_level_tiles(
             Named { name: tile.name(), flavor: "Press Space to open." }
           ));
           if tile == Tile::AirlockDoor {
-            spawned.insert(AirlockDoor { opened_at_frame: None });
+            spawned.insert(AirlockDoor { opened_at_sim_time: None });
           }
         } else {
           let tex_palette =
@@ -2059,7 +2110,7 @@ fn spawn_level_tiles(
               tile_screen_pos(x as f32, y as f32, zone.width, zone.height)
                 + Vec3::new(0.0, 0.0, 1.0)
             ),
-            ItemGlyph { x, y }
+            ItemGlyph { x, y, z }
           ));
         }
       }
