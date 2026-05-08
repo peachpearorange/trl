@@ -414,10 +414,11 @@ impl Object {
   pub fn loot_chest() -> Self {
     Self::structure(true).add((
         LootChest { opened: false },
-      Glyph::sprite(
-        "textures/a_wreck_of_a_sci-fi_flying_vehicle.png",
+      Glyph::palette_sprite(
+        "textures/space_qud/crate.png",
         '&',
         Color::srgb(0.72, 0.52, 0.28),
+        Color::srgb(0.42, 0.32, 0.22),
       ),
       Named {
         name: "Chest",

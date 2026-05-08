@@ -195,6 +195,10 @@ struct ChestOpenPending(pub Option<Entity>);
 #[derive(Resource, Default)]
 struct PendingNavigation(pub Option<galaxy::LocationId>);
 
+/// Single interaction chosen after bumping a blocked tile ([`resolve_bump_interact`] → [`apply_bump_auto_interact`]).
+#[derive(Resource, Default)]
+struct BumpInteractFlash(pub Option<InteractionOption>);
+
 fn note_player_turn_moved_world(clock: &Clock, tb: &mut TurnBasedWorldState) {
   if clock.mode == TimeMode::TurnBased {
     tb.pending_enemy_phase = true;
@@ -510,6 +514,7 @@ fn main() {
         .insert_resource(TimeModeAuto(true))
         .init_resource::<ChestOpenPending>()
         .init_resource::<PendingNavigation>()
+        .init_resource::<BumpInteractFlash>()
         .init_resource::<PendingBumpInteract>()
         .init_resource::<PaletteImageCache>()
         .insert_resource(UiState::default())
@@ -550,7 +555,12 @@ fn main() {
     .add_systems(Update, handle_interact.in_set(FramePipeline::InteractKey))
     .add_systems(Update, handle_utility_menus.in_set(FramePipeline::UtilityMenus))
     .add_systems(Update, player_input.in_set(FramePipeline::PlayerMove))
-    .add_systems(Update, resolve_bump_interact.in_set(FramePipeline::BumpResolve))
+    .add_systems(
+      Update,
+      (resolve_bump_interact, apply_bump_auto_interact)
+        .chain()
+        .in_set(FramePipeline::BumpResolve),
+    )
     .add_systems(
       Update,
       (
@@ -569,6 +579,8 @@ fn main() {
             sync_entity_positions,
             camera_follow,
             update_fov_visuals,
+        hide_tile_under_occupants,
+        cycle_stacked_glyph_opacity,
         update_tile_hover_highlight
       )
         .chain()
@@ -723,6 +735,89 @@ fn update_fov_visuals(
         Visibility::Hidden
       };
     }
+  }
+}
+
+/// Hide the base floor tile when any object entity or floor item occupies the cell.
+fn hide_tile_under_occupants(
+  index: Res<TileEntityIndex>,
+  current: Res<CurrentZone>,
+  player_q: Query<&PlayerPos, With<Player>>,
+  mut tile_png: Query<(&TileGlyph, &mut Visibility), With<TilePng>>,
+  mut tile_text: Query<(&TileGlyph, &mut Visibility), (Without<TilePng>, Without<ItemGlyph>)>,
+) {
+  let Ok(pos) = player_q.single() else {
+    return;
+  };
+  let level = current.0.level(pos.z);
+  let occluded = |ix: i32, iy: i32| {
+    index
+      .0
+      .get(&(ix, iy, pos.z))
+      .is_some_and(|ents| !ents.is_empty())
+      || (iy >= 0
+        && ix >= 0
+        && (iy as usize) < level.height
+        && (ix as usize) < level.width
+        && level.items[iy as usize][ix as usize].is_some())
+  };
+  for (tg, mut vis) in tile_png.iter_mut() {
+    let ix = tg.x as i32;
+    let iy = tg.y as i32;
+    *vis = if occluded(ix, iy) {
+      Visibility::Hidden
+    } else {
+      Visibility::Visible
+    };
+  }
+  for (tg, mut vis) in tile_text.iter_mut() {
+    let ix = tg.x as i32;
+    let iy = tg.y as i32;
+    *vis = if occluded(ix, iy) {
+      Visibility::Hidden
+    } else {
+      Visibility::Visible
+    };
+  }
+}
+
+/// When several glyph entities share a tile, fade them in sequence using staggered sine phases.
+fn cycle_stacked_glyph_opacity(
+  frame: Res<RenderFrame>,
+  index: Res<TileEntityIndex>,
+  player_q: Query<&PlayerPos, With<Player>>,
+  mut sprites: Query<(Entity, &Location, &mut Sprite), (With<GlyphVisual>, Without<Player>)>,
+) {
+  let Ok(pos) = player_q.single() else {
+    return;
+  };
+  let z = pos.z;
+  let mut stacks: HashMap<(i32, i32), Vec<Entity>> = HashMap::new();
+  for (&(x, y, zz), ents) in index.0.iter() {
+    if zz != z || ents.len() <= 1 {
+      continue;
+    }
+    let mut sorted = ents.clone();
+    sorted.sort_by_key(|e| e.index());
+    stacks.insert((x, y), sorted);
+  }
+  let t = frame.0 as f32 * 0.052;
+  let tau = std::f32::consts::TAU;
+  for (entity, loc, mut sprite) in sprites.iter_mut() {
+    let Location::Coords { x, y, z: lz, .. } = loc else {
+      continue;
+    };
+    if *lz != z {
+      continue;
+    }
+    let key = (*x, *y);
+    let alpha = stacks.get(&key).map_or(1.0, |list| {
+      let n = list.len() as f32;
+      let i = list.iter().position(|&e| e == entity).unwrap_or(0) as f32;
+      let phase = t + i * tau / n.max(1.0);
+      0.2 + 0.8 * (0.5 + 0.5 * phase.sin())
+    });
+    sprite.color = Color::srgba(1.0, 1.0, 1.0, alpha);
   }
 }
 
@@ -923,56 +1018,22 @@ fn handle_menus(
     {
       let option = options[idx].clone();
       ui.interact = InteractMenu::Closed;
-      if let InteractionAction::OpenChest(ent) = option.action {
-        pending_chest.0 = Some(ent);
-      } else if let InteractionAction::Navigate { dest } = option.action {
-        pending_nav.0 = Some(dest);
-      } else if let InteractionAction::ToggleDoor(entity) = option.action {
-        if let Ok((mut door, mut glyph, mut collidable, location)) = door_q.get_mut(entity) {
-          door.open = !door.open;
-          collidable.0 = !door.open;
-          if door.open {
-            commands.entity(entity).remove::<Collidable>();
-            commands.entity(entity).remove::<BlocksSight>();
-            *glyph = Glyph::palette_sprite(
-              "textures/space_qud/door open (2).png",
-              '/',
-              DOOR_OPEN_PRI,
-              DOOR_OPEN_SEC,
-            );
-          } else {
-            commands.entity(entity).insert((Collidable(true), BlocksSight));
-            *glyph = Glyph::palette_sprite(
-              "textures/space_qud/door closed (1).png",
-              '+',
-              DOOR_CLOSED_PRI,
-              DOOR_CLOSED_SEC,
-            );
-          }
-          attach_glyph_visual_for_door(
-            &mut commands,
-            entity,
-            &*glyph,
-            location,
-            &mut palette_cache,
-            &mut images,
-            &asset_server,
-          );
-        }
-        clock.advance(1);
-        note_player_turn_moved_world(&*clock, &mut *tb);
-      } else {
-        execute_interaction(
-          &option.action,
-          &mut gw.0,
-          &mut clock,
-          &mut *tb,
-          &mut ui,
-          &mut *log,
-          &mut commands,
-          &mut player_query
-        );
-      }
+      dispatch_interactive_choice(
+        option,
+        &mut commands,
+        &mut gw.0,
+        &mut clock,
+        &mut tb,
+        &mut ui,
+        &mut log,
+        &mut player_query,
+        &mut pending_chest,
+        &mut pending_nav,
+        &mut door_q,
+        &asset_server,
+        &mut palette_cache,
+        &mut images,
+      );
     }
   } else {
   match ui.pause {
@@ -1263,6 +1324,79 @@ fn execute_interaction(
   }
 }
 
+fn dispatch_interactive_choice(
+  option: InteractionOption,
+  commands: &mut Commands,
+  zone: &mut ActiveZone,
+  clock: &mut Clock,
+  tb: &mut TurnBasedWorldState,
+  ui: &mut UiState,
+  log: &mut LogEntries,
+  player_query: &mut Query<(&mut PlayerPos, &mut Inventory), With<Player>>,
+  pending_chest: &mut ChestOpenPending,
+  pending_nav: &mut PendingNavigation,
+  door_q: &mut Query<(&mut Door, &mut Glyph, &mut Collidable, &Location)>,
+  asset_server: &AssetServer,
+  palette_cache: &mut PaletteImageCache,
+  images: &mut Assets<Image>,
+) {
+  match &option.action {
+    InteractionAction::OpenChest(ent) => {
+      pending_chest.0 = Some(*ent);
+    }
+    InteractionAction::Navigate { dest } => {
+      pending_nav.0 = Some(*dest);
+    }
+    InteractionAction::ToggleDoor(entity) => {
+      if let Ok((mut door, mut glyph, mut collidable, location)) = door_q.get_mut(*entity) {
+        door.open = !door.open;
+        collidable.0 = !door.open;
+        if door.open {
+          commands.entity(*entity).remove::<Collidable>();
+          commands.entity(*entity).remove::<BlocksSight>();
+          *glyph = Glyph::palette_sprite(
+            "textures/space_qud/door open (2).png",
+            '/',
+            DOOR_OPEN_PRI,
+            DOOR_OPEN_SEC,
+          );
+        } else {
+          commands.entity(*entity).insert((Collidable(true), BlocksSight));
+          *glyph = Glyph::palette_sprite(
+            "textures/space_qud/door closed (1).png",
+            '+',
+            DOOR_CLOSED_PRI,
+            DOOR_CLOSED_SEC,
+          );
+        }
+        attach_glyph_visual_for_door(
+          commands,
+          *entity,
+          &*glyph,
+          location,
+          palette_cache,
+          images,
+          asset_server,
+        );
+      }
+      clock.advance(1);
+      note_player_turn_moved_world(clock, tb);
+    }
+    other => {
+      execute_interaction(
+        other,
+        zone,
+        clock,
+        tb,
+        ui,
+        log,
+        commands,
+        player_query,
+      );
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Player input
 // ---------------------------------------------------------------------------
@@ -1369,6 +1503,7 @@ fn gather_interactions_at_tile(
 
 fn resolve_bump_interact(
   mut pending: ResMut<PendingBumpInteract>,
+  mut flash: ResMut<BumpInteractFlash>,
   mut ui: ResMut<UiState>,
   current: Res<CurrentZone>,
   index: Res<TileEntityIndex>,
@@ -1379,25 +1514,68 @@ fn resolve_bump_interact(
   named_q: Query<&Named>,
   flight_console_q: Query<Entity, With<FlightConsole>>,
 ) {
-  if let Some((tx, ty, tz)) = pending.0.take()
-    && let level = current.0.level(tz)
-    && let opts = gather_interactions_at_tile(
-      tx,
-      ty,
-      "ahead",
-      level,
-      index.0.get(&(tx, ty, tz)),
-      &tree_q,
-      &dialogue_q,
-      &mut loot_chest_q,
-      &door_q,
-      &named_q,
-      &flight_console_q,
-    )
-    && !opts.is_empty()
-  {
+  let Some((tx, ty, tz)) = pending.0.take() else {
+    return;
+  };
+  let level = current.0.level(tz);
+  let opts = gather_interactions_at_tile(
+    tx,
+    ty,
+    "ahead",
+    level,
+    index.0.get(&(tx, ty, tz)),
+    &tree_q,
+    &dialogue_q,
+    &mut loot_chest_q,
+    &door_q,
+    &named_q,
+    &flight_console_q,
+  );
+  if opts.is_empty() {
+    return;
+  }
+  if opts.len() == 1 {
+    flash.0 = Some(opts.into_iter().next().unwrap());
+  } else {
     ui.interact = InteractMenu::Open { options: opts };
   }
+}
+
+fn apply_bump_auto_interact(
+  mut flash: ResMut<BumpInteractFlash>,
+  mut commands: Commands,
+  mut gw: ResMut<CurrentZone>,
+  mut clock: ResMut<Clock>,
+  mut tb: ResMut<TurnBasedWorldState>,
+  mut ui: ResMut<UiState>,
+  mut log: ResMut<LogEntries>,
+  mut player_query: Query<(&mut PlayerPos, &mut Inventory), With<Player>>,
+  mut pending_chest: ResMut<ChestOpenPending>,
+  mut pending_nav: ResMut<PendingNavigation>,
+  mut door_q: Query<(&mut Door, &mut Glyph, &mut Collidable, &Location)>,
+  asset_server: Res<AssetServer>,
+  mut palette_cache: ResMut<PaletteImageCache>,
+  mut images: ResMut<Assets<Image>>,
+) {
+  let Some(option) = flash.0.take() else {
+    return;
+  };
+  dispatch_interactive_choice(
+    option,
+    &mut commands,
+    &mut gw.0,
+    &mut clock,
+    &mut tb,
+    &mut ui,
+    &mut log,
+    &mut player_query,
+    &mut pending_chest,
+    &mut pending_nav,
+    &mut door_q,
+    &asset_server,
+    &mut palette_cache,
+    &mut images,
+  );
 }
 
 fn flush_pending_chest_open(
@@ -1753,6 +1931,16 @@ fn space_qud_tile_sprite(tile: Tile) -> Option<(&'static str, Color, Color)> {
       Color::srgb(0.72, 0.62, 0.38),
       Color::srgb(0.92, 0.86, 0.62),
     )),
+    Tile::AsteroidRock => Some((
+      "textures/space_qud/wall hashtag.png",
+      Color::srgb(0.42, 0.38, 0.36),
+      Color::srgb(0.58, 0.54, 0.52),
+    )),
+    Tile::AsteroidFloor | Tile::Regolith => Some((
+      "textures/space_qud/ground.png",
+      Color::srgb(0.48, 0.46, 0.44),
+      Color::srgb(0.72, 0.70, 0.68),
+    )),
     _ => None,
   }
 }
@@ -1787,6 +1975,7 @@ fn spawn_level_tiles(
                             Transform::from_translation(pos),
                             TileGlyph { x, y },
                             TilePng,
+                            Visibility::Visible,
                         ));
                     }
                     continue;
@@ -1826,7 +2015,8 @@ fn spawn_level_tiles(
                         },
                         Transform::from_translation(pos),
                         TileGlyph { x, y },
-            TilePng
+            TilePng,
+                        Visibility::Visible
                     ));
                 } else {
                     let [r, g, b] = tile.color();
@@ -1835,7 +2025,8 @@ fn spawn_level_tiles(
                         TextFont { font_size: TILE_SIZE, ..default() },
                         TextColor(Color::srgba(r, g, b, 0.0)),
                         Transform::from_translation(pos),
-            TileGlyph { x, y }
+            TileGlyph { x, y },
+                        Visibility::Visible
                     ));
                 }
                 }
