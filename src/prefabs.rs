@@ -73,8 +73,8 @@ impl Prefab {
 
   /// Full starter ship deck (`SHIP_WIDTH` × `SHIP_HEIGHT`), matching the former procedural layout.
   pub fn starting_ship() -> Self {
-    prefab(
-      "###WWWWWWWWWWWWWW###
+    prefab("
+###WWWWWWWWWWWWWW###
 #..................#
 #.........C........#
 W..................W
@@ -88,8 +88,8 @@ W............#..==.W
 W..................W
 #..................#
 #..................#
-##########a#########",
-    )
+##########a#########
+")
     .assoc('#', (Tile::Bulkhead, []))
     .assoc('.', (Tile::DeckPlate, []))
     .assoc('W', (Tile::Window, []))
@@ -126,7 +126,24 @@ W..................W
   }
 
   fn visit_cells<F: FnMut(i32, i32, Tile, &[Object])>(&self, mut f: F) {
-    let lines = normalized_lines(&self.layout);
+    let lines = (|| {
+      let raw_lines: Vec<&str> = self
+        .layout
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .collect();
+      let indent = raw_lines
+        .iter()
+        .filter_map(|line| {
+          line.char_indices().find(|(_, ch)| !ch.is_whitespace()).map(|(i, _)| i)
+        })
+        .min()
+        .unwrap_or(0);
+      raw_lines
+        .into_iter()
+        .map(|line| line.get(indent..).unwrap_or(line))
+        .collect::<Vec<&str>>()
+    })();
     for (y, line) in lines.iter().enumerate() {
       let y = y as i32;
       for (x, ch) in line.chars().enumerate() {
@@ -164,21 +181,6 @@ impl AssocMarker for &str {
     assert!(it.next().is_none(), "prefab assoc key must be one character");
     c
   }
-}
-
-fn normalized_lines(layout: &str) -> Vec<&str> {
-  let raw_lines: Vec<&str> = layout.lines().filter(|l| !l.trim().is_empty()).collect();
-  let indent = raw_lines
-    .iter()
-    .filter_map(|line| {
-      line.char_indices().find(|(_, ch)| !ch.is_whitespace()).map(|(i, _)| i)
-    })
-    .min()
-    .unwrap_or(0);
-  raw_lines
-    .iter()
-    .map(|line| line.get(indent..).unwrap_or(line))
-    .collect()
 }
 
 fn resident() -> Object {
