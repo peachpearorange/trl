@@ -496,7 +496,7 @@ fn main() {
 
     App::new()
         .add_plugins(haalka::HaalkaPlugin::default())
-    .add_plugins(DefaultPlugins.set(ImagePlugin::default_linear()).set(WindowPlugin {
+    .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()).set(WindowPlugin {
                 primary_window: Some(Window {
                     title: format!("{} — space", ship::SHIP_NAME).into(),
                     resolution: (1200u32, 800u32).into(),
@@ -580,7 +580,6 @@ fn main() {
             camera_follow,
             update_fov_visuals,
         hide_tile_under_occupants,
-        cycle_stacked_glyph_opacity,
         update_tile_hover_highlight
       )
         .chain()
@@ -698,13 +697,31 @@ fn update_tile_hover_highlight(
 fn update_fov_visuals(
   fov: Res<Fov>,
   current: Res<CurrentZone>,
+  frame: Res<RenderFrame>,
+  index: Res<TileEntityIndex>,
   player_q: Query<&PlayerPos, With<Player>>,
+  player_entity: Query<Entity, With<Player>>,
   mut glyph_tiles: Query<(&TileGlyph, &mut TextColor), Without<TilePng>>,
   mut sprite_tiles: Query<(&TileGlyph, &mut Sprite), With<TilePng>>,
-  mut entity_q: Query<(&Location, &mut Visibility), With<GlyphVisual>>
+  mut entity_q: Query<(Entity, &Location, &mut Visibility), With<GlyphVisual>>,
 ) {
-  if let Ok(pos) = player_q.single() {
+  if let Ok(pos) = player_q.single()
+    && let Ok(player_ent) = player_entity.single()
+  {
     let level = current.0.level(pos.z);
+    let z = pos.z;
+    let t = frame.0 as f32 * 0.052;
+    let tau = std::f32::consts::TAU;
+    let mut stacks: HashMap<(i32, i32), Vec<Entity>> = HashMap::new();
+    for (&(x, y, zz), ents) in index.0.iter() {
+      if zz != z || ents.len() <= 1 {
+        continue;
+      }
+      let mut sorted = ents.clone();
+      sorted.sort_by_key(|e| e.index());
+      stacks.insert((x, y), sorted);
+    }
+
     for (tg, mut color) in glyph_tiles.iter_mut() {
       let tile = level.tiles[tg.y][tg.x];
       let [r, g, b] = tile.color();
@@ -725,15 +742,50 @@ fn update_fov_visuals(
         Color::srgba(0.0, 0.0, 0.0, 0.0)
       };
     }
-    for (location, mut vis) in entity_q.iter_mut() {
-      *vis = if let Location::Coords { x, y, z, .. } = location
-        && *z == pos.z
+    for (entity, location, mut vis) in entity_q.iter_mut() {
+      let visible_in_fov = if let Location::Coords { x, y, z: lz, .. } = location
+        && *lz == pos.z
         && fov.0.is_visible(*x as usize, *y as usize)
       {
-        Visibility::Visible
+        true
       } else {
-        Visibility::Hidden
+        false
       };
+      if !visible_in_fov {
+        *vis = Visibility::Hidden;
+        continue;
+      }
+      if entity == player_ent {
+        *vis = Visibility::Visible;
+        continue;
+      }
+      let Location::Coords { x, y, .. } = location else {
+        *vis = Visibility::Hidden;
+        continue;
+      };
+      let key = (*x, *y);
+      if let Some(list) = stacks.get(&key)
+        && list.len() > 1
+      {
+        let n = list.len() as f32;
+        let mut winner = list[0];
+        let mut best = f32::NEG_INFINITY;
+        for (i, &e) in list.iter().enumerate() {
+          let phase = t + i as f32 * tau / n.max(1.0);
+          let s = phase.sin();
+          if s > best {
+            best = s;
+            winner = e;
+          }
+        }
+        *vis = if entity == winner {
+          Visibility::Visible
+        } else {
+          Visibility::Hidden
+        };
+      } else {
+        *vis = Visibility::Visible;
+      }
     }
   }
 }
@@ -778,46 +830,6 @@ fn hide_tile_under_occupants(
     } else {
       Visibility::Visible
     };
-  }
-}
-
-/// When several glyph entities share a tile, fade them in sequence using staggered sine phases.
-fn cycle_stacked_glyph_opacity(
-  frame: Res<RenderFrame>,
-  index: Res<TileEntityIndex>,
-  player_q: Query<&PlayerPos, With<Player>>,
-  mut sprites: Query<(Entity, &Location, &mut Sprite), (With<GlyphVisual>, Without<Player>)>,
-) {
-  let Ok(pos) = player_q.single() else {
-    return;
-  };
-  let z = pos.z;
-  let mut stacks: HashMap<(i32, i32), Vec<Entity>> = HashMap::new();
-  for (&(x, y, zz), ents) in index.0.iter() {
-    if zz != z || ents.len() <= 1 {
-      continue;
-    }
-    let mut sorted = ents.clone();
-    sorted.sort_by_key(|e| e.index());
-    stacks.insert((x, y), sorted);
-  }
-  let t = frame.0 as f32 * 0.052;
-  let tau = std::f32::consts::TAU;
-  for (entity, loc, mut sprite) in sprites.iter_mut() {
-    let Location::Coords { x, y, z: lz, .. } = loc else {
-      continue;
-    };
-    if *lz != z {
-      continue;
-    }
-    let key = (*x, *y);
-    let alpha = stacks.get(&key).map_or(1.0, |list| {
-      let n = list.len() as f32;
-      let i = list.iter().position(|&e| e == entity).unwrap_or(0) as f32;
-      let phase = t + i * tau / n.max(1.0);
-      0.2 + 0.8 * (0.5 + 0.5 * phase.sin())
-    });
-    sprite.color = Color::srgba(1.0, 1.0, 1.0, alpha);
   }
 }
 
