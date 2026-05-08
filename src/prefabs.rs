@@ -4,7 +4,7 @@ use crate::entities::{Glyph, Named, Object, Stats};
 use crate::level::Tile;
 use bevy::prelude::Color;
 
-/// ASCII layout plus `.assoc(…, (Tile, […]))` chains. Call [`.build`](Prefab::build) for local tile/spawn data.
+/// ASCII layout plus `.assoc(…, (Tile, […]))` chains. Expand with [`tiles_and_spawns`] when stamping a level.
 pub struct Prefab {
   layout: String,
   assocs: HashMap<char, (Tile, Vec<Object>)>,
@@ -32,14 +32,6 @@ impl Prefab {
       .assocs
       .insert(marker.assoc_char(), (tile, Vec::from(templates)));
     self
-  }
-
-  /// Local `(x, y)` from the layout’s top-left, same row order as the string.
-  ///
-  /// Returns `(tiles, spawns)` where `tiles` lists `(x, y, Tile)` per layout cell and `spawns` lists
-  /// `(x, y, Object)` for each entity template (same coordinates when multiple per cell).
-  pub fn build(self) -> (Vec<(i32, i32, Tile)>, Vec<(i32, i32, Object)>) {
-    compile_prefab(&self.layout, &self.assocs)
   }
 
   pub fn small_building_with_npc() -> Self {
@@ -77,6 +69,11 @@ impl Prefab {
     .assoc('a', (Tile::AirlockDoor, []))
     .assoc('p', (Tile::DeckPlate, [ship_pilot()]))
   }
+}
+
+/// Local `(x, y)` from the layout’s top-left. First vec: `(x, y, Tile)` per cell; second: `(x, y, Object)` per spawn.
+pub fn tiles_and_spawns(p: &Prefab) -> (Vec<(i32, i32, Tile)>, Vec<(i32, i32, Object)>) {
+  compile_prefab(&p.layout, &p.assocs)
 }
 
 pub trait AssocMarker {
@@ -172,7 +169,7 @@ mod tests {
 
   #[test]
   fn builds_multiple_objects_at_same_cell() {
-    let (tiles, spawns) = prefab(
+    let p = prefab(
       "
             www
             wkw
@@ -180,8 +177,8 @@ mod tests {
             ",
     )
     .assoc('k', (Tile::Floor, [chest(), enemy()]))
-    .assoc('w', (Tile::Wall, []))
-    .build();
+    .assoc('w', (Tile::Wall, []));
+    let (tiles, spawns) = tiles_and_spawns(&p);
 
     assert_eq!(tiles.len(), 9);
     assert_eq!(spawns.len(), 2);
@@ -190,14 +187,14 @@ mod tests {
 
   #[test]
   fn assoc_accepts_one_char_string() {
-    let (tiles, spawns) = prefab(
+    let p = prefab(
       "
 aa
 aa
 ",
     )
-    .assoc("a", (Tile::DeckPlate, []))
-    .build();
+    .assoc("a", (Tile::DeckPlate, []));
+    let (tiles, spawns) = tiles_and_spawns(&p);
     assert!(spawns.is_empty());
     assert_eq!(tiles.len(), 4);
     assert!(tiles.iter().all(|(_, _, t)| *t == Tile::DeckPlate));
@@ -205,9 +202,8 @@ aa
 
   #[test]
   fn unknown_chars_emit_error_and_spawn_nothing_for_that_cell() {
-    let (tiles, spawns) = prefab(".x")
-      .assoc('.', (Tile::DeckPlate, []))
-      .build();
+    let p = prefab(".x").assoc('.', (Tile::DeckPlate, []));
+    let (tiles, spawns) = tiles_and_spawns(&p);
 
     assert_eq!(tiles.len(), 1);
     assert!(spawns.is_empty());
@@ -215,16 +211,15 @@ aa
 
   #[test]
   fn accepts_object_templates() {
-    let (_, spawns) = prefab("c")
-      .assoc('c', (Tile::DeckPlate, [Object::loot_chest()]))
-      .build();
+    let p = prefab("c").assoc('c', (Tile::DeckPlate, [Object::loot_chest()]));
+    let (_, spawns) = tiles_and_spawns(&p);
 
     assert_eq!(spawns.len(), 1);
   }
 
   #[test]
   fn small_building_has_one_npc_at_expected_offset() {
-    let (_, spawns) = Prefab::small_building_with_npc().build();
+    let (_, spawns) = tiles_and_spawns(&Prefab::small_building_with_npc());
 
     assert_eq!(spawns.len(), 1);
     assert_eq!((spawns[0].0, spawns[0].1), (2, 2));
@@ -232,7 +227,7 @@ aa
 
   #[test]
   fn small_spaceship_has_console_and_pilot_offsets() {
-    let (_, spawns) = Prefab::small_spaceship().build();
+    let (_, spawns) = tiles_and_spawns(&Prefab::small_spaceship());
 
     assert_eq!(spawns.len(), 2);
     let origins: Vec<(i32, i32)> = spawns.iter().map(|&(x, y, _)| (x, y)).collect();
