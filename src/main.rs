@@ -1497,7 +1497,12 @@ fn space_qud_tile_sprite(tile: Tile) -> Option<(&'static str, Color, Color)> {
       Color::srgb(0.04, 0.06, 0.14),
       Color::srgb(0.62, 0.72, 0.92),
     )),
-    Tile::AlienGrass | Tile::Grass | Tile::TallGrass => Some((
+    Tile::AlienGrass => Some((
+      "textures/space_qud/grass.png",
+      Color::srgb(0.38, 0.16, 0.52),
+      Color::srgb(0.68, 0.52, 0.88),
+    )),
+    Tile::Grass | Tile::TallGrass => Some((
       "textures/space_qud/grass.png",
       Color::srgb(0.22, 0.48, 0.18),
       Color::srgb(0.52, 0.72, 0.28),
