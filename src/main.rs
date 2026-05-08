@@ -1967,7 +1967,7 @@ fn update_fov(
 fn space_qud_tile_sprite(tile: Tile) -> Option<(&'static str, Color, Color)> {
   match tile {
     Tile::DeckPlate => Some((
-      "textures/space_qud/grid.png",
+      "textures/space_qud/floor .png",
       Color::srgb(0.38, 0.42, 0.48),
       Color::srgb(0.72, 0.76, 0.82)
     )),
