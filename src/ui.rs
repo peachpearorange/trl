@@ -609,6 +609,7 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
         OverlayKind::PauseControls => vec![
           "WASD / Arrows   move".into(),
           "Space           use / interact".into(),
+          "V               cycle stacked visibility".into(),
           ".               wait".into(),
           "?               controls".into(),
           "Esc             menu / back".into(),

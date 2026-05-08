@@ -199,6 +199,9 @@ struct PendingNavigation(pub Option<galaxy::LocationId>);
 #[derive(Resource, Default)]
 struct BumpInteractFlash(pub Option<InteractionOption>);
 
+#[derive(Resource, Default)]
+struct VisibilityCycle(pub usize);
+
 fn note_player_turn_moved_world(clock: &Clock, tb: &mut TurnBasedWorldState) {
   if clock.mode == TimeMode::TurnBased {
     tb.pending_enemy_phase = true;
@@ -516,6 +519,7 @@ fn main() {
         .init_resource::<PendingNavigation>()
         .init_resource::<BumpInteractFlash>()
         .init_resource::<PendingBumpInteract>()
+        .init_resource::<VisibilityCycle>()
         .init_resource::<PaletteImageCache>()
         .insert_resource(UiState::default())
         .insert_resource(Fov(fov))
@@ -697,7 +701,8 @@ fn update_tile_hover_highlight(
 fn update_fov_visuals(
   fov: Res<Fov>,
   current: Res<CurrentZone>,
-  frame: Res<RenderFrame>,
+  _frame: Res<RenderFrame>,
+  cycle: Res<VisibilityCycle>,
   index: Res<TileEntityIndex>,
   player_q: Query<&PlayerPos, With<Player>>,
   player_entity: Query<Entity, With<Player>>,
@@ -710,8 +715,6 @@ fn update_fov_visuals(
   {
     let level = current.0.level(pos.z);
     let z = pos.z;
-    let t = frame.0 as f32 * 0.052;
-    let tau = std::f32::consts::TAU;
     let mut stacks: HashMap<(i32, i32), Vec<Entity>> = HashMap::new();
     for (&(x, y, zz), ents) in index.0.iter() {
       if zz != z || ents.len() <= 1 {
@@ -767,17 +770,7 @@ fn update_fov_visuals(
       if let Some(list) = stacks.get(&key)
         && list.len() > 1
       {
-        let n = list.len() as f32;
-        let mut winner = list[0];
-        let mut best = f32::NEG_INFINITY;
-        for (i, &e) in list.iter().enumerate() {
-          let phase = t + i as f32 * tau / n.max(1.0);
-          let s = phase.sin();
-          if s > best {
-            best = s;
-            winner = e;
-          }
-        }
+        let winner = list[cycle.0 % list.len()];
         *vis = if entity == winner {
           Visibility::Visible
         } else {
@@ -1005,7 +998,7 @@ fn handle_menus(
   asset_server: Res<AssetServer>,
   mut palette_cache: ResMut<PaletteImageCache>,
   mut images: ResMut<Assets<Image>>,
-  mut door_q: Query<(&mut Door, &mut Glyph, &mut Collidable, &Location)>,
+  mut door_q: Query<(&mut Door, &mut Glyph, Option<&mut Collidable>, &Location)>,
   mut pending_chest: ResMut<ChestOpenPending>,
   mut pending_nav: ResMut<PendingNavigation>,
   mut exit: MessageWriter<AppExit>
@@ -1239,10 +1232,14 @@ fn handle_utility_menus(
   keys: Res<ButtonInput<KeyCode>>,
   player_q: Query<(&PlayerPos, &Inventory), With<Player>>,
   mut ui: ResMut<UiState>,
+  mut cycle: ResMut<VisibilityCycle>,
   mut log: ResMut<LogEntries>
 ) {
   if ui.any_open() {
     return;
+  }
+  if keys.just_pressed(KeyCode::KeyV) {
+    cycle.0 = cycle.0.wrapping_add(1);
   }
   if let Ok((_, inv)) = player_q.single() {
     if keys.just_pressed(KeyCode::KeyG) {
@@ -1347,7 +1344,7 @@ fn dispatch_interactive_choice(
   player_query: &mut Query<(&mut PlayerPos, &mut Inventory), With<Player>>,
   pending_chest: &mut ChestOpenPending,
   pending_nav: &mut PendingNavigation,
-  door_q: &mut Query<(&mut Door, &mut Glyph, &mut Collidable, &Location)>,
+  door_q: &mut Query<(&mut Door, &mut Glyph, Option<&mut Collidable>, &Location)>,
   asset_server: &AssetServer,
   palette_cache: &mut PaletteImageCache,
   images: &mut Assets<Image>,
@@ -1360,9 +1357,8 @@ fn dispatch_interactive_choice(
       pending_nav.0 = Some(*dest);
     }
     InteractionAction::ToggleDoor(entity) => {
-      if let Ok((mut door, mut glyph, mut collidable, location)) = door_q.get_mut(*entity) {
+      if let Ok((mut door, mut glyph, _collidable, location)) = door_q.get_mut(*entity) {
         door.open = !door.open;
-        collidable.0 = !door.open;
         if door.open {
           commands.entity(*entity).remove::<Collidable>();
           commands.entity(*entity).remove::<BlocksSight>();
@@ -1564,7 +1560,7 @@ fn apply_bump_auto_interact(
   mut player_query: Query<(&mut PlayerPos, &mut Inventory), With<Player>>,
   mut pending_chest: ResMut<ChestOpenPending>,
   mut pending_nav: ResMut<PendingNavigation>,
-  mut door_q: Query<(&mut Door, &mut Glyph, &mut Collidable, &Location)>,
+  mut door_q: Query<(&mut Door, &mut Glyph, Option<&mut Collidable>, &Location)>,
   asset_server: Res<AssetServer>,
   mut palette_cache: ResMut<PaletteImageCache>,
   mut images: ResMut<Assets<Image>>,
