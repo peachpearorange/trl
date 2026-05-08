@@ -16,7 +16,7 @@ use {bevy::{anti_alias::fxaa::Fxaa, prelude::*},
      ui::{LogEntries, WorldMapView, log_message}};
 
 use trl::{active_zone::{self, ActiveZone},
-          galaxy, galaxy_gen, ship,
+          galaxy, galaxy_gen, prefabs, ship,
           sprites::{palette_sprite_handle, PaletteImageCache}};
 
 const TILE_SIZE: f32 = 64.0;
@@ -1326,10 +1326,7 @@ fn setup(
     }
     ));
 
-    // Spawn flight console on the ship
-    let console_x = sox + ship::CONSOLE_X;
-    let console_y = soy + ship::CONSOLE_Y;
-    Object::flight_console().spawn_at(&mut commands, console_x, console_y, 0);
+    prefabs::Prefab::starting_ship().stamp_entities(&mut commands, sox, soy, 0);
 
     // Spawn starter planet NPCs at destination-local coords mapped into the active zone
     if let Some((dox, doy)) = current.0.dest_origin {

@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use crate::galaxy::LocationId;
-use crate::level::{LocationType, Tile};
+use crate::level::LocationType;
+use crate::prefabs::Prefab;
 
 pub const SHIP_WIDTH: usize = 20;
 pub const SHIP_HEIGHT: usize = 15;
@@ -37,6 +38,7 @@ impl Ship {
 /// Build the ship interior as a Location.
 pub fn build_ship_interior() -> crate::galaxy::Location {
     use crate::galaxy::Location;
+    use crate::level::Tile;
 
     let mut loc = Location::new(
         SHIP_WIDTH,
@@ -47,45 +49,6 @@ pub fn build_ship_interior() -> crate::galaxy::Location {
     );
 
     let deck = loc.level_mut(0);
-
-    // Fill interior with deck plates, surrounded by bulkhead walls
-    for y in 0..SHIP_HEIGHT as i32 {
-        for x in 0..SHIP_WIDTH as i32 {
-            let is_edge = x == 0 || x == SHIP_WIDTH as i32 - 1
-                || y == 0 || y == SHIP_HEIGHT as i32 - 1;
-            deck.set(x, y, if is_edge { Tile::Bulkhead } else { Tile::DeckPlate });
-        }
-    }
-
-    // Airlock door (south wall)
-    deck.set(AIRLOCK_X, AIRLOCK_Y, Tile::AirlockDoor);
-
-    // Windows along north and side walls
-    for x in 3..17 {
-        deck.set(x, 0, Tile::Window);
-    }
-    for y in 3..12 {
-        deck.set(0, y, Tile::Window);
-        deck.set(SHIP_WIDTH as i32 - 1, y, Tile::Window);
-    }
-
-    // Interior walls for rooms
-    // Crew quarters (left side)
-    for y in 4..7 {
-        deck.set(6, y, Tile::Bulkhead);
-    }
-    deck.set(6, 4, Tile::AirlockDoor); // crew quarters door
-
-    // Engineering (right side)
-    for y in 8..11 {
-        deck.set(13, y, Tile::Bulkhead);
-    }
-    deck.set(13, 9, Tile::AirlockDoor); // engineering door
-
-    // Conduits in engineering
-    deck.set(16, 10, Tile::Conduit);
-    deck.set(17, 10, Tile::Conduit);
-    deck.set(16, 9, Tile::Conduit);
-
+    Prefab::starting_ship().stamp_level(deck, 0, 0);
     loc
 }

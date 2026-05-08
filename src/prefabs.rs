@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
 use crate::entities::{Glyph, Named, Object, Stats};
-use crate::level::Tile;
-use bevy::prelude::Color;
+use crate::level::{Level, Tile};
+use bevy::prelude::{Color, Commands};
 
-/// ASCII layout plus `.assoc(…, (Tile, […]))` chains. Expand with [`tiles_and_spawns`] when stamping a level.
+/// ASCII layout plus `.assoc(…, (Tile, […]))` chains. Apply with [`Prefab::stamp_level`] /
+/// [`Prefab::stamp_entities`].
 pub struct Prefab {
   layout: String,
   assocs: HashMap<char, (Tile, Vec<Object>)>,
@@ -69,11 +70,81 @@ impl Prefab {
     .assoc('a', (Tile::AirlockDoor, []))
     .assoc('p', (Tile::DeckPlate, [ship_pilot()]))
   }
-}
 
-/// Local `(x, y)` from the layout’s top-left. First vec: `(x, y, Tile)` per cell; second: `(x, y, Object)` per spawn.
-pub fn tiles_and_spawns(p: &Prefab) -> (Vec<(i32, i32, Tile)>, Vec<(i32, i32, Object)>) {
-  compile_prefab(&p.layout, &p.assocs)
+  /// Full starter ship deck (`SHIP_WIDTH` × `SHIP_HEIGHT`), matching the former procedural layout.
+  pub fn starting_ship() -> Self {
+    prefab(
+      "###WWWWWWWWWWWWWW###
+#..................#
+#.........C........#
+W..................W
+W.....a............W
+W.....#............W
+W.....#............W
+W..................W
+W............#.....W
+W............a..=..W
+W............#..==.W
+W..................W
+#..................#
+#..................#
+##########a#########",
+    )
+    .assoc('#', (Tile::Bulkhead, []))
+    .assoc('.', (Tile::DeckPlate, []))
+    .assoc('W', (Tile::Window, []))
+    .assoc('a', (Tile::AirlockDoor, []))
+    .assoc('=', (Tile::Conduit, []))
+    .assoc('C', (Tile::DeckPlate, [Object::flight_console()]))
+  }
+
+  /// Write tiles into `level` at `(ox + x, oy + y)` for each layout cell.
+  pub fn stamp_level(&self, level: &mut Level, ox: i32, oy: i32) {
+    self.visit_cells(|lx, ly, tile, _templates| {
+      level.set(ox + lx, oy + ly, tile);
+    });
+  }
+
+  /// Spawn assoc objects at world coords `(ox + x, oy + y, z)`.
+  pub fn stamp_entities(&self, commands: &mut Commands, ox: i32, oy: i32, z: usize) {
+    self.visit_cells(|lx, ly, _tile, templates| {
+      let wx = ox + lx;
+      let wy = oy + ly;
+      for template in templates {
+        template.clone().spawn_at(commands, wx, wy, z);
+      }
+    });
+  }
+
+  /// Visit each `(x, y)` assoc object template (layout-local coords).
+  pub fn for_each_assoc_object(&self, mut f: impl FnMut(i32, i32, &Object)) {
+    self.visit_cells(|lx, ly, _, templates| {
+      for t in templates {
+        f(lx, ly, t);
+      }
+    });
+  }
+
+  fn visit_cells<F: FnMut(i32, i32, Tile, &[Object])>(&self, mut f: F) {
+    let lines = normalized_lines(&self.layout);
+    for (y, line) in lines.iter().enumerate() {
+      let y = y as i32;
+      for (x, ch) in line.chars().enumerate() {
+        let x = x as i32;
+        if ch.is_whitespace() {
+        } else if let Some((tile, templates)) = self.assocs.get(&ch) {
+          f(x, y, *tile, templates.as_slice());
+        } else {
+          bevy::log::error!(
+            "prefab: layout character {:?} at ({}, {}) has no .assoc — ignored",
+            ch,
+            x,
+            y
+          );
+        }
+      }
+    }
+  }
 }
 
 pub trait AssocMarker {
@@ -95,10 +166,7 @@ impl AssocMarker for &str {
   }
 }
 
-fn compile_prefab(
-  layout: &str,
-  assocs: &HashMap<char, (Tile, Vec<Object>)>,
-) -> (Vec<(i32, i32, Tile)>, Vec<(i32, i32, Object)>) {
+fn normalized_lines(layout: &str) -> Vec<&str> {
   let raw_lines: Vec<&str> = layout.lines().filter(|l| !l.trim().is_empty()).collect();
   let indent = raw_lines
     .iter()
@@ -107,34 +175,10 @@ fn compile_prefab(
     })
     .min()
     .unwrap_or(0);
-  let lines: Vec<&str> =
-    raw_lines.iter().map(|line| line.get(indent..).unwrap_or(line)).collect();
-
-  let mut tiles = Vec::new();
-  let mut spawns = Vec::new();
-
-  for (y, line) in lines.iter().enumerate() {
-    for (x, ch) in line.chars().enumerate() {
-      if ch.is_whitespace() {
-        continue;
-      }
-      if let Some((tile, templates)) = assocs.get(&ch) {
-        tiles.push((x as i32, y as i32, *tile));
-        for template in templates {
-          spawns.push((x as i32, y as i32, template.clone()));
-        }
-      } else {
-        bevy::log::error!(
-          "prefab: layout character {:?} at ({}, {}) has no .assoc — ignored",
-          ch,
-          x,
-          y
-        );
-      }
-    }
-  }
-
-  (tiles, spawns)
+  raw_lines
+    .iter()
+    .map(|line| line.get(indent..).unwrap_or(line))
+    .collect()
 }
 
 fn resident() -> Object {
@@ -160,8 +204,63 @@ fn ship_pilot() -> Object {
 }
 
 #[cfg(test)]
+mod ship_legacy_reference {
+  use crate::level::{Level, Tile};
+  use crate::ship::{SHIP_HEIGHT, SHIP_WIDTH};
+
+  pub fn legacy_fill_ship(deck: &mut Level) {
+    for y in 0..SHIP_HEIGHT as i32 {
+      for x in 0..SHIP_WIDTH as i32 {
+        let is_edge =
+          x == 0 || x == SHIP_WIDTH as i32 - 1 || y == 0 || y == SHIP_HEIGHT as i32 - 1;
+        deck.set(
+          x,
+          y,
+          if is_edge {
+            Tile::Bulkhead
+          } else {
+            Tile::DeckPlate
+          },
+        );
+      }
+    }
+    deck.set(10, 14, Tile::AirlockDoor);
+    for x in 3..17 {
+      deck.set(x, 0, Tile::Window);
+    }
+    for y in 3..12 {
+      deck.set(0, y, Tile::Window);
+      deck.set(SHIP_WIDTH as i32 - 1, y, Tile::Window);
+    }
+    for y in 4..7 {
+      deck.set(6, y, Tile::Bulkhead);
+    }
+    deck.set(6, 4, Tile::AirlockDoor);
+    for y in 8..11 {
+      deck.set(13, y, Tile::Bulkhead);
+    }
+    deck.set(13, 9, Tile::AirlockDoor);
+    deck.set(16, 10, Tile::Conduit);
+    deck.set(17, 10, Tile::Conduit);
+    deck.set(16, 9, Tile::Conduit);
+  }
+
+  #[test]
+  fn starting_ship_matches_legacy_tiles() {
+    use super::Prefab;
+
+    let mut legacy = Level::new(SHIP_WIDTH, SHIP_HEIGHT, Tile::Vacuum);
+    legacy_fill_ship(&mut legacy);
+    let mut stamped = Level::new(SHIP_WIDTH, SHIP_HEIGHT, Tile::Vacuum);
+    Prefab::starting_ship().stamp_level(&mut stamped, 0, 0);
+    assert_eq!(legacy.tiles, stamped.tiles);
+  }
+}
+
+#[cfg(test)]
 mod tests {
   use super::*;
+  use crate::level::{Level, Tile};
 
   fn chest() -> Object { Object::loot_chest() }
 
@@ -178,11 +277,25 @@ mod tests {
     )
     .assoc('k', (Tile::Floor, [chest(), enemy()]))
     .assoc('w', (Tile::Wall, []));
-    let (tiles, spawns) = tiles_and_spawns(&p);
 
-    assert_eq!(tiles.len(), 9);
-    assert_eq!(spawns.len(), 2);
-    assert!(spawns.iter().all(|&(x, y, _)| x == 1 && y == 1));
+    let mut level = Level::new(3, 3, Tile::Vacuum);
+    p.stamp_level(&mut level, 0, 0);
+    let mut n_tiles = 0usize;
+    for y in 0..3 {
+      for x in 0..3 {
+        if level.get(x, y).is_some_and(|t| t != Tile::Vacuum) {
+          n_tiles += 1;
+        }
+      }
+    }
+    let mut spawn_cells: Vec<(i32, i32)> = Vec::new();
+    p.for_each_assoc_object(|x, y, _| {
+      spawn_cells.push((x, y));
+    });
+
+    assert_eq!(n_tiles, 9);
+    assert_eq!(spawn_cells.len(), 2);
+    assert!(spawn_cells.iter().all(|&(x, y)| x == 1 && y == 1));
   }
 
   #[test]
@@ -194,43 +307,64 @@ aa
 ",
     )
     .assoc("a", (Tile::DeckPlate, []));
-    let (tiles, spawns) = tiles_and_spawns(&p);
-    assert!(spawns.is_empty());
-    assert_eq!(tiles.len(), 4);
-    assert!(tiles.iter().all(|(_, _, t)| *t == Tile::DeckPlate));
+
+    let mut deck = Level::new(2, 2, Tile::Vacuum);
+    p.stamp_level(&mut deck, 0, 0);
+    let mut n = 0usize;
+    for y in 0..2 {
+      for x in 0..2 {
+        if deck.get(x, y) == Some(Tile::DeckPlate) {
+          n += 1;
+        }
+      }
+    }
+    let mut objects = 0usize;
+    p.for_each_assoc_object(|_, _, _| {
+      objects += 1;
+    });
+    assert_eq!(objects, 0);
+    assert_eq!(n, 4);
   }
 
   #[test]
   fn unknown_chars_emit_error_and_spawn_nothing_for_that_cell() {
     let p = prefab(".x").assoc('.', (Tile::DeckPlate, []));
-    let (tiles, spawns) = tiles_and_spawns(&p);
+    let mut level = Level::new(2, 1, Tile::Vacuum);
+    p.stamp_level(&mut level, 0, 0);
 
-    assert_eq!(tiles.len(), 1);
-    assert!(spawns.is_empty());
+    assert_eq!(level.get(0, 0), Some(Tile::DeckPlate));
+    assert_eq!(level.get(1, 0), Some(Tile::Vacuum));
   }
 
   #[test]
   fn accepts_object_templates() {
     let p = prefab("c").assoc('c', (Tile::DeckPlate, [Object::loot_chest()]));
-    let (_, spawns) = tiles_and_spawns(&p);
+    let mut n = 0usize;
+    p.for_each_assoc_object(|_, _, _| {
+      n += 1;
+    });
 
-    assert_eq!(spawns.len(), 1);
+    assert_eq!(n, 1);
   }
 
   #[test]
   fn small_building_has_one_npc_at_expected_offset() {
-    let (_, spawns) = tiles_and_spawns(&Prefab::small_building_with_npc());
+    let mut found = None;
+    Prefab::small_building_with_npc().for_each_assoc_object(|x, y, _| {
+      found = Some((x, y));
+    });
 
-    assert_eq!(spawns.len(), 1);
-    assert_eq!((spawns[0].0, spawns[0].1), (2, 2));
+    assert_eq!(found, Some((2, 2)));
   }
 
   #[test]
   fn small_spaceship_has_console_and_pilot_offsets() {
-    let (_, spawns) = tiles_and_spawns(&Prefab::small_spaceship());
+    let mut origins = Vec::new();
+    Prefab::small_spaceship().for_each_assoc_object(|x, y, _| {
+      origins.push((x, y));
+    });
 
-    assert_eq!(spawns.len(), 2);
-    let origins: Vec<(i32, i32)> = spawns.iter().map(|&(x, y, _)| (x, y)).collect();
+    assert_eq!(origins.len(), 2);
     assert!(origins.contains(&(3, 2)));
     assert!(origins.contains(&(3, 3)));
   }
