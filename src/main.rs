@@ -1381,8 +1381,8 @@ fn update_fov(
     });
 }
 
-/// Space Qud mask sprites under `assets/textures/space_qud/` — black→primary, white→secondary.
-/// Files: `grid.png`, `wall_hashtag.png`, `window.png`, `door closed.png`, `door open.png`, `mongus.png`.
+/// Space Qud mask sprites — synced from `Autosync/sprites/space qud` into `assets/textures/space_qud/`.
+/// Black→primary, white→secondary (`palette_sprite_handle`).
 fn space_qud_tile_sprite(tile: Tile) -> Option<(&'static str, Color, Color)> {
   match tile {
     Tile::DeckPlate => Some((
@@ -1391,7 +1391,7 @@ fn space_qud_tile_sprite(tile: Tile) -> Option<(&'static str, Color, Color)> {
       Color::srgb(0.72, 0.76, 0.82),
     )),
     Tile::Bulkhead => Some((
-      "textures/space_qud/wall_hashtag.png",
+      "textures/space_qud/wall hashtag.png",
       Color::srgb(0.28, 0.30, 0.34),
       Color::srgb(0.48, 0.52, 0.56),
     )),
