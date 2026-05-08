@@ -16,7 +16,7 @@ use {bevy::prelude::*,
      ui::{LogEntries, log_message}};
 
 use trl::{active_zone::{self, ActiveZone},
-          galaxy, galaxy_gen, prefabs, ship,
+          docking, galaxy, galaxy_gen, prefabs, ship,
           sprites::{palette_sprite_handle, PaletteImageCache}};
 
 /// Tile art is authored at this resolution (e.g. space_qud masks).
@@ -87,7 +87,7 @@ enum InteractionAction {
   ChopTree(Entity),
   PickUpItem(i32, i32),
   OpenChest(Entity),
-  ExamineFlightConsole,
+  Navigate { dest: galaxy::LocationId },
   Salvage(Item),
   Craft(usize)
 }
@@ -191,6 +191,10 @@ struct PendingBumpInteract(pub Option<(i32, i32, usize)>);
 #[derive(Resource, Default)]
 struct ChestOpenPending(pub Option<Entity>);
 
+/// Flight-console chart selection; applied next frame by [`apply_pending_navigation`].
+#[derive(Resource, Default)]
+struct PendingNavigation(pub Option<galaxy::LocationId>);
+
 fn note_player_turn_moved_world(clock: &Clock, tb: &mut TurnBasedWorldState) {
   if clock.mode == TimeMode::TurnBased {
     tb.pending_enemy_phase = true;
@@ -225,6 +229,7 @@ fn should_run_sim_step(
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
 enum FramePipeline {
+  ApplyNavigation,
   BumpRender,
   TileIndex,
   GlyphSetup,
@@ -462,9 +467,13 @@ fn main() {
     galaxy.insert(ship_id, ship_location.clone());
 
     // Add starter planet at origin
-    let origin: galaxy::LocationId = (0, 0, 0);
+    let origin: galaxy::LocationId = galaxy_gen::ID_STARTER_PLANET;
     let starter_planet = galaxy_gen::generate_starter_planet();
     galaxy.insert(origin, starter_planet.clone());
+    galaxy.insert(
+      galaxy_gen::ID_ASTEROID_FIELD,
+      galaxy_gen::generate_asteroid_field(),
+    );
 
     // Ship starts docked at the starter planet
     let active = active_zone::ActiveZone::docked(
@@ -483,7 +492,7 @@ fn main() {
 
     App::new()
         .add_plugins(haalka::HaalkaPlugin::default())
-    .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()).set(WindowPlugin {
+    .add_plugins(DefaultPlugins.set(ImagePlugin::default_linear()).set(WindowPlugin {
                 primary_window: Some(Window {
                     title: format!("{} — space", ship::SHIP_NAME).into(),
                     resolution: (1200u32, 800u32).into(),
@@ -500,6 +509,7 @@ fn main() {
         .insert_resource(Clock::new())
         .insert_resource(TimeModeAuto(true))
         .init_resource::<ChestOpenPending>()
+        .init_resource::<PendingNavigation>()
         .init_resource::<PendingBumpInteract>()
         .init_resource::<PaletteImageCache>()
         .insert_resource(UiState::default())
@@ -511,6 +521,7 @@ fn main() {
         .configure_sets(
           Update,
           (
+            FramePipeline::ApplyNavigation,
             FramePipeline::BumpRender,
             FramePipeline::TileIndex,
             FramePipeline::GlyphSetup,
@@ -525,6 +536,10 @@ fn main() {
           )
             .chain(),
         )
+    .add_systems(
+      Update,
+      apply_pending_navigation.in_set(FramePipeline::ApplyNavigation),
+    )
     .add_systems(Update, bump_render_frame.in_set(FramePipeline::BumpRender))
     .add_systems(Update, maintain_tile_index.in_set(FramePipeline::TileIndex))
     .add_systems(Update, setup_glyph_visuals.in_set(FramePipeline::GlyphSetup))
@@ -885,6 +900,7 @@ fn handle_menus(
   mut images: ResMut<Assets<Image>>,
   mut door_q: Query<(&mut Door, &mut Glyph, &mut Collidable, &Location)>,
   mut pending_chest: ResMut<ChestOpenPending>,
+  mut pending_nav: ResMut<PendingNavigation>,
   mut exit: MessageWriter<AppExit>
 ) {
   if let InteractMenu::Open { options } = &ui.interact {
@@ -909,6 +925,8 @@ fn handle_menus(
       ui.interact = InteractMenu::Closed;
       if let InteractionAction::OpenChest(ent) = option.action {
         pending_chest.0 = Some(ent);
+      } else if let InteractionAction::Navigate { dest } = option.action {
+        pending_nav.0 = Some(dest);
       } else if let InteractionAction::ToggleDoor(entity) = option.action {
         if let Ok((mut door, mut glyph, mut collidable, location)) = door_q.get_mut(entity) {
           door.open = !door.open;
@@ -1187,14 +1205,11 @@ fn execute_interaction(
     let node = tree.find(tree.nodes[0].name);
     ui.dialogue = DialogueState::Open { speaker, tree, node_name: tree.nodes[0].name };
     log_dialogue_node_block(log, speaker, node);
-  } else if let InteractionAction::ExamineFlightConsole = action {
-    log_message(
-      log,
-      "Flight console: deck systems nominal. No astrogation chart is loaded.".into(),
-    );
+  } else if let InteractionAction::Navigate { .. } = action {
   } else if let Ok((pos, mut inventory)) = player_query.single_mut() {
     match action {
-      InteractionAction::Talk { .. } | InteractionAction::ExamineFlightConsole => unreachable!(),
+      InteractionAction::Talk { .. } => unreachable!(),
+      InteractionAction::Navigate { .. } => {}
       InteractionAction::ToggleDoor(_) => {}
       InteractionAction::ChopTree(entity) => {
         commands.entity(*entity).despawn();
@@ -1320,14 +1335,23 @@ fn gather_interactions_at_tile(
           }),
         )
         .chain(
-          flight_console_q
-            .get(e)
-            .ok()
-            .map(|_| InteractionOption {
-              label: format!("Examine flight console ({dir_label})"),
-              action: InteractionAction::ExamineFlightConsole,
-            })
-            .into_iter(),
+          flight_console_q.get(e).ok().into_iter().flat_map(|_| {
+            [
+              InteractionOption {
+                label: "Chart course — Origin planet".into(),
+                action: InteractionAction::Navigate {
+                  dest: galaxy_gen::ID_STARTER_PLANET,
+                },
+              },
+              InteractionOption {
+                label: "Chart course — Space asteroid field".into(),
+                action: InteractionAction::Navigate {
+                  dest: galaxy_gen::ID_ASTEROID_FIELD,
+                },
+              },
+            ]
+            .into_iter()
+          }),
         )
     })
     .chain(
@@ -1446,22 +1470,146 @@ fn handle_interact(
   }
 }
 
+fn spawn_zone_geometry(
+  commands: &mut Commands,
+  asset_server: &AssetServer,
+  palette_cache: &mut PaletteImageCache,
+  images: &mut Assets<Image>,
+  zone: &active_zone::ActiveZone,
+  docked_at: Option<galaxy::LocationId>,
+) {
+  spawn_level_tiles(
+    commands,
+    asset_server,
+    palette_cache,
+    images,
+    zone,
+  );
+  let (sox, soy) = zone.ship_origin;
+  prefabs::Prefab::starting_ship().stamp_entities(commands, sox, soy, 0);
+  if docked_at == Some(galaxy_gen::ID_STARTER_PLANET)
+    && let Some((dox, doy)) = zone.dest_origin
+  {
+    prefabs::Prefab::starter_planet_surface().stamp_entities(commands, dox, doy, 0);
+    for &(lx, ly) in galaxy_gen::STARTER_NPC_COORDS {
+      let wx = dox + lx;
+      let wy = doy + ly;
+      let (obj, _dx, _dy) = match (lx, ly) {
+        (22, 25) => (npcs::mira::mira(), 0, 0),
+        (20, 23) => (npcs::chronos::chronos(), 0, 0),
+        (26, 22) => (npcs::unit7::unit7(), 0, 0),
+        (22, 21) => (npcs::kong::kong(), 0, 0),
+        (24, 23) => (npcs::guard::guard(), 0, 0),
+        _ => continue,
+      };
+      obj.spawn_at(commands, wx, wy, 0);
+    }
+  }
+}
+
+fn apply_pending_navigation(
+  mut pending: ResMut<PendingNavigation>,
+  mut commands: Commands,
+  galaxy: Res<galaxy::Galaxy>,
+  mut ship: ResMut<ship::Ship>,
+  mut current: ResMut<CurrentZone>,
+  mut fov: ResMut<Fov>,
+  asset_server: Res<AssetServer>,
+  mut palette_cache: ResMut<PaletteImageCache>,
+  mut images: ResMut<Assets<Image>>,
+  mut log: ResMut<LogEntries>,
+  tile_glyphs: Query<Entity, With<TileGlyph>>,
+  item_glyphs: Query<Entity, With<ItemGlyph>>,
+  glyph_vis: Query<Entity, (With<GlyphVisual>, Without<Player>)>,
+  located: Query<Entity, With<Location>>,
+  mut player: Query<(&mut PlayerPos, &mut Visuals, &mut Transform), With<Player>>,
+) {
+  let Some(dest) = pending.0.take() else {
+    return;
+  };
+  if ship.docked_at == Some(dest) {
+    log_message(
+      &mut *log,
+      "Astrogation: already holding position at that chart solution.".into(),
+    );
+    return;
+  }
+  let Some(new_zone) = docking::dock(&galaxy, &mut ship, dest, 0) else {
+    log_message(
+      &mut *log,
+      "Astrogation: cannot plot a dock for that destination.".into(),
+    );
+    return;
+  };
+  for e in tile_glyphs.iter() {
+    commands.entity(e).despawn();
+  }
+  for e in item_glyphs.iter() {
+    commands.entity(e).despawn();
+  }
+  for e in glyph_vis.iter() {
+    commands.entity(e).despawn();
+  }
+  for e in located.iter() {
+    commands.entity(e).despawn();
+  }
+  *current = CurrentZone(new_zone);
+  fov.0 = FovGrid::new(current.0.width, current.0.height);
+  spawn_zone_geometry(
+    &mut commands,
+    &asset_server,
+    &mut palette_cache,
+    &mut images,
+    &current.0,
+    ship.docked_at,
+  );
+  let (sox, soy) = current.0.ship_origin;
+  let start_x = ship::SHIP_WIDTH / 2;
+  let start_y = ship::SHIP_HEIGHT / 2;
+  let local_x = sox + start_x as i32;
+  let local_y = soy + start_y as i32;
+  let start_local = Vec2::new(local_x as f32, local_y as f32);
+  if let Ok((mut pos, mut vis, mut tf)) = player.single_mut() {
+    pos.x = local_x;
+    pos.y = local_y;
+    pos.z = 0;
+    vis.prev = start_local;
+    vis.display = start_local;
+    vis.last_pos = start_local;
+    vis.last_move_start_frame = None;
+    tf.translation =
+      tile_screen_pos(local_x as f32, local_y as f32, current.0.width, current.0.height)
+        + Vec3::Z;
+  }
+  let dest_name = match dest {
+    galaxy_gen::ID_STARTER_PLANET => "origin planet",
+    galaxy_gen::ID_ASTEROID_FIELD => "asteroid field",
+    _ => "destination",
+  };
+  log_message(
+    &mut *log,
+    format!("Astrogation: docked — {dest_name} sector."),
+  );
+}
+
 fn setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     current: Res<CurrentZone>,
+    ship: Res<ship::Ship>,
     mut images: ResMut<Assets<Image>>,
     mut palette_cache: ResMut<PaletteImageCache>,
   mut log: ResMut<LogEntries>
 ) {
     commands.spawn((Camera2d, Msaa::Off));
 
-    spawn_level_tiles(
+    spawn_zone_geometry(
       &mut commands,
       &asset_server,
       &mut palette_cache,
       &mut images,
       &current.0,
+      ship.docked_at,
     );
 
     let hover_img = white_pixel_image(&mut images);
@@ -1515,8 +1663,6 @@ fn setup(
     }
     ));
 
-    prefabs::Prefab::starting_ship().stamp_entities(&mut commands, sox, soy, 0);
-
     log_message(
       &mut *log,
       format!(
@@ -1524,25 +1670,6 @@ fn setup(
         ship::SHIP_NAME
       ),
     );
-
-    // Spawn prefab-placed entities on the starter planet (trees at `t`, etc.)
-    if let Some((dox, doy)) = current.0.dest_origin {
-        prefabs::Prefab::starter_planet_surface().stamp_entities(&mut commands, dox, doy, 0);
-
-        for &(lx, ly) in galaxy_gen::STARTER_NPC_COORDS {
-            let wx = dox + lx;
-            let wy = doy + ly;
-            let (obj, _dx, _dy) = match (lx, ly) {
-                (22, 25) => (npcs::mira::mira(), 0, 0),
-                (20, 23) => (npcs::chronos::chronos(), 0, 0),
-                (26, 22) => (npcs::unit7::unit7(), 0, 0),
-                (22, 21) => (npcs::kong::kong(), 0, 0),
-                (24, 23) => (npcs::guard::guard(), 0, 0),
-        _ => continue
-            };
-            obj.spawn_at(&mut commands, wx, wy, 0);
-        }
-    }
 
 }
 
