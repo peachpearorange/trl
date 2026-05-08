@@ -126,12 +126,12 @@ W..................W
   }
 
   fn visit_cells<F: FnMut(i32, i32, Tile, &[Object])>(&self, mut f: F) {
-    let lines = (|| {
-      let raw_lines: Vec<&str> = self
+    let lines = {
+      let raw_lines = self
         .layout
         .lines()
         .filter(|l| !l.trim().is_empty())
-        .collect();
+        .collect::<Vec<_>>();
       let indent = raw_lines
         .iter()
         .filter_map(|line| {
@@ -142,8 +142,8 @@ W..................W
       raw_lines
         .into_iter()
         .map(|line| line.get(indent..).unwrap_or(line))
-        .collect::<Vec<&str>>()
-    })();
+        .collect::<Vec<_>>()
+    };
     for (y, line) in lines.iter().enumerate() {
       let y = y as i32;
       for (x, ch) in line.chars().enumerate() {
