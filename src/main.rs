@@ -6,7 +6,7 @@ mod loot;
 mod npcs;
 mod utils;
 
-use {bevy::{anti_alias::fxaa::Fxaa, prelude::*},
+use {bevy::prelude::*,
   combat::{TileEntityIndex, enemy_ai, maintain_tile_index},
   level::{FovGrid, Item, Tile, ZONE_HEIGHT, ZONE_WIDTH, compute_fov},
   std::collections::{HashMap, HashSet},
@@ -19,7 +19,12 @@ use trl::{active_zone::{self, ActiveZone},
           galaxy, galaxy_gen, prefabs, ship,
           sprites::{palette_sprite_handle, PaletteImageCache}};
 
-const TILE_SIZE: f32 = 64.0;
+/// Tile art is authored at this resolution (e.g. space_qud masks).
+pub const SPRITE_TEXELS: f32 = 20.0;
+/// Each source pixel is drawn as this many screen pixels (integer scale).
+pub const SCREEN_PIXELS_PER_TEXEL: f32 = 2.0;
+/// World-space size of one grid cell (`Sprite` quad). Pixel-perfect when camera maps 1 world unit ≈ 1 screen pixel.
+pub const TILE_SIZE: f32 = SPRITE_TEXELS * SCREEN_PIXELS_PER_TEXEL;
 /// Palette-mask doors (`door closed (1).png` / `door open (2).png`).
 const DOOR_CLOSED_PRI: Color = Color::srgb(0.34, 0.37, 0.41);
 const DOOR_CLOSED_SEC: Color = Color::srgb(0.52, 0.55, 0.58);
@@ -458,7 +463,7 @@ fn main() {
 
     App::new()
         .add_plugins(haalka::HaalkaPlugin::default())
-    .add_plugins(DefaultPlugins.set(ImagePlugin::default_linear()).set(WindowPlugin {
+    .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()).set(WindowPlugin {
                 primary_window: Some(Window {
                     title: "trl — space".into(),
                     resolution: (1200u32, 800u32).into(),
@@ -1345,7 +1350,7 @@ fn setup(
     mut palette_cache: ResMut<PaletteImageCache>,
   mut world_map: ResMut<WorldMapView>
 ) {
-    commands.spawn((Camera2d, Fxaa::default(), Msaa::Off));
+    commands.spawn((Camera2d, Msaa::Off));
 
     spawn_level_tiles(
       &mut commands,
@@ -1643,7 +1648,10 @@ fn camera_follow(
             (local.x - current.0.width as f32 / 2.0) * TILE_SIZE,
       (current.0.height as f32 / 2.0 - local.y) * TILE_SIZE
         );
-        cam_tf.translation = (world_pos - offset).extend(0.0);
+        let mut t = (world_pos - offset).extend(0.0);
+        t.x = t.x.round();
+        t.y = t.y.round();
+        cam_tf.translation = t;
     }
 }
 
