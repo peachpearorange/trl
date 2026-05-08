@@ -295,6 +295,16 @@ pub struct Visuals {
 #[derive(Clone)]
 pub struct Object(Arc<dyn Fn(&mut EntityCommands) + Send + Sync + 'static>);
 
+/// Space Qud–style NPC silhouette mask (`person (1).png`).
+pub fn npc_person_glyph(ch: char, primary: Color, secondary: Color) -> Glyph {
+  Glyph::palette_sprite(
+    "textures/space_qud/person (1).png",
+    ch,
+    primary,
+    secondary,
+  )
+}
+
 impl Object {
   fn new(bundle: impl Bundle + Clone + Send + Sync + 'static) -> Self {
     Self(Arc::new(move |e: &mut EntityCommands| {
@@ -364,21 +374,41 @@ impl Object {
   pub fn tree() -> Self                       { Self::structure(false).add((
     Tree,
     BlocksSight,
-    Glyph::sprite(
-      "textures/a_tree.png",
+    Glyph::palette_sprite(
+      "textures/space_qud/tree.png",
       'T',
-      Color::srgb(0.13, 0.55, 0.13),
+      Color::srgb(0.14, 0.42, 0.16),
+      Color::srgb(0.38, 0.62, 0.24),
     ),
     Named { name: "Tree", flavor: "A sturdy tree. Could be chopped for wood." },
   )) }
   pub fn flight_console() -> Self {
     Self::structure(true).add((
-        Glyph::ascii('C', Color::srgb(0.3, 0.9, 0.4)),
+        Glyph::palette_sprite(
+          "textures/space_qud/computer .png",
+          'C',
+          Color::srgb(0.18, 0.34, 0.52),
+          Color::srgb(0.32, 0.88, 0.45),
+        ),
         Named {
             name: "Flight Console",
             flavor: "Navigation computer. Plot a course to a destination.",
         },
         FlightConsole,
+    ))
+  }
+  pub fn space_cat() -> Self {
+    Self::structure(false).add((
+      Glyph::palette_sprite(
+        "textures/space_qud/space cat.png",
+        'c',
+        Color::srgb(0.92, 0.82, 0.62),
+        Color::srgb(0.52, 0.36, 0.26),
+      ),
+      Named {
+        name: "Space cat",
+        flavor: "Judges your piloting from a warm bulkhead. Offers no corrections.",
+      },
     ))
   }
   pub fn loot_chest() -> Self {

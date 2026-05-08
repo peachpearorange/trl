@@ -52,10 +52,10 @@ pub fn guard() -> Object {
     Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 3.0, attack_speed: 1.0 },
     Some(Item::Sword),
     Some(Armor::Leather),
-    Glyph::sprite(
-      "textures/shady_looking_guy_in_clothes_meant_for_a_hot_desert.png",
+    npc_person_glyph(
       'G',
-      Color::srgb(0.8, 0.8, 0.8),
+      Color::srgb(0.72, 0.76, 0.8),
+      Color::srgb(0.42, 0.46, 0.52),
     ),
     &DIALOGUE,
   )

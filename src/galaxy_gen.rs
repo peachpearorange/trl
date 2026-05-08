@@ -36,6 +36,26 @@ pub fn generate_starter_planet() -> Location {
         loc.level_mut(0).set(x, y, tile);
     }
 
+    // Scatter taller grass clumps on the alien turf
+    for (gx, gy) in [
+        (7, 11),
+        (22, 8),
+        (31, 38),
+        (12, 42),
+        (41, 18),
+        (18, 44),
+        (33, 28),
+        (9, 33),
+        (27, 14),
+        (36, 41),
+        (15, 19),
+        (44, 35),
+    ] {
+        if loc.level_mut(0).get(gx, gy) == Some(Tile::AlienGrass) {
+            loc.level_mut(0).set(gx, gy, Tile::Grass);
+        }
+    }
+
     // Add landing spot after mutations are done
     loc.landing_spots.push(crate::galaxy::LandingSpot {
         x: 24,

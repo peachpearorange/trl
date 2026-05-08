@@ -112,10 +112,10 @@ pub fn kong() -> Object {
     Stats { hp: 6, max_hp: 6, attack: 1, move_speed: 5.0, attack_speed: 1.0 },
     None,
     None,
-    Glyph::sprite(
-      "textures/monkey_with_paper_hat_and_banana.png",
+    npc_person_glyph(
       'M',
-      Color::srgb(0.3, 0.85, 0.3),
+      Color::srgb(0.38, 0.72, 0.32),
+      Color::srgb(0.72, 0.92, 0.48),
     ),
     &DIALOGUE,
   )

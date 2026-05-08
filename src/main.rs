@@ -20,6 +20,11 @@ use trl::{active_zone::{self, ActiveZone},
           sprites::{palette_sprite_handle, PaletteImageCache}};
 
 const TILE_SIZE: f32 = 64.0;
+/// Palette-mask doors (`door closed (1).png` / `door open (2).png`).
+const DOOR_CLOSED_PRI: Color = Color::srgb(0.34, 0.37, 0.41);
+const DOOR_CLOSED_SEC: Color = Color::srgb(0.52, 0.55, 0.58);
+const DOOR_OPEN_PRI: Color = Color::srgb(0.48, 0.55, 0.58);
+const DOOR_OPEN_SEC: Color = Color::srgb(0.72, 0.78, 0.82);
 /// Simulated 60Hz display: one grid step / one input gate spans this many render updates.
 pub const RENDER_FRAMES_PER_SIM_STEP: u32 = 6;
 const FOV_RADIUS: i32 = 99;
@@ -765,6 +770,71 @@ fn resolve_move(level: &level::Level, px: i32, py: i32, dx: i32, dy: i32) -> (i3
 // Pause / Esc menu
 // ---------------------------------------------------------------------------
 
+/// Rebuilds [`Sprite`]/[`Text2d`] for a door after its [`Glyph`] is reassigned.
+fn attach_glyph_visual_for_door(
+  commands: &mut Commands,
+  entity: Entity,
+  glyph: &Glyph,
+  location: &Location,
+  palette_cache: &mut PaletteImageCache,
+  images: &mut Assets<Image>,
+  asset_server: &AssetServer,
+) {
+  let Location::Coords { x, y, .. } = *location else {
+    return;
+  };
+  let lx = x as f32;
+  let ly = y as f32;
+  let local = Vec2::new(lx, ly);
+  let pos = tile_screen_pos(lx, ly, ZONE_WIDTH, ZONE_HEIGHT) + Vec3::new(0.0, 0.0, 2.0);
+  commands.entity(entity).remove::<Sprite>();
+  commands.entity(entity).remove::<Text2d>();
+  commands.entity(entity).remove::<TextFont>();
+  commands.entity(entity).remove::<TextColor>();
+  commands.entity(entity).remove::<GlyphVisual>();
+  commands.entity(entity).remove::<Visuals>();
+  if let Some(path) = glyph.texture {
+    let img = if let Some((pri, sec)) = glyph.sprite_palette {
+      palette_sprite_handle(path, pri, sec, palette_cache, images)
+    } else {
+      asset_server.load(path)
+    };
+    commands.entity(entity).insert((
+      Sprite {
+        image: img,
+        custom_size: Some(Vec2::splat(TILE_SIZE)),
+        color: Color::WHITE,
+        ..default()
+      },
+      Transform::from_translation(pos),
+      GlyphVisual,
+      Visuals {
+        prev: local,
+        last_move_start_frame: None,
+        display: local,
+        last_pos: local,
+      },
+    ));
+  } else {
+    commands.entity(entity).insert((
+      Text2d::new(glyph.ch.to_string()),
+      TextFont {
+        font_size: TILE_SIZE,
+        ..default()
+      },
+      TextColor(glyph.color),
+      Transform::from_translation(pos),
+      GlyphVisual,
+      Visuals {
+        prev: local,
+        last_move_start_frame: None,
+        display: local,
+        last_pos: local,
+      },
+    ));
+  }
+}
+
 fn handle_menus(
   keys: Res<ButtonInput<KeyCode>>,
   mut ui: ResMut<UiState>,
@@ -775,7 +845,10 @@ fn handle_menus(
   mut tb: ResMut<TurnBasedWorldState>,
   mut log: ResMut<LogEntries>,
   mut player_query: Query<(&mut PlayerPos, &mut Inventory), With<Player>>,
-  mut door_q: Query<(&mut Door, &mut Glyph, &mut Collidable)>,
+  asset_server: Res<AssetServer>,
+  mut palette_cache: ResMut<PaletteImageCache>,
+  mut images: ResMut<Assets<Image>>,
+  mut door_q: Query<(&mut Door, &mut Glyph, &mut Collidable, &Location)>,
   mut pending_chest: ResMut<ChestOpenPending>,
   mut exit: MessageWriter<AppExit>
 ) {
@@ -807,29 +880,36 @@ fn handle_menus(
       if let InteractionAction::OpenChest(ent) = option.action {
         pending_chest.0 = Some(ent);
       } else if let InteractionAction::ToggleDoor(entity) = option.action {
-        if let Ok((mut door, mut glyph, mut collidable)) = door_q.get_mut(entity) {
+        if let Ok((mut door, mut glyph, mut collidable, location)) = door_q.get_mut(entity) {
           door.open = !door.open;
           collidable.0 = !door.open;
           if door.open {
-            commands.entity(entity).remove::<(Collidable, BlocksSight, Sprite, Text2d)>();
-            glyph.ch = '/';
-            glyph.color = Color::srgb(0.3, 0.5, 0.3);
-            commands.entity(entity).insert((
-              Text2d::new("/"),
-              TextFont { font_size: TILE_SIZE, ..default() },
-              TextColor(Color::srgb(0.3, 0.5, 0.3))
-            ));
+            commands.entity(entity).remove::<Collidable>();
+            commands.entity(entity).remove::<BlocksSight>();
+            *glyph = Glyph::palette_sprite(
+              "textures/space_qud/door open (2).png",
+              '/',
+              DOOR_OPEN_PRI,
+              DOOR_OPEN_SEC,
+            );
           } else {
             commands.entity(entity).insert((Collidable(true), BlocksSight));
-            glyph.ch = '+';
-            glyph.color = door.closed_color;
-            commands.entity(entity).remove::<(Sprite, Text2d)>();
-            commands.entity(entity).insert((
-              Text2d::new("+"),
-              TextFont { font_size: TILE_SIZE, ..default() },
-              TextColor(door.closed_color)
-            ));
+            *glyph = Glyph::palette_sprite(
+              "textures/space_qud/door closed (1).png",
+              '+',
+              DOOR_CLOSED_PRI,
+              DOOR_CLOSED_SEC,
+            );
           }
+          attach_glyph_visual_for_door(
+            &mut commands,
+            entity,
+            &*glyph,
+            location,
+            &mut palette_cache,
+            &mut images,
+            &asset_server,
+          );
         }
         clock.advance(1);
         note_player_turn_moved_world(&*clock, &mut *tb);
@@ -1328,6 +1408,8 @@ fn setup(
 
     prefabs::Prefab::starting_ship().stamp_entities(&mut commands, sox, soy, 0);
 
+    Object::space_cat().spawn_at(&mut commands, sox + 9, soy + 6, 0);
+
     // Spawn starter planet NPCs at destination-local coords mapped into the active zone
     if let Some((dox, doy)) = current.0.dest_origin {
         for &(lx, ly) in galaxy_gen::STARTER_NPC_COORDS {
@@ -1381,7 +1463,7 @@ fn update_fov(
     });
 }
 
-/// Space Qud mask sprites — synced from `Autosync/sprites/space qud` into `assets/textures/space_qud/`.
+/// Space Qud mask sprites — under `assets/textures/space_qud/` (sync script).
 /// Black→primary, white→secondary (`palette_sprite_handle`).
 fn space_qud_tile_sprite(tile: Tile) -> Option<(&'static str, Color, Color)> {
   match tile {
@@ -1390,7 +1472,12 @@ fn space_qud_tile_sprite(tile: Tile) -> Option<(&'static str, Color, Color)> {
       Color::srgb(0.38, 0.42, 0.48),
       Color::srgb(0.72, 0.76, 0.82),
     )),
-    Tile::Bulkhead => Some((
+    Tile::StationFloor => Some((
+      "textures/space_qud/grid.png",
+      Color::srgb(0.52, 0.56, 0.62),
+      Color::srgb(0.88, 0.90, 0.94),
+    )),
+    Tile::Bulkhead | Tile::StationWall | Tile::DerelictWall => Some((
       "textures/space_qud/wall hashtag.png",
       Color::srgb(0.28, 0.30, 0.34),
       Color::srgb(0.48, 0.52, 0.56),
@@ -1404,6 +1491,26 @@ fn space_qud_tile_sprite(tile: Tile) -> Option<(&'static str, Color, Color)> {
       "textures/space_qud/grid.png",
       Color::srgb(0.40, 0.28, 0.14),
       Color::srgb(0.88, 0.62, 0.22),
+    )),
+    Tile::Vacuum => Some((
+      "textures/space_qud/space background.png",
+      Color::srgb(0.04, 0.06, 0.14),
+      Color::srgb(0.62, 0.72, 0.92),
+    )),
+    Tile::AlienGrass | Tile::Grass | Tile::TallGrass => Some((
+      "textures/space_qud/grass.png",
+      Color::srgb(0.22, 0.48, 0.18),
+      Color::srgb(0.52, 0.72, 0.28),
+    )),
+    Tile::ShallowWater => Some((
+      "textures/space_qud/wavy.png",
+      Color::srgb(0.18, 0.42, 0.62),
+      Color::srgb(0.45, 0.68, 0.88),
+    )),
+    Tile::Sand => Some((
+      "textures/space_qud/wavy.png",
+      Color::srgb(0.72, 0.62, 0.38),
+      Color::srgb(0.92, 0.86, 0.62),
     )),
     _ => None,
   }
@@ -1421,17 +1528,41 @@ fn spawn_level_tiles(
         for y in 0..level.height {
             for x in 0..level.width {
                 let tile = level.tiles[y][x];
-                if tile == Tile::Air || tile == Tile::Vacuum {
+                if tile == Tile::Air {
                     continue;
                 }
                 let pos = tile_screen_pos(x as f32, y as f32, zone.width, zone.height);
+
+                if tile == Tile::Vacuum {
+                    if let Some((path, c1, c2)) = space_qud_tile_sprite(tile) {
+                        let handle = palette_sprite_handle(path, c1, c2, palette_cache, images);
+                        commands.spawn((
+                            Sprite {
+                                image: handle,
+                                custom_size: Some(Vec2::splat(TILE_SIZE)),
+                                color: Color::srgba(0.0, 0.0, 0.0, 0.0),
+                                ..default()
+                            },
+                            Transform::from_translation(pos),
+                            TileGlyph { x, y },
+                            TilePng,
+                        ));
+                    }
+                    continue;
+                }
+
                 if tile == Tile::Door || tile == Tile::AirlockDoor {
                     let [r, g, b] = tile.color();
                     commands.spawn((
                         Door { open: false, closed_color: Color::srgb(r, g, b) },
                         Collidable(true),
                         BlocksSight,
-                        Glyph::ascii('+', Color::srgb(r, g, b)),
+                        Glyph::palette_sprite(
+                            "textures/space_qud/door closed (1).png",
+                            '+',
+                            DOOR_CLOSED_PRI,
+                            DOOR_CLOSED_SEC,
+                        ),
                         Location::xyz(x as i32, y as i32, z),
             Named { name: tile.name(), flavor: "Press Space to open." }
                     ));
