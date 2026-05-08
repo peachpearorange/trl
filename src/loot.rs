@@ -1,7 +1,6 @@
 //! Procedural chest contents: value scales with cave depth and a small surface random factor.
 
-use rand::{Rng, SeedableRng};
-use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng, rngs::StdRng};
 
 use crate::level::Item;
 
@@ -10,20 +9,12 @@ const WEAPONS: &[Item] = &[
   Item::SteelAxe,
   Item::CopperKnife,
   Item::CombatSpear,
-  Item::PipeRevolver,
+  Item::PipeRevolver
 ];
-const ARMOR: &[Item] = &[
-  Item::LeatherVest,
-  Item::ChainMail,
-  Item::SteelBoots,
-  Item::SynthHelmet,
-];
-const CONSUMABLES: &[Item] = &[
-  Item::HealthPotion,
-  Item::StimPack,
-  Item::CannedGoods,
-  Item::FilterWater,
-];
+const ARMOR: &[Item] =
+  &[Item::LeatherVest, Item::ChainMail, Item::SteelBoots, Item::SynthHelmet];
+const CONSUMABLES: &[Item] =
+  &[Item::HealthPotion, Item::StimPack, Item::CannedGoods, Item::FilterWater];
 const COMPONENTS: &[Item] = &[
   Item::Wood,
   Item::Steel,
@@ -32,7 +23,7 @@ const COMPONENTS: &[Item] = &[
   Item::Crystal,
   Item::SyntheticMaterial,
   Item::Glass,
-  Item::OrganicMaterial,
+  Item::OrganicMaterial
 ];
 
 /// Loot rolled when opening a chest at world tile `(wx, wy, z)`.
@@ -41,7 +32,7 @@ pub fn roll_chest_loot(world_seed: u64, wx: i32, wy: i32, z: usize) -> Vec<(Item
     world_seed
       ^ (wx as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
       ^ (wy as u64).rotate_left(19)
-      ^ (z as u64).wrapping_mul(0xC2B2_AE3D_21D0_4E21),
+      ^ (z as u64).wrapping_mul(0xC2B2_AE3D_21D0_4E21)
   );
   let depth = 0u32;
   let tier: f32 = 1.0 + rng.random_range(0.15..0.65);
@@ -69,7 +60,7 @@ pub fn roll_chest_loot(world_seed: u64, wx: i32, wy: i32, z: usize) -> Vec<(Item
     merge(
       &mut out,
       Item::GoldCoin,
-      rng.random_range(2..=15u32.saturating_add(depth.saturating_mul(6))),
+      rng.random_range(2..=15u32.saturating_add(depth.saturating_mul(6)))
     );
   }
   out

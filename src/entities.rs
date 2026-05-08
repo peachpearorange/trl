@@ -1,15 +1,13 @@
 //! Entity types and spawnable definitions for the game.
 
-use {crate::faction::Faction,
-     bevy::prelude::*,
-     std::sync::Arc};
+use {crate::faction::Faction, bevy::prelude::*, std::sync::Arc};
 
 // ============ DIALOGUE ============
 
 /// A flat list of named nodes that forms one NPC's conversation.
 #[derive(Debug)]
 pub struct DialogueTree {
-  pub nodes: &'static [DialogueNode],
+  pub nodes: &'static [DialogueNode]
 }
 
 impl DialogueTree {
@@ -22,9 +20,9 @@ impl DialogueTree {
 /// One node in a dialogue tree: a name, what the NPC says, and the player's choices.
 #[derive(Debug)]
 pub struct DialogueNode {
-  pub name:    &'static str,
-  pub text:    &'static str,
-  pub choices: &'static [DialogueChoice],
+  pub name: &'static str,
+  pub text: &'static str,
+  pub choices: &'static [DialogueChoice]
 }
 
 /// One response option the player can pick.
@@ -33,7 +31,7 @@ pub struct DialogueChoice {
   /// Button label shown to the player.
   pub text: &'static str,
   /// Name of the next node, or `None` to end the conversation.
-  pub next: Option<&'static str>,
+  pub next: Option<&'static str>
 }
 
 /// Marks an entity as conversable; holds a pointer to its dialogue tree.
@@ -49,7 +47,7 @@ pub const fn tree(nodes: &'static [DialogueNode]) -> DialogueTree {
 pub const fn node(
   name: &'static str,
   text: &'static str,
-  choices: &'static [DialogueChoice],
+  choices: &'static [DialogueChoice]
 ) -> DialogueNode {
   DialogueNode { name, text, choices }
 }
@@ -86,7 +84,7 @@ impl Location {
   pub fn as_vec2(&self) -> Option<Vec2> {
     match self {
       Location::Coords { x, y, .. } => Some(Vec2::new(*x as f32, *y as f32)),
-      _ => None,
+      _ => None
     }
   }
 }
@@ -108,7 +106,7 @@ pub enum Item {
 pub enum Armor {
   Leather,
   Chain,
-  Plate,
+  Plate
 }
 
 impl Armor {
@@ -116,7 +114,7 @@ impl Armor {
     match self {
       Armor::Leather => 1,
       Armor::Chain => 2,
-      Armor::Plate => 3,
+      Armor::Plate => 3
     }
   }
 }
@@ -150,7 +148,7 @@ pub struct GroundItem(pub Item);
 pub struct Door {
   pub open: bool,
   /// Original colour when closed; restored on close.
-  pub closed_color: Color,
+  pub closed_color: Color
 }
 
 /// Wall construction material.
@@ -182,7 +180,7 @@ pub struct Tree;
 /// Placed loot container; blocks the tile until emptied.
 #[derive(Component, Clone, Debug)]
 pub struct LootChest {
-  pub opened: bool,
+  pub opened: bool
 }
 
 /// Entity occupies its tile for line-of-sight (like an opaque tile) but need not block movement.
@@ -197,35 +195,30 @@ pub struct Glyph {
   /// Asset path relative to `assets/` (e.g. `textures/catgirl.png`).
   pub texture: Option<&'static str>,
   /// Space-Qud–style mask: black → first color, white → second; transparent stays clear.
-  pub sprite_palette: Option<(Color, Color)>,
+  pub sprite_palette: Option<(Color, Color)>
 }
 
 impl Glyph {
   pub fn ascii(ch: char, color: Color) -> Self {
-    Self {
-      ch,
-      color,
-      texture: None,
-      sprite_palette: None,
-    }
+    Self { ch, color, texture: None, sprite_palette: None }
   }
 
   pub fn sprite(path: &'static str, ch: char, color: Color) -> Self {
-    Self {
-      ch,
-      color,
-      texture: Some(path),
-      sprite_palette: None,
-    }
+    Self { ch, color, texture: Some(path), sprite_palette: None }
   }
 
   /// Mask PNG (black / white / alpha); instance colors set how it draws.
-  pub fn palette_sprite(path: &'static str, ch: char, primary: Color, secondary: Color) -> Self {
+  pub fn palette_sprite(
+    path: &'static str,
+    ch: char,
+    primary: Color,
+    secondary: Color
+  ) -> Self {
     Self {
       ch,
       color: primary,
       texture: Some(path),
-      sprite_palette: Some((primary, secondary)),
+      sprite_palette: Some((primary, secondary))
     }
   }
 }
@@ -233,18 +226,18 @@ impl Glyph {
 /// Identity and SS13-style flavor text shown on hover.
 #[derive(Component, Clone, Debug)]
 pub struct Named {
-  pub name:   &'static str,
-  pub flavor: &'static str,
+  pub name: &'static str,
+  pub flavor: &'static str
 }
 
 /// Flat combat stats.
 #[derive(Component, Clone, Debug)]
 pub struct Stats {
-  pub hp:           i32,
-  pub max_hp:       i32,
-  pub attack:       i32,
-  pub move_speed:   f32,
-  pub attack_speed: f32,
+  pub hp: i32,
+  pub max_hp: i32,
+  pub attack: i32,
+  pub move_speed: f32,
+  pub attack_speed: f32
 }
 
 /// What an entity is holding. None = unarmed (has hands, holds nothing).
@@ -279,7 +272,7 @@ pub struct Visuals {
   /// Current interpolated display position (zone-local, recomputed each frame).
   pub display: Vec2,
   /// Last known zone-local position from Location (for change detection).
-  pub last_pos: Vec2,
+  pub last_pos: Vec2
 }
 
 // ============ SPAWNABLE ============
@@ -297,12 +290,7 @@ pub struct Object(Arc<dyn Fn(&mut EntityCommands) + Send + Sync + 'static>);
 
 /// Space Qud–style NPC silhouette mask (`person (1).png`).
 pub fn npc_person_glyph(ch: char, primary: Color, secondary: Color) -> Glyph {
-  Glyph::palette_sprite(
-    "textures/space_qud/person (1).png",
-    ch,
-    primary,
-    secondary,
-  )
+  Glyph::palette_sprite("textures/space_qud/person (1).png", ch, primary, secondary)
 }
 
 impl Object {
@@ -338,7 +326,7 @@ impl Object {
     wielding: Option<Item>,
     wearing: Option<Armor>,
     glyph: Glyph,
-    dialogue: &'static DialogueTree,
+    dialogue: &'static DialogueTree
   ) -> Self {
     Self::npc()
       .add(named)
@@ -365,36 +353,44 @@ impl Object {
   //                   ├─ tree
   //                   └─ door
 
-  pub fn physical(blocks: bool) -> Self      { Self::new(Collidable(blocks)) }
-  pub fn character(faction: Faction) -> Self  { Self::physical(true).add((Character, FactionComp(faction), Gravity)) }
-  pub fn player() -> Self                     { Self::character(Faction::Player).add(Player) }
-  pub fn enemy() -> Self                      { Self::character(Faction::Hostile).add((Enemy, TimeSinceAction(0))) }
-  pub fn structure(blocks: bool) -> Self      { Self::physical(blocks) }
-  pub fn wall(material: Material) -> Self     { Self::structure(true).add(WallComp { material }) }
-  pub fn tree() -> Self                       { Self::structure(false).add((
-    Tree,
-    BlocksSight,
-    Glyph::palette_sprite(
-      "textures/space_qud/tree.png",
-      'T',
-      Color::srgb(0.14, 0.42, 0.16),
-      Color::srgb(0.38, 0.62, 0.24),
-    ),
-    Named { name: "Tree", flavor: "A sturdy tree. Could be chopped for wood." },
-  )) }
+  pub fn physical(blocks: bool) -> Self { Self::new(Collidable(blocks)) }
+  pub fn character(faction: Faction) -> Self {
+    Self::physical(true).add((Character, FactionComp(faction), Gravity))
+  }
+  pub fn player() -> Self { Self::character(Faction::Player).add(Player) }
+  pub fn enemy() -> Self {
+    Self::character(Faction::Hostile).add((Enemy, TimeSinceAction(0)))
+  }
+  pub fn structure(blocks: bool) -> Self { Self::physical(blocks) }
+  pub fn wall(material: Material) -> Self {
+    Self::structure(true).add(WallComp { material })
+  }
+  pub fn tree() -> Self {
+    Self::structure(false).add((
+      Tree,
+      BlocksSight,
+      Glyph::palette_sprite(
+        "textures/space_qud/tree.png",
+        'T',
+        Color::srgb(0.14, 0.42, 0.16),
+        Color::srgb(0.38, 0.62, 0.24)
+      ),
+      Named { name: "Tree", flavor: "A sturdy tree. Could be chopped for wood." }
+    ))
+  }
   pub fn flight_console() -> Self {
     Self::structure(true).add((
-        Glyph::palette_sprite(
-          "textures/space_qud/computer .png",
-          'C',
-          Color::srgb(0.18, 0.34, 0.52),
-          Color::srgb(0.32, 0.88, 0.45),
-        ),
-        Named {
-            name: "Flight Console",
-            flavor: "Navigation computer. Plot a course to a destination.",
-        },
-        FlightConsole,
+      Glyph::palette_sprite(
+        "textures/space_qud/computer .png",
+        'C',
+        Color::srgb(0.18, 0.34, 0.52),
+        Color::srgb(0.32, 0.88, 0.45)
+      ),
+      Named {
+        name: "Flight Console",
+        flavor: "Navigation computer. Plot a course to a destination."
+      },
+      FlightConsole
     ))
   }
   pub fn space_cat() -> Self {
@@ -403,34 +399,31 @@ impl Object {
         "textures/space_qud/space cat.png",
         'c',
         Color::srgb(0.92, 0.82, 0.62),
-        Color::srgb(0.52, 0.36, 0.26),
+        Color::srgb(0.52, 0.36, 0.26)
       ),
       Named {
         name: "Space cat",
-        flavor: "Judges your piloting from a warm bulkhead. Offers no corrections.",
-      },
+        flavor: "Judges your piloting from a warm bulkhead. Offers no corrections."
+      }
     ))
   }
   pub fn loot_chest() -> Self {
     Self::structure(true).add((
-        LootChest { opened: false },
+      LootChest { opened: false },
       Glyph::palette_sprite(
         "textures/space_qud/crate.png",
         '&',
         Color::srgb(0.72, 0.52, 0.28),
-        Color::srgb(0.42, 0.32, 0.22),
+        Color::srgb(0.42, 0.32, 0.22)
       ),
-      Named {
-        name: "Chest",
-        flavor: "Someone stashed supplies here.",
-      },
+      Named { name: "Chest", flavor: "Someone stashed supplies here." }
     ))
   }
   pub fn door(open: bool, closed_color: Color) -> Self {
     Self::structure(!open).add(Door { open, closed_color })
   }
-  pub fn ground_item(item: Item) -> Self      { Self::new(GroundItem(item)) }
-  pub fn torch(radius: u32) -> Self           { Self::new(LightSource { radius }) }
+  pub fn ground_item(item: Item) -> Self { Self::new(GroundItem(item)) }
+  pub fn torch(radius: u32) -> Self { Self::new(LightSource { radius }) }
 
   pub fn rat_soldier() -> Self {
     Self::enemy()
@@ -467,5 +460,4 @@ impl Object {
         ),
       ))
   }
-
 }

@@ -1,13 +1,13 @@
 /// What kind of place a Location is. Determines atmosphere, procgen strategy, and flavor.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum LocationType {
-    ShipInterior,
-    SpaceStation,
-    DerelictShip,
-    AsteroidField,
-    PlanetSurface { breathable: bool },
-    DeepSpace,
-    Ruins,
+  ShipInterior,
+  SpaceStation,
+  DerelictShip,
+  AsteroidField,
+  PlanetSurface { breathable: bool },
+  DeepSpace,
+  Ruins
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -55,7 +55,7 @@ pub enum Tile {
   AlienSoil,
   AlienGrass,
   CrystalGrowth,
-  AlienFluid,
+  AlienFluid
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -189,22 +189,28 @@ impl Item {
       Item::PipeRevolver => &[(Item::Steel, 2), (Item::Copper, 1), (Item::Screws, 2)],
       Item::LeatherVest => &[(Item::OrganicMaterial, 3), (Item::Screws, 2)],
       Item::ChainMail => &[(Item::Steel, 4), (Item::Screws, 3)],
-      Item::SteelBoots => &[(Item::Steel, 2), (Item::OrganicMaterial, 1), (Item::Screws, 1)],
-      Item::SynthHelmet => &[(Item::SyntheticMaterial, 3), (Item::Glass, 1), (Item::Screws, 2)],
-      Item::HealthPotion => &[(Item::Glass, 1), (Item::OrganicMaterial, 2), (Item::Crystal, 1)],
-      Item::StimPack => &[(Item::OrganicMaterial, 2), (Item::Crystal, 1), (Item::Glass, 1)],
+      Item::SteelBoots => {
+        &[(Item::Steel, 2), (Item::OrganicMaterial, 1), (Item::Screws, 1)]
+      }
+      Item::SynthHelmet => {
+        &[(Item::SyntheticMaterial, 3), (Item::Glass, 1), (Item::Screws, 2)]
+      }
+      Item::HealthPotion => {
+        &[(Item::Glass, 1), (Item::OrganicMaterial, 2), (Item::Crystal, 1)]
+      }
+      Item::StimPack => {
+        &[(Item::OrganicMaterial, 2), (Item::Crystal, 1), (Item::Glass, 1)]
+      }
       Item::CannedGoods => &[(Item::Steel, 1), (Item::OrganicMaterial, 2)],
       Item::FilterWater => &[(Item::Glass, 2), (Item::OrganicMaterial, 1)],
       Item::Torch => &[(Item::Wood, 1), (Item::OrganicMaterial, 1)],
       Item::Rock => &[(Item::Crystal, 1)],
       Item::Mushroom => &[(Item::OrganicMaterial, 2)],
-      _ => &[],
+      _ => &[]
     }
   }
 
-  pub fn can_salvage(self) -> bool {
-    !self.scrap_yield().is_empty()
-  }
+  pub fn can_salvage(self) -> bool { !self.scrap_yield().is_empty() }
 }
 
 /// Properties bundled with each [`Tile`] variant.
@@ -217,230 +223,486 @@ pub struct TileProperties {
   pub opaque: bool,
   pub causes_falling: bool,
   pub name: &'static str,
-  pub has_atmosphere: bool,
+  pub has_atmosphere: bool
 }
 
 impl Tile {
   pub fn properties(self) -> TileProperties {
     match self {
       Tile::Air => TileProperties {
-        glyph: " ", color: [0.0, 0.0, 0.0], minimap_color: [0.04, 0.06, 0.10],
-        texture_path: None, walkable: true, opaque: false, causes_falling: true,
-        name: "Air", has_atmosphere: false,
+        glyph: " ",
+        color: [0.0, 0.0, 0.0],
+        minimap_color: [0.04, 0.06, 0.10],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: true,
+        name: "Air",
+        has_atmosphere: false
       },
       Tile::Floor => TileProperties {
-        glyph: ".", color: [0.6, 0.5, 0.3], minimap_color: [0.62, 0.55, 0.40],
-        texture_path: None, walkable: true, opaque: false, causes_falling: false,
-        name: "Floor", has_atmosphere: true,
+        glyph: ".",
+        color: [0.6, 0.5, 0.3],
+        minimap_color: [0.62, 0.55, 0.40],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Floor",
+        has_atmosphere: true
       },
       Tile::Wall => TileProperties {
-        glyph: "#", color: [0.4, 0.4, 0.4], minimap_color: [0.38, 0.38, 0.40],
-        texture_path: None, walkable: false, opaque: true, causes_falling: false,
-        name: "Wall", has_atmosphere: true,
+        glyph: "#",
+        color: [0.4, 0.4, 0.4],
+        minimap_color: [0.38, 0.38, 0.40],
+        texture_path: None,
+        walkable: false,
+        opaque: true,
+        causes_falling: false,
+        name: "Wall",
+        has_atmosphere: true
       },
       Tile::CobblestoneWall => TileProperties {
-        glyph: "#", color: [0.5, 0.5, 0.5], minimap_color: [0.38, 0.38, 0.40],
+        glyph: "#",
+        color: [0.5, 0.5, 0.5],
+        minimap_color: [0.38, 0.38, 0.40],
         texture_path: Some("textures/cobblestone_wall.png"),
-        walkable: false, opaque: true, causes_falling: false,
-        name: "Cobblestone Wall", has_atmosphere: true,
+        walkable: false,
+        opaque: true,
+        causes_falling: false,
+        name: "Cobblestone Wall",
+        has_atmosphere: true
       },
       Tile::BrickWall => TileProperties {
-        glyph: "#", color: [0.6, 0.3, 0.2], minimap_color: [0.38, 0.38, 0.40],
+        glyph: "#",
+        color: [0.6, 0.3, 0.2],
+        minimap_color: [0.38, 0.38, 0.40],
         texture_path: Some("textures/brick_wall.png"),
-        walkable: false, opaque: true, causes_falling: false,
-        name: "Brick Wall", has_atmosphere: true,
+        walkable: false,
+        opaque: true,
+        causes_falling: false,
+        name: "Brick Wall",
+        has_atmosphere: true
       },
       Tile::Grass => TileProperties {
-        glyph: "\"", color: [0.2, 0.6, 0.2], minimap_color: [0.22, 0.62, 0.30],
-        texture_path: None, walkable: true, opaque: false, causes_falling: false,
-        name: "Grass", has_atmosphere: true,
+        glyph: "\"",
+        color: [0.2, 0.6, 0.2],
+        minimap_color: [0.22, 0.62, 0.30],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Grass",
+        has_atmosphere: true
       },
       Tile::Water => TileProperties {
-        glyph: "~", color: [0.2, 0.3, 0.8], minimap_color: [0.12, 0.28, 0.70],
-        texture_path: None, walkable: false, opaque: false, causes_falling: false,
-        name: "Water", has_atmosphere: true,
+        glyph: "~",
+        color: [0.2, 0.3, 0.8],
+        minimap_color: [0.12, 0.28, 0.70],
+        texture_path: None,
+        walkable: false,
+        opaque: false,
+        causes_falling: false,
+        name: "Water",
+        has_atmosphere: true
       },
       Tile::Sand => TileProperties {
-        glyph: ",", color: [0.8, 0.7, 0.4], minimap_color: [0.92, 0.80, 0.52],
-        texture_path: None, walkable: true, opaque: false, causes_falling: false,
-        name: "Sand", has_atmosphere: true,
+        glyph: ",",
+        color: [0.8, 0.7, 0.4],
+        minimap_color: [0.92, 0.80, 0.52],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Sand",
+        has_atmosphere: true
       },
       Tile::StairsUp => TileProperties {
-        glyph: "<", color: [0.9, 0.9, 0.2], minimap_color: [0.62, 0.55, 0.40],
-        texture_path: None, walkable: true, opaque: false, causes_falling: false,
-        name: "Stairs Up", has_atmosphere: true,
+        glyph: "<",
+        color: [0.9, 0.9, 0.2],
+        minimap_color: [0.62, 0.55, 0.40],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Stairs Up",
+        has_atmosphere: true
       },
       Tile::StairsDown => TileProperties {
-        glyph: ">", color: [0.9, 0.9, 0.2], minimap_color: [0.62, 0.55, 0.40],
-        texture_path: None, walkable: true, opaque: false, causes_falling: false,
-        name: "Stairs Down", has_atmosphere: true,
+        glyph: ">",
+        color: [0.9, 0.9, 0.2],
+        minimap_color: [0.62, 0.55, 0.40],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Stairs Down",
+        has_atmosphere: true
       },
       Tile::Door => TileProperties {
-        glyph: "+", color: [0.6, 0.3, 0.1], minimap_color: [0.38, 0.38, 0.40],
-        texture_path: None, walkable: true, opaque: false, causes_falling: false,
-        name: "Door", has_atmosphere: true,
+        glyph: "+",
+        color: [0.6, 0.3, 0.1],
+        minimap_color: [0.38, 0.38, 0.40],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Door",
+        has_atmosphere: true
       },
       Tile::TallGrass => TileProperties {
-        glyph: "\"", color: [0.25, 0.65, 0.25], minimap_color: [0.12, 0.48, 0.20],
-        texture_path: None, walkable: true, opaque: false, causes_falling: false,
-        name: "Tall Grass", has_atmosphere: true,
+        glyph: "\"",
+        color: [0.25, 0.65, 0.25],
+        minimap_color: [0.12, 0.48, 0.20],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Tall Grass",
+        has_atmosphere: true
       },
       Tile::Bush => TileProperties {
-        glyph: "%", color: [0.15, 0.45, 0.15], minimap_color: [0.10, 0.38, 0.12],
-        texture_path: None, walkable: false, opaque: false, causes_falling: false,
-        name: "Bush", has_atmosphere: true,
+        glyph: "%",
+        color: [0.15, 0.45, 0.15],
+        minimap_color: [0.10, 0.38, 0.12],
+        texture_path: None,
+        walkable: false,
+        opaque: false,
+        causes_falling: false,
+        name: "Bush",
+        has_atmosphere: true
       },
       Tile::Ash => TileProperties {
-        glyph: ".", color: [0.55, 0.53, 0.5], minimap_color: [0.92, 0.80, 0.52],
-        texture_path: None, walkable: true, opaque: false, causes_falling: false,
-        name: "Ash", has_atmosphere: true,
+        glyph: ".",
+        color: [0.55, 0.53, 0.5],
+        minimap_color: [0.92, 0.80, 0.52],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Ash",
+        has_atmosphere: true
       },
       Tile::Lava => TileProperties {
-        glyph: "~", color: [0.9, 0.3, 0.05], minimap_color: [0.95, 0.32, 0.08],
-        texture_path: None, walkable: false, opaque: false, causes_falling: false,
-        name: "Lava", has_atmosphere: true,
+        glyph: "~",
+        color: [0.9, 0.3, 0.05],
+        minimap_color: [0.95, 0.32, 0.08],
+        texture_path: None,
+        walkable: false,
+        opaque: false,
+        causes_falling: false,
+        name: "Lava",
+        has_atmosphere: true
       },
       Tile::ShallowWater => TileProperties {
-        glyph: "~", color: [0.3, 0.5, 0.85], minimap_color: [0.22, 0.55, 0.82],
-        texture_path: None, walkable: true, opaque: false, causes_falling: false,
-        name: "Shallow Water", has_atmosphere: true,
+        glyph: "~",
+        color: [0.3, 0.5, 0.85],
+        minimap_color: [0.22, 0.55, 0.82],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Shallow Water",
+        has_atmosphere: true
       },
       Tile::DeepWater => TileProperties {
-        glyph: "≈", color: [0.1, 0.15, 0.6], minimap_color: [0.05, 0.16, 0.42],
-        texture_path: None, walkable: false, opaque: false, causes_falling: false,
-        name: "Deep Water", has_atmosphere: true,
+        glyph: "≈",
+        color: [0.1, 0.15, 0.6],
+        minimap_color: [0.05, 0.16, 0.42],
+        texture_path: None,
+        walkable: false,
+        opaque: false,
+        causes_falling: false,
+        name: "Deep Water",
+        has_atmosphere: true
       },
       Tile::Road => TileProperties {
-        glyph: "·", color: [0.45, 0.4, 0.35], minimap_color: [0.50, 0.46, 0.40],
-        texture_path: None, walkable: true, opaque: false, causes_falling: false,
-        name: "Road", has_atmosphere: true,
+        glyph: "·",
+        color: [0.45, 0.4, 0.35],
+        minimap_color: [0.50, 0.46, 0.40],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Road",
+        has_atmosphere: true
       },
       Tile::WoodWall => TileProperties {
-        glyph: "#", color: [0.45, 0.3, 0.15], minimap_color: [0.38, 0.38, 0.40],
-        texture_path: None, walkable: false, opaque: true, causes_falling: false,
-        name: "Wooden Wall", has_atmosphere: true,
+        glyph: "#",
+        color: [0.45, 0.3, 0.15],
+        minimap_color: [0.38, 0.38, 0.40],
+        texture_path: None,
+        walkable: false,
+        opaque: true,
+        causes_falling: false,
+        name: "Wooden Wall",
+        has_atmosphere: true
       },
       Tile::WoodFloor => TileProperties {
-        glyph: ".", color: [0.55, 0.4, 0.25], minimap_color: [0.55, 0.42, 0.30],
-        texture_path: None, walkable: true, opaque: false, causes_falling: false,
-        name: "Wooden Floor", has_atmosphere: true,
+        glyph: ".",
+        color: [0.55, 0.4, 0.25],
+        minimap_color: [0.55, 0.42, 0.30],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Wooden Floor",
+        has_atmosphere: true
       },
       Tile::Fence => TileProperties {
-        glyph: "+", color: [0.5, 0.35, 0.2], minimap_color: [0.45, 0.55, 0.50],
-        texture_path: None, walkable: false, opaque: false, causes_falling: false,
-        name: "Fence", has_atmosphere: true,
+        glyph: "+",
+        color: [0.5, 0.35, 0.2],
+        minimap_color: [0.45, 0.55, 0.50],
+        texture_path: None,
+        walkable: false,
+        opaque: false,
+        causes_falling: false,
+        name: "Fence",
+        has_atmosphere: true
       },
       Tile::CaveWall => TileProperties {
-        glyph: "#", color: [0.3, 0.28, 0.25], minimap_color: [0.38, 0.38, 0.40],
-        texture_path: None, walkable: false, opaque: true, causes_falling: false,
-        name: "Cave Wall", has_atmosphere: true,
+        glyph: "#",
+        color: [0.3, 0.28, 0.25],
+        minimap_color: [0.38, 0.38, 0.40],
+        texture_path: None,
+        walkable: false,
+        opaque: true,
+        causes_falling: false,
+        name: "Cave Wall",
+        has_atmosphere: true
       },
       Tile::CaveFloor => TileProperties {
-        glyph: ".", color: [0.4, 0.38, 0.35], minimap_color: [0.62, 0.55, 0.40],
-        texture_path: None, walkable: true, opaque: false, causes_falling: false,
-        name: "Cave Floor", has_atmosphere: true,
+        glyph: ".",
+        color: [0.4, 0.38, 0.35],
+        minimap_color: [0.62, 0.55, 0.40],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Cave Floor",
+        has_atmosphere: true
       },
       Tile::CrystalFormation => TileProperties {
-        glyph: "*", color: [0.5, 0.8, 0.95], minimap_color: [0.45, 0.55, 0.50],
-        texture_path: None, walkable: false, opaque: false, causes_falling: false,
-        name: "Crystal Formation", has_atmosphere: true,
+        glyph: "*",
+        color: [0.5, 0.8, 0.95],
+        minimap_color: [0.45, 0.55, 0.50],
+        texture_path: None,
+        walkable: false,
+        opaque: false,
+        causes_falling: false,
+        name: "Crystal Formation",
+        has_atmosphere: true
       },
       // --- Space tiles ---
       Tile::DeckPlate => TileProperties {
-        glyph: ".", color: [0.55, 0.58, 0.62], minimap_color: [0.45, 0.47, 0.5],
-        texture_path: None, walkable: true, opaque: false, causes_falling: false,
-        name: "Deck Plate", has_atmosphere: true,
+        glyph: ".",
+        color: [0.55, 0.58, 0.62],
+        minimap_color: [0.45, 0.47, 0.5],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Deck Plate",
+        has_atmosphere: true
       },
       Tile::Bulkhead => TileProperties {
-        glyph: "#", color: [0.45, 0.47, 0.50], minimap_color: [0.35, 0.37, 0.4],
-        texture_path: None, walkable: false, opaque: true, causes_falling: false,
-        name: "Bulkhead", has_atmosphere: true,
+        glyph: "#",
+        color: [0.45, 0.47, 0.50],
+        minimap_color: [0.35, 0.37, 0.4],
+        texture_path: None,
+        walkable: false,
+        opaque: true,
+        causes_falling: false,
+        name: "Bulkhead",
+        has_atmosphere: true
       },
       Tile::Window => TileProperties {
-        glyph: "o", color: [0.2, 0.25, 0.7], minimap_color: [0.15, 0.2, 0.55],
-        texture_path: None, walkable: false, opaque: false, causes_falling: false,
-        name: "Window", has_atmosphere: true,
+        glyph: "o",
+        color: [0.2, 0.25, 0.7],
+        minimap_color: [0.15, 0.2, 0.55],
+        texture_path: None,
+        walkable: false,
+        opaque: false,
+        causes_falling: false,
+        name: "Window",
+        has_atmosphere: true
       },
       Tile::AirlockDoor => TileProperties {
-        glyph: "+", color: [0.7, 0.65, 0.3], minimap_color: [0.6, 0.55, 0.2],
-        texture_path: None, walkable: true, opaque: false, causes_falling: false,
-        name: "Airlock Door", has_atmosphere: true,
+        glyph: "+",
+        color: [0.7, 0.65, 0.3],
+        minimap_color: [0.6, 0.55, 0.2],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Airlock Door",
+        has_atmosphere: true
       },
       Tile::StationFloor => TileProperties {
-        glyph: ".", color: [0.55, 0.58, 0.62], minimap_color: [0.45, 0.47, 0.5],
-        texture_path: None, walkable: true, opaque: false, causes_falling: false,
-        name: "Station Floor", has_atmosphere: true,
+        glyph: ".",
+        color: [0.55, 0.58, 0.62],
+        minimap_color: [0.45, 0.47, 0.5],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Station Floor",
+        has_atmosphere: true
       },
       Tile::StationWall => TileProperties {
-        glyph: "#", color: [0.5, 0.52, 0.55], minimap_color: [0.35, 0.37, 0.4],
-        texture_path: None, walkable: false, opaque: true, causes_falling: false,
-        name: "Station Wall", has_atmosphere: true,
+        glyph: "#",
+        color: [0.5, 0.52, 0.55],
+        minimap_color: [0.35, 0.37, 0.4],
+        texture_path: None,
+        walkable: false,
+        opaque: true,
+        causes_falling: false,
+        name: "Station Wall",
+        has_atmosphere: true
       },
       Tile::DerelictFloor => TileProperties {
-        glyph: ".", color: [0.35, 0.33, 0.3], minimap_color: [0.28, 0.26, 0.22],
-        texture_path: None, walkable: true, opaque: false, causes_falling: false,
-        name: "Derelict Floor", has_atmosphere: true,
+        glyph: ".",
+        color: [0.35, 0.33, 0.3],
+        minimap_color: [0.28, 0.26, 0.22],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Derelict Floor",
+        has_atmosphere: true
       },
       Tile::DerelictWall => TileProperties {
-        glyph: "#", color: [0.3, 0.28, 0.25], minimap_color: [0.28, 0.26, 0.22],
-        texture_path: None, walkable: false, opaque: true, causes_falling: false,
-        name: "Derelict Wall", has_atmosphere: true,
+        glyph: "#",
+        color: [0.3, 0.28, 0.25],
+        minimap_color: [0.28, 0.26, 0.22],
+        texture_path: None,
+        walkable: false,
+        opaque: true,
+        causes_falling: false,
+        name: "Derelict Wall",
+        has_atmosphere: true
       },
       Tile::Conduit => TileProperties {
-        glyph: "=", color: [0.6, 0.55, 0.2], minimap_color: [0.5, 0.45, 0.15],
-        texture_path: None, walkable: true, opaque: false, causes_falling: false,
-        name: "Conduit", has_atmosphere: true,
+        glyph: "=",
+        color: [0.6, 0.55, 0.2],
+        minimap_color: [0.5, 0.45, 0.15],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Conduit",
+        has_atmosphere: true
       },
       Tile::AsteroidRock => TileProperties {
-        glyph: "#", color: [0.4, 0.35, 0.3], minimap_color: [0.42, 0.38, 0.33],
-        texture_path: None, walkable: false, opaque: true, causes_falling: false,
-        name: "Asteroid Rock", has_atmosphere: true,
+        glyph: "#",
+        color: [0.4, 0.35, 0.3],
+        minimap_color: [0.42, 0.38, 0.33],
+        texture_path: None,
+        walkable: false,
+        opaque: true,
+        causes_falling: false,
+        name: "Asteroid Rock",
+        has_atmosphere: true
       },
       Tile::AsteroidFloor => TileProperties {
-        glyph: ".", color: [0.5, 0.45, 0.4], minimap_color: [0.42, 0.38, 0.33],
-        texture_path: None, walkable: true, opaque: false, causes_falling: false,
-        name: "Asteroid Floor", has_atmosphere: true,
+        glyph: ".",
+        color: [0.5, 0.45, 0.4],
+        minimap_color: [0.42, 0.38, 0.33],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Asteroid Floor",
+        has_atmosphere: true
       },
       Tile::Regolith => TileProperties {
-        glyph: ",", color: [0.55, 0.5, 0.45], minimap_color: [0.6, 0.62, 0.68],
-        texture_path: None, walkable: true, opaque: false, causes_falling: false,
-        name: "Regolith", has_atmosphere: true,
+        glyph: ",",
+        color: [0.55, 0.5, 0.45],
+        minimap_color: [0.6, 0.62, 0.68],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Regolith",
+        has_atmosphere: true
       },
       Tile::Vacuum => TileProperties {
-        glyph: " ", color: [0.0, 0.0, 0.0], minimap_color: [0.02, 0.03, 0.06],
-        texture_path: None, walkable: true, opaque: false, causes_falling: false,
-        name: "Vacuum", has_atmosphere: false,
+        glyph: " ",
+        color: [0.0, 0.0, 0.0],
+        minimap_color: [0.02, 0.03, 0.06],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Vacuum",
+        has_atmosphere: false
       },
       Tile::IceFloor => TileProperties {
-        glyph: ",", color: [0.7, 0.75, 0.85], minimap_color: [0.6, 0.62, 0.68],
-        texture_path: None, walkable: true, opaque: false, causes_falling: false,
-        name: "Ice Floor", has_atmosphere: true,
+        glyph: ",",
+        color: [0.7, 0.75, 0.85],
+        minimap_color: [0.6, 0.62, 0.68],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Ice Floor",
+        has_atmosphere: true
       },
       Tile::IceWall => TileProperties {
-        glyph: "#", color: [0.5, 0.55, 0.7], minimap_color: [0.45, 0.5, 0.62],
-        texture_path: None, walkable: false, opaque: true, causes_falling: false,
-        name: "Ice Wall", has_atmosphere: true,
+        glyph: "#",
+        color: [0.5, 0.55, 0.7],
+        minimap_color: [0.45, 0.5, 0.62],
+        texture_path: None,
+        walkable: false,
+        opaque: true,
+        causes_falling: false,
+        name: "Ice Wall",
+        has_atmosphere: true
       },
       Tile::AlienSoil => TileProperties {
-        glyph: ",", color: [0.45, 0.35, 0.55], minimap_color: [0.35, 0.45, 0.3],
-        texture_path: None, walkable: true, opaque: false, causes_falling: false,
-        name: "Alien Soil", has_atmosphere: true,
+        glyph: ",",
+        color: [0.45, 0.35, 0.55],
+        minimap_color: [0.35, 0.45, 0.3],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Alien Soil",
+        has_atmosphere: true
       },
       Tile::AlienGrass => TileProperties {
-        glyph: "\"", color: [0.3, 0.55, 0.3], minimap_color: [0.35, 0.45, 0.3],
-        texture_path: None, walkable: true, opaque: false, causes_falling: false,
-        name: "Alien Grass", has_atmosphere: true,
+        glyph: "\"",
+        color: [0.3, 0.55, 0.3],
+        minimap_color: [0.35, 0.45, 0.3],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Alien Grass",
+        has_atmosphere: true
       },
       Tile::CrystalGrowth => TileProperties {
-        glyph: "*", color: [0.5, 0.8, 0.95], minimap_color: [0.4, 0.65, 0.8],
-        texture_path: None, walkable: false, opaque: false, causes_falling: false,
-        name: "Crystal Growth", has_atmosphere: true,
+        glyph: "*",
+        color: [0.5, 0.8, 0.95],
+        minimap_color: [0.4, 0.65, 0.8],
+        texture_path: None,
+        walkable: false,
+        opaque: false,
+        causes_falling: false,
+        name: "Crystal Growth",
+        has_atmosphere: true
       },
       Tile::AlienFluid => TileProperties {
-        glyph: "~", color: [0.5, 0.3, 0.7], minimap_color: [0.4, 0.25, 0.6],
-        texture_path: None, walkable: true, opaque: false, causes_falling: false,
-        name: "Alien Fluid", has_atmosphere: true,
-      },
+        glyph: "~",
+        color: [0.5, 0.3, 0.7],
+        minimap_color: [0.4, 0.25, 0.6],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Alien Fluid",
+        has_atmosphere: true
+      }
     }
   }
 
@@ -702,7 +964,7 @@ pub fn compute_fov(
   cx: i32,
   cy: i32,
   radius: i32,
-  mut blocks_sight: impl FnMut(i32, i32) -> bool,
+  mut blocks_sight: impl FnMut(i32, i32) -> bool
 ) {
   fov.clear_visible();
 
@@ -718,7 +980,13 @@ pub fn compute_fov(
   vis[r][r] = true;
 
   fn sign(n: i32) -> i32 {
-    if n > 0 { 1 } else if n < 0 { -1 } else { 0 }
+    if n > 0 {
+      1
+    } else if n < 0 {
+      -1
+    } else {
+      0
+    }
   }
 
   for d in 1..=radius {
@@ -753,20 +1021,17 @@ pub fn compute_fov(
           let (lx, ly) = (cx + dx + px, cy + dy + py);
           // SS13-style: the viewer's own cell never blocks *outward* spread (e.g. standing
           // on a tree, wall, or "telefragged" into a wall still sees the ring around them).
-          let parent_blocks =
-            (lx, ly) != (cx, cy)
-              && (level.get(lx, ly).is_some_and(|t| t.opaque()) || blocks_sight(lx, ly));
-          uj < size
-            && ui < size
-            && vis[ui][uj]
-            && !parent_blocks
+          let parent_blocks = (lx, ly) != (cx, cy)
+            && (level.get(lx, ly).is_some_and(|t| t.opaque()) || blocks_sight(lx, ly));
+          uj < size && ui < size && vis[ui][uj] && !parent_blocks
         });
 
         if visible {
           let (j, i) = ((dx + radius) as usize, (dy + radius) as usize);
           vis[i][j] = true;
           let (wx, wy) = (cx + dx, cy + dy);
-          if wx >= 0 && wy >= 0 && (wx as usize) < fov.width && (wy as usize) < fov.height {
+          if wx >= 0 && wy >= 0 && (wx as usize) < fov.width && (wy as usize) < fov.height
+          {
             fov.mark_visible(wx as usize, wy as usize);
           }
         }

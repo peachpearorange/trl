@@ -724,7 +724,10 @@ fn sync_ui(
     crate::DialogueState::Open { speaker, tree, node_name } => {
       let node = tree.find(node_name);
       let options: Vec<String> = mapv(|c| c.text.to_string(), node.choices);
-      Some(OverlayKind::Dialogue { title: format!("What do you say? ({speaker})"), options })
+      Some(OverlayKind::Dialogue {
+        title: format!("What do you say? ({speaker})"),
+        options
+      })
     }
     crate::DialogueState::Closed => None
   });
@@ -780,7 +783,9 @@ fn compute_hover_info(
         .then(|| c.viewport_to_world_2d(ct, cursor).ok())
         .flatten()
         .map(|world| world_to_level_cell(world, lw, lh))
-        .filter(|&(tx, ty)| tx >= 0 && ty >= 0 && (tx as usize) < lw && (ty as usize) < lh)
+        .filter(|&(tx, ty)| {
+          tx >= 0 && ty >= 0 && (tx as usize) < lw && (ty as usize) < lh
+        })
     };
     if let Some((tx, ty)) = pick(window, camera, cam_tf, level.width, level.height) {
       let visible = fov.0.is_visible(tx as usize, ty as usize);

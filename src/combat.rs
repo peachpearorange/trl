@@ -1,8 +1,6 @@
-use {
-  bevy::prelude::*,
-  std::collections::{HashMap, HashSet},
-  trl::entities::{Collidable, Enemy, Location, Stats, TimeSinceAction, Wearing},
-};
+use {bevy::prelude::*,
+     std::collections::{HashMap, HashSet},
+     trl::entities::{Collidable, Enemy, Location, Stats, TimeSinceAction, Wearing}};
 
 // ---------------------------------------------------------------------------
 // Tile-entity spatial index
@@ -34,7 +32,7 @@ pub fn maintain_tile_index(
 pub fn bump_attack(
   attacker_attack: i32,
   target_stats: &mut Stats,
-  target_wearing: Option<&Wearing>,
+  target_wearing: Option<&Wearing>
 ) -> bool {
   let dmg = resolve_damage(attacker_attack, target_wearing);
   target_stats.hp -= dmg;
@@ -43,10 +41,7 @@ pub fn bump_attack(
 
 /// Compute damage dealt to a target, accounting for armor DR.
 pub fn resolve_damage(attack: i32, wearing: Option<&Wearing>) -> i32 {
-  let dr = wearing
-    .and_then(|w| w.0)
-    .map(|armor| armor.dr())
-    .unwrap_or(0);
+  let dr = wearing.and_then(|w| w.0).map(|armor| armor.dr()).unwrap_or(0);
   (attack - dr).max(0)
 }
 
@@ -76,7 +71,7 @@ pub fn tile_blocked(
   y: i32,
   z: usize,
   index: &TileEntityIndex,
-  collidable_q: &Query<&Collidable>,
+  collidable_q: &Query<&Collidable>
 ) -> bool {
   !level.walkable(x, y)
     || index.0.get(&(x, y, z)).is_some_and(|entities| {
@@ -89,12 +84,15 @@ pub fn enemy_ai(
   current: Res<crate::CurrentZone>,
   clock: Res<crate::Clock>,
   mut tb: ResMut<crate::TurnBasedWorldState>,
-  mut player_q: Query<(&crate::PlayerPos, &mut Stats), (With<crate::Player>, Without<Enemy>)>,
+  mut player_q: Query<
+    (&crate::PlayerPos, &mut Stats),
+    (With<crate::Player>, Without<Enemy>)
+  >,
   mut enemy_q: Query<
     (&mut Location, &mut TimeSinceAction, &Stats, Option<&Wearing>),
-    (With<Enemy>, Without<crate::Player>),
+    (With<Enemy>, Without<crate::Player>)
   >,
-  collidable_q: Query<&Collidable>,
+  collidable_q: Query<&Collidable>
 ) {
   if let Ok((player_pos, mut player_stats)) = player_q.single_mut() {
     let (px, py) = (player_pos.x, player_pos.y);
@@ -124,7 +122,8 @@ pub fn enemy_ai(
           if !tile_blocked(level, nex, ney, ez, &index, &collidable_q)
             && !claimed.contains(&(nex, ney))
           {
-            let below = ez.checked_sub(1)
+            let below = ez
+              .checked_sub(1)
               .map(|z1| current.0.level(z1).tiles[ney as usize][nex as usize]);
             let nz = if (level.tiles[ney as usize][nex as usize].causes_falling()
               || below.is_some_and(|t| t.causes_falling()))
@@ -149,8 +148,8 @@ pub fn enemy_ai(
 
 #[cfg(test)]
 mod tests {
-  use super::*;
-  use trl::entities::{Armor, Wearing};
+  use {super::*,
+       trl::entities::{Armor, Wearing}};
 
   #[test]
   fn no_armor_deals_full_damage() {

@@ -1,37 +1,30 @@
 use std::collections::HashMap;
 
-use crate::entities::{Glyph, Named, Object, Stats};
-use crate::level::{Level, Tile};
-use bevy::prelude::{Color, Commands};
+use {crate::{entities::{Glyph, Named, Object, Stats},
+             level::{Level, Tile}},
+     bevy::prelude::{Color, Commands}};
 
 /// ASCII layout plus `.assoc(…, (Tile, […]))` chains. Apply with [`Prefab::stamp_level`] /
 /// [`Prefab::stamp_entities`].
 pub struct Prefab {
   layout: String,
-  assocs: HashMap<char, (Tile, Vec<Object>)>,
+  assocs: HashMap<char, (Tile, Vec<Object>)>
 }
 
-pub fn prefab(layout: impl Into<String>) -> Prefab {
-  Prefab::new(layout)
-}
+pub fn prefab(layout: impl Into<String>) -> Prefab { Prefab::new(layout) }
 
 impl Prefab {
   pub fn new(layout: impl Into<String>) -> Self {
-    Self {
-      layout: layout.into(),
-      assocs: HashMap::new(),
-    }
+    Self { layout: layout.into(), assocs: HashMap::new() }
   }
 
   /// `(tile, object templates …)` per layout character. Each [`Object`] is [`Clone`]d per grid cell.
   pub fn assoc<const N: usize>(
     mut self,
     marker: impl AssocMarker,
-    (tile, templates): (Tile, [Object; N]),
+    (tile, templates): (Tile, [Object; N])
   ) -> Self {
-    self
-      .assocs
-      .insert(marker.assoc_char(), (tile, Vec::from(templates)));
+    self.assocs.insert(marker.assoc_char(), (tile, Vec::from(templates)));
     self
   }
 
@@ -43,7 +36,7 @@ impl Prefab {
     wfnfw
     wwdfw
     wwwww
-    ",
+    "
     )
     .assoc('w', (Tile::StationWall, []))
     .assoc('f', (Tile::StationFloor, []))
@@ -61,7 +54,7 @@ impl Prefab {
     b.....b
     b..a..b
     bbbbbbb
-    ",
+    "
     )
     .assoc('b', (Tile::Bulkhead, []))
     .assoc('w', (Tile::Window, []))
@@ -87,7 +80,8 @@ impl Prefab {
 
   /// Full starter ship deck (`SHIP_WIDTH` × `SHIP_HEIGHT`), matching the former procedural layout.
   pub fn starting_ship() -> Self {
-    prefab("
+    prefab(
+      "
 ###WWWWWWWWWWWWWW###
 #..................#
 #.........C........#
@@ -103,7 +97,8 @@ W..................W
 #..................#
 #..................#
 ##########a#########
-")
+"
+    )
     .assoc('#', (Tile::Bulkhead, []))
     .assoc('.', (Tile::DeckPlate, []))
     .assoc('W', (Tile::Window, []))
@@ -142,11 +137,8 @@ W..................W
 
   fn visit_cells<F: FnMut(i32, i32, Tile, &[Object])>(&self, mut f: F) {
     let lines = {
-      let raw_lines = self
-        .layout
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .collect::<Vec<_>>();
+      let raw_lines =
+        self.layout.lines().filter(|l| !l.trim().is_empty()).collect::<Vec<_>>();
       let indent = raw_lines
         .iter()
         .filter_map(|line| {
@@ -184,9 +176,7 @@ pub trait AssocMarker {
 }
 
 impl AssocMarker for char {
-  fn assoc_char(self) -> char {
-    self
-  }
+  fn assoc_char(self) -> char { self }
 }
 
 impl AssocMarker for &str {
@@ -200,12 +190,9 @@ impl AssocMarker for &str {
 
 fn resident() -> Object {
   Object::npc().add((
-    Named {
-      name: "Resident",
-      flavor: "Someone trying to keep a small place livable.",
-    },
+    Named { name: "Resident", flavor: "Someone trying to keep a small place livable." },
     Stats { hp: 8, max_hp: 8, attack: 1, move_speed: 3.0, attack_speed: 1.0 },
-    Glyph::ascii('@', Color::srgb(0.7, 0.9, 1.0)),
+    Glyph::ascii('@', Color::srgb(0.7, 0.9, 1.0))
   ))
 }
 
@@ -213,32 +200,24 @@ fn ship_pilot() -> Object {
   Object::npc().add((
     Named {
       name: "Pilot",
-      flavor: "Ticks through a short pre-flight list. Coffee stains on the console manual.",
+      flavor: "Ticks through a short pre-flight list. Coffee stains on the console manual."
     },
     Stats { hp: 10, max_hp: 10, attack: 1, move_speed: 3.0, attack_speed: 1.0 },
-    Glyph::ascii('@', Color::srgb(0.55, 0.82, 0.95)),
+    Glyph::ascii('@', Color::srgb(0.55, 0.82, 0.95))
   ))
 }
 
 #[cfg(test)]
 mod ship_legacy_reference {
-  use crate::level::{Level, Tile};
-  use crate::ship::{SHIP_HEIGHT, SHIP_WIDTH};
+  use crate::{level::{Level, Tile},
+              ship::{SHIP_HEIGHT, SHIP_WIDTH}};
 
   pub fn legacy_fill_ship(deck: &mut Level) {
     for y in 0..SHIP_HEIGHT as i32 {
       for x in 0..SHIP_WIDTH as i32 {
         let is_edge =
           x == 0 || x == SHIP_WIDTH as i32 - 1 || y == 0 || y == SHIP_HEIGHT as i32 - 1;
-        deck.set(
-          x,
-          y,
-          if is_edge {
-            Tile::Bulkhead
-          } else {
-            Tile::DeckPlate
-          },
-        );
+        deck.set(x, y, if is_edge { Tile::Bulkhead } else { Tile::DeckPlate });
       }
     }
     deck.set(10, 14, Tile::AirlockDoor);
@@ -276,8 +255,8 @@ mod ship_legacy_reference {
 
 #[cfg(test)]
 mod tests {
-  use super::*;
-  use crate::level::{Level, Tile};
+  use {super::*,
+       crate::level::{Level, Tile}};
 
   fn chest() -> Object { Object::loot_chest() }
 
@@ -290,7 +269,7 @@ mod tests {
             www
             wkw
             www
-            ",
+            "
     )
     .assoc('k', (Tile::Floor, [chest(), enemy()]))
     .assoc('w', (Tile::Wall, []));
@@ -321,7 +300,7 @@ mod tests {
       "
 aa
 aa
-",
+"
     )
     .assoc("a", (Tile::DeckPlate, []));
 

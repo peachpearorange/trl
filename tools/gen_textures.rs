@@ -80,14 +80,14 @@ impl TileLoader {
 
   pub fn load(&mut self, name: &str) -> Option<PixelArt> {
     if let Some(cached) = self.cache.get(name) {
-       Some(cached.clone())
+      Some(cached.clone())
+    } else if let Ok(content) = fs::read_to_string(&format!("tiles/{name}.sprite")) {
+      let art = PixelArt::from_text(&content);
+      self.cache.insert(name.to_string(), art.clone());
+      Some(art)
+    } else {
+      None
     }
-    else if let Ok(content)=fs::read_to_string(&format!("tiles/{name}.sprite")){
-        let art = PixelArt::from_text(&content);
-        self.cache.insert(name.to_string(), art.clone());
-        Some(art)
-    }
-    else {None}
   }
 
   pub fn load_or_single(&mut self, name: &str, fallback_char: char) -> Sprite {

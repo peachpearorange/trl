@@ -1,24 +1,24 @@
-use crate::active_zone::ActiveZone;
-use crate::galaxy::{Galaxy, LocationId};
-use crate::ship::Ship;
+use crate::{active_zone::ActiveZone,
+            galaxy::{Galaxy, LocationId},
+            ship::Ship};
 
 /// Dock the ship at a specific landing spot of the destination location.
 /// Returns the new merged ActiveZone, or None if docking failed.
 pub fn dock(
-    galaxy: &Galaxy,
-    ship: &mut Ship,
-    dest_id: LocationId,
-    landing_spot_idx: usize,
+  galaxy: &Galaxy,
+  ship: &mut Ship,
+  dest_id: LocationId,
+  landing_spot_idx: usize
 ) -> Option<ActiveZone> {
-    let ship_loc = galaxy.get(ship.location_id)?;
-    let dest = galaxy.get(dest_id)?;
-    let merged = ActiveZone::docked(ship_loc, dest, landing_spot_idx)?;
-    ship.docked_at = Some(dest_id);
-    Some(merged)
+  let ship_loc = galaxy.get(ship.location_id)?;
+  let dest = galaxy.get(dest_id)?;
+  let merged = ActiveZone::docked(ship_loc, dest, landing_spot_idx)?;
+  ship.docked_at = Some(dest_id);
+  Some(merged)
 }
 
 /// Undock the ship. Returns the ship-only ActiveZone.
 pub fn undock(galaxy: &Galaxy, ship: &mut Ship) -> ActiveZone {
-    ship.docked_at = None;
-    ActiveZone::ship_only(galaxy.get(ship.location_id).expect("ship must exist in galaxy"))
+  ship.docked_at = None;
+  ActiveZone::ship_only(galaxy.get(ship.location_id).expect("ship must exist in galaxy"))
 }

@@ -10,9 +10,9 @@ use {bevy::prelude::*,
      combat::{TileEntityIndex, enemy_ai, maintain_tile_index},
      level::{FovGrid, Item, Tile, ZONE_HEIGHT, ZONE_WIDTH, compute_fov},
      std::collections::{HashMap, HashSet},
-     trl::entities::{BlocksSight, Collidable, Dialogue, DialogueNode, DialogueTree, Door,
-                     Enemy, FlightConsole, Glyph, Location, LootChest, Named, Stats, Tree,
-                     Visuals},
+     trl::entities::{BlocksSight, Collidable, Dialogue, DialogueNode, DialogueTree,
+                     Door, Enemy, FlightConsole, Glyph, Location, LootChest, Named,
+                     Stats, Tree, Visuals},
      ui::{LogEntries, log_message}};
 
 use trl::{active_zone::{self, ActiveZone},
@@ -170,9 +170,13 @@ pub struct Clock {
 pub struct TimeModeAuto(pub bool);
 
 impl Clock {
-  fn new() -> Self { Clock { time: 0, mode: TimeMode::RealTime, move_cooldown_frames: 0 } }
+  fn new() -> Self {
+    Clock { time: 0, mode: TimeMode::RealTime, move_cooldown_frames: 0 }
+  }
 
-  fn advance(&mut self, cost: u32) { self.time = self.time.saturating_add(u64::from(cost)); }
+  fn advance(&mut self, cost: u32) {
+    self.time = self.time.saturating_add(u64::from(cost));
+  }
 }
 
 /// In turn-based mode, the world only advances in [`SimStep`] after a player spends a turn and
@@ -457,7 +461,9 @@ fn setup_glyph_visuals(
   }
 }
 
-fn sync_entity_positions(mut query: Query<(&Visuals, &mut Transform), With<GlyphVisual>>) {
+fn sync_entity_positions(
+  mut query: Query<(&Visuals, &mut Transform), With<GlyphVisual>>
+) {
   for (vis, mut transform) in query.iter_mut() {
     transform.translation =
       tile_screen_pos(vis.display.x, vis.display.y, ZONE_WIDTH, ZONE_HEIGHT)
@@ -496,8 +502,12 @@ fn main() {
   )
   .expect("ship should dock at starter planet");
 
-  let ship_res =
-    ship::Ship { location_id: ship_id, docked_at: Some(origin), fuel: 500, max_fuel: 500 };
+  let ship_res = ship::Ship {
+    location_id: ship_id,
+    docked_at: Some(origin),
+    fuel: 500,
+    max_fuel: 500
+  };
 
   let fov = level::FovGrid::new(active.width, active.height);
 
@@ -632,7 +642,10 @@ pub(crate) fn world_to_level_cell(world: Vec2, w: usize, h: usize) -> (i32, i32)
 
 /// Despawn enemies with 0 or fewer HP. Runs in SimStep so dead enemies
 /// are removed before the next frame's rendering and AI.
-fn enemy_death_check(mut commands: Commands, enemy_q: Query<(Entity, &Stats), With<Enemy>>) {
+fn enemy_death_check(
+  mut commands: Commands,
+  enemy_q: Query<(Entity, &Stats), With<Enemy>>
+) {
   for (entity, stats) in enemy_q.iter() {
     if stats.hp <= 0 {
       commands.entity(entity).despawn();
@@ -687,9 +700,12 @@ fn update_tile_hover_highlight(
           .then(|| c.viewport_to_world_2d(ct, cursor).ok())
           .flatten()
           .map(|world| world_to_level_cell(world, lw, lh))
-          .filter(|&(tx, ty)| tx >= 0 && ty >= 0 && (tx as usize) < lw && (ty as usize) < lh)
+          .filter(|&(tx, ty)| {
+            tx >= 0 && ty >= 0 && (tx as usize) < lw && (ty as usize) < lh
+          })
       };
-      if let Some((tx, ty)) = pick(window, camera, cam_transform, level.width, level.height)
+      if let Some((tx, ty)) =
+        pick(window, camera, cam_transform, level.width, level.height)
       {
         let visible = fov.0.is_visible(tx as usize, ty as usize);
         let revealed = fov.0.is_revealed(tx as usize, ty as usize);
@@ -990,8 +1006,26 @@ fn resolve_move(level: &level::Level, px: i32, py: i32, dx: i32, dy: i32) -> (i3
 // Pause / Esc menu
 // ---------------------------------------------------------------------------
 
-/// Rebuilds [`Sprite`]/[`Text2d`] for a door after its [`Glyph`] is reassigned.
-fn attach_glyph_visual_for_door(
+fn door_glyph(open: bool) -> Glyph {
+  if open {
+    Glyph::palette_sprite(
+      "textures/space_qud/door open (2).png",
+      '/',
+      DOOR_OPEN_PRI,
+      DOOR_OPEN_SEC
+    )
+  } else {
+    Glyph::palette_sprite(
+      "textures/space_qud/door closed (1).png",
+      '+',
+      DOOR_CLOSED_PRI,
+      DOOR_CLOSED_SEC
+    )
+  }
+}
+
+/// Rebuilds [`Sprite`]/[`Text2d`] after a door's glyph changes.
+fn sync_door_visual(
   commands: &mut Commands,
   entity: Entity,
   glyph: &Glyph,
@@ -1028,7 +1062,12 @@ fn attach_glyph_visual_for_door(
       },
       Transform::from_translation(pos),
       GlyphVisual,
-      Visuals { prev: local, last_move_start_frame: None, display: local, last_pos: local }
+      Visuals {
+        prev: local,
+        last_move_start_frame: None,
+        display: local,
+        last_pos: local
+      }
     ));
   } else {
     commands.entity(entity).insert((
@@ -1037,9 +1076,49 @@ fn attach_glyph_visual_for_door(
       TextColor(glyph.color),
       Transform::from_translation(pos),
       GlyphVisual,
-      Visuals { prev: local, last_move_start_frame: None, display: local, last_pos: local }
+      Visuals {
+        prev: local,
+        last_move_start_frame: None,
+        display: local,
+        last_pos: local
+      }
     ));
   }
+}
+
+fn set_door_open_state(
+  commands: &mut Commands,
+  entity: Entity,
+  door: &mut Door,
+  glyph: &mut Glyph,
+  location: &Location,
+  open: bool,
+  airlock: Option<&mut AirlockDoor>,
+  clock_time: u64,
+  palette_cache: &mut PaletteImageCache,
+  images: &mut Assets<Image>,
+  asset_server: &AssetServer
+) {
+  door.open = open;
+  if open {
+    commands.entity(entity).remove::<Collidable>();
+    commands.entity(entity).remove::<BlocksSight>();
+  } else {
+    commands.entity(entity).insert((Collidable(true), BlocksSight));
+  }
+  if let Some(airlock) = airlock {
+    airlock.opened_at_sim_time = open.then_some(clock_time);
+  }
+  *glyph = door_glyph(open);
+  sync_door_visual(
+    commands,
+    entity,
+    &*glyph,
+    location,
+    palette_cache,
+    images,
+    asset_server
+  );
 }
 
 fn handle_menus(
@@ -1234,7 +1313,11 @@ fn apply_open_chest(
     ));
     log_message(
       log,
-      format!("You empty the chest ({} stack{}).", kinds, if kinds == 1 { "" } else { "s" })
+      format!(
+        "You empty the chest ({} stack{}).",
+        kinds,
+        if kinds == 1 { "" } else { "s" }
+      )
     );
     clock.advance(1);
     note_player_turn_moved_world(clock, tb);
@@ -1299,7 +1382,10 @@ fn handle_utility_menus(
     if keys.just_pressed(KeyCode::KeyG) {
       let opts = build_salvage_options(&inv.0);
       if opts.is_empty() {
-        log_message(&mut *log, "Nothing to salvage (gear, consumables, some junk).".into());
+        log_message(
+          &mut *log,
+          "Nothing to salvage (gear, consumables, some junk).".into()
+        );
       } else {
         ui.interact = InteractMenu::Open { options: opts };
       }
@@ -1417,36 +1503,19 @@ fn dispatch_interactive_choice(
       pending_nav.0 = Some(*dest);
     }
     InteractionAction::ToggleDoor(entity) => {
-      if let Ok((mut door, mut glyph, _collidable, location, airlock)) =
+      if let Ok((mut door, mut glyph, _collidable, location, mut airlock)) =
         door_q.get_mut(*entity)
       {
-        door.open = !door.open;
-        if door.open {
-          commands.entity(*entity).remove::<Collidable>();
-          commands.entity(*entity).remove::<BlocksSight>();
-          *glyph = Glyph::palette_sprite(
-            "textures/space_qud/door open (2).png",
-            '/',
-            DOOR_OPEN_PRI,
-            DOOR_OPEN_SEC
-          );
-        } else {
-          commands.entity(*entity).insert((Collidable(true), BlocksSight));
-          *glyph = Glyph::palette_sprite(
-            "textures/space_qud/door closed (1).png",
-            '+',
-            DOOR_CLOSED_PRI,
-            DOOR_CLOSED_SEC
-          );
-        }
-        if let Some(mut airlock) = airlock {
-          airlock.opened_at_sim_time = door.open.then_some(clock.time);
-        }
-        attach_glyph_visual_for_door(
+        let open = !door.open;
+        set_door_open_state(
           commands,
           *entity,
-          &*glyph,
+          &mut door,
+          &mut glyph,
           location,
+          open,
+          airlock.as_deref_mut(),
+          clock.time,
           palette_cache,
           images,
           asset_server
@@ -1476,20 +1545,15 @@ fn auto_close_airlocks(
         .opened_at_sim_time
         .is_some_and(|opened| clock.time.saturating_sub(opened) >= AUTO_CLOSE_SIM_FRAMES)
     {
-      door.open = false;
-      airlock.opened_at_sim_time = None;
-      commands.entity(entity).insert((Collidable(true), BlocksSight));
-      *glyph = Glyph::palette_sprite(
-        "textures/space_qud/door closed (1).png",
-        '+',
-        DOOR_CLOSED_PRI,
-        DOOR_CLOSED_SEC
-      );
-      attach_glyph_visual_for_door(
+      set_door_open_state(
         &mut commands,
         entity,
-        &*glyph,
+        &mut door,
+        &mut glyph,
         location,
+        false,
+        Some(&mut airlock),
+        clock.time,
         &mut palette_cache,
         &mut images,
         &asset_server
@@ -1806,7 +1870,10 @@ fn apply_pending_navigation(
     return;
   }
   let Some(new_zone) = docking::dock(&galaxy, &mut ship, dest, 0) else {
-    log_message(&mut *log, "Astrogation: cannot plot a dock for that destination.".into());
+    log_message(
+      &mut *log,
+      "Astrogation: cannot plot a dock for that destination.".into()
+    );
     return;
   };
   let despawn_entities: HashSet<Entity> = tile_glyphs
