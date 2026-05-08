@@ -1737,6 +1737,7 @@ fn handle_interact(
   keys: Res<ButtonInput<KeyCode>>,
   current: Res<CurrentZone>,
   mut ui: ResMut<UiState>,
+  mut flash: ResMut<BumpInteractFlash>,
   index: Res<TileEntityIndex>,
   player_q: Query<&PlayerPos, With<Player>>,
   dialogue_q: Query<(&Named, &Dialogue)>,
@@ -1775,8 +1776,10 @@ fn handle_interact(
       }
     }
 
-    if !options.is_empty() {
-      ui.interact = InteractMenu::Open { options };
+    match options.len() {
+      0 => {}
+      1 => flash.0 = options.into_iter().next(),
+      _ => ui.interact = InteractMenu::Open { options }
     }
   }
 }
