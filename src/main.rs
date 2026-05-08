@@ -11,8 +11,8 @@ use {bevy::prelude::*,
   level::{FovGrid, Item, Tile, ZONE_HEIGHT, ZONE_WIDTH, compute_fov},
   std::collections::{HashMap, HashSet},
      trl::entities::{BlocksSight, Collidable, Dialogue, DialogueNode, DialogueTree, Door,
-                     Enemy, Glyph, Location, LootChest, Named, Object, Stats, Tree,
-                     Visuals},
+                     Enemy, FlightConsole, Glyph, Location, LootChest, Named, Stats,
+                     Tree, Visuals},
      ui::{LogEntries, WorldMapView, log_message}};
 
 use trl::{active_zone::{self, ActiveZone},
@@ -87,6 +87,7 @@ enum InteractionAction {
   ChopTree(Entity),
   PickUpItem(i32, i32),
   OpenChest(Entity),
+  OpenWorldMap,
   Salvage(Item),
   Craft(usize)
 }
@@ -182,6 +183,10 @@ pub struct TurnBasedWorldState {
   pub pending_enemy_phase: bool
 }
 
+/// Filled by [`player_input`] when a move is blocked; [`resolve_bump_interact`] reads it the same frame.
+#[derive(Resource, Default)]
+struct PendingBumpInteract(pub Option<(i32, i32, usize)>);
+
 /// Set when the player picks "Open chest" from the interact menu; applied next frame.
 #[derive(Resource, Default)]
 struct ChestOpenPending(pub Option<Entity>);
@@ -216,6 +221,22 @@ fn should_run_sim_step(
   } else {
     tb.pending_enemy_phase && clock.move_cooldown_frames == 0
   }
+}
+
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
+enum FramePipeline {
+  BumpRender,
+  TileIndex,
+  GlyphSetup,
+  TimeMode,
+  WorldMapKey,
+  DialogueKey,
+  Menus,
+  FlushChest,
+  InteractKey,
+  UtilityMenus,
+  PlayerMove,
+  BumpResolve
 }
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
@@ -480,6 +501,7 @@ fn main() {
         .insert_resource(Clock::new())
         .insert_resource(TimeModeAuto(true))
         .init_resource::<ChestOpenPending>()
+        .init_resource::<PendingBumpInteract>()
         .init_resource::<PaletteImageCache>()
         .insert_resource(UiState::default())
         .insert_resource(Fov(fov))
@@ -487,22 +509,36 @@ fn main() {
         .add_plugins(ui::UiPlugin)
         .add_systems(Startup, (setup, ui::spawn_haalka_root).chain())
         .configure_sets(Update, SimStep.run_if(should_run_sim_step))
-    .add_systems(
-      Update,
-      (
-            bump_render_frame,
-            maintain_tile_index,
-            setup_glyph_visuals,
-            update_time_mode,
-            handle_world_map,
-            handle_dialogue,
-            handle_menus,
-            handle_interact,
-            handle_utility_menus,
-        player_input
-      )
-        .chain()
-    )
+        .configure_sets(
+          Update,
+          (
+            FramePipeline::BumpRender,
+            FramePipeline::TileIndex,
+            FramePipeline::GlyphSetup,
+            FramePipeline::TimeMode,
+            FramePipeline::WorldMapKey,
+            FramePipeline::DialogueKey,
+            FramePipeline::Menus,
+            FramePipeline::FlushChest,
+            FramePipeline::InteractKey,
+            FramePipeline::UtilityMenus,
+            FramePipeline::PlayerMove,
+            FramePipeline::BumpResolve,
+          )
+            .chain(),
+        )
+    .add_systems(Update, bump_render_frame.in_set(FramePipeline::BumpRender))
+    .add_systems(Update, maintain_tile_index.in_set(FramePipeline::TileIndex))
+    .add_systems(Update, setup_glyph_visuals.in_set(FramePipeline::GlyphSetup))
+    .add_systems(Update, update_time_mode.in_set(FramePipeline::TimeMode))
+    .add_systems(Update, handle_world_map.in_set(FramePipeline::WorldMapKey))
+    .add_systems(Update, handle_dialogue.in_set(FramePipeline::DialogueKey))
+    .add_systems(Update, handle_menus.in_set(FramePipeline::Menus))
+    .add_systems(Update, flush_pending_chest_open.in_set(FramePipeline::FlushChest))
+    .add_systems(Update, handle_interact.in_set(FramePipeline::InteractKey))
+    .add_systems(Update, handle_utility_menus.in_set(FramePipeline::UtilityMenus))
+    .add_systems(Update, player_input.in_set(FramePipeline::PlayerMove))
+    .add_systems(Update, resolve_bump_interact.in_set(FramePipeline::BumpResolve))
     .add_systems(
       Update,
       (
@@ -922,6 +958,7 @@ fn handle_menus(
         execute_interaction(
           &option.action,
           &mut gw.0,
+          &mut world_map,
           &mut clock,
           &mut *tb,
           &mut ui,
@@ -1152,6 +1189,7 @@ fn handle_utility_menus(
 fn execute_interaction(
   action: &InteractionAction,
   zone: &mut ActiveZone,
+  world_map: &mut WorldMapView,
   clock: &mut Clock,
   tb: &mut TurnBasedWorldState,
   ui: &mut UiState,
@@ -1164,6 +1202,11 @@ fn execute_interaction(
     let node = tree.find(tree.nodes[0].name);
     ui.dialogue = DialogueState::Open { speaker, tree, node_name: tree.nodes[0].name };
     log_dialogue_node_block(log, speaker, node);
+    return;
+  }
+
+  if let InteractionAction::OpenWorldMap = action {
+    world_map.open = true;
     return;
   }
 
@@ -1219,6 +1262,7 @@ fn execute_interaction(
         clock.advance(2);
         note_player_turn_moved_world(clock, tb);
       }
+      InteractionAction::OpenWorldMap => unreachable!(),
     }
   }
 }
@@ -1232,23 +1276,112 @@ fn execute_interaction(
 /// Returns true if a transition happened (or was blocked at world boundary) — caller skips normal move.
 
 /// Separate system for Space key interactions to avoid Bevy's system param limit.
-fn handle_interact(
-  keys: Res<ButtonInput<KeyCode>>,
-  current: Res<CurrentZone>,
+fn gather_interactions_at_tile(
+  wx: i32,
+  wy: i32,
+  dir_label: &str,
+  level: &level::Level,
+  tile_entities: Option<&Vec<Entity>>,
+  tree_q: &Query<Entity, With<Tree>>,
+  dialogue_q: &Query<(&Named, &Dialogue)>,
+  loot_chest_q: &mut Query<(&mut LootChest, &mut Glyph, &Location)>,
+  door_q: &Query<&Door>,
+  named_q: &Query<&Named>,
+  flight_console_q: &Query<Entity, With<FlightConsole>>,
+) -> Vec<InteractionOption> {
+  let mut tile_opts = Vec::new();
+  if let Some(entities) = tile_entities {
+    for &e in entities.iter() {
+      if tree_q.get(e).is_ok() {
+        tile_opts.push(InteractionOption {
+          label: format!("Chop tree ({dir_label})"),
+          action: InteractionAction::ChopTree(e)
+        });
+      }
+      if let Ok((named, dialogue)) = dialogue_q.get(e) {
+        tile_opts.push(InteractionOption {
+          label: format!("Talk to {}", named.name),
+          action: InteractionAction::Talk { speaker: named.name, tree: dialogue.0 }
+        });
+      }
+      if let Ok((chest, _, _)) = loot_chest_q.get(e)
+        && !chest.opened
+      {
+        tile_opts.push(InteractionOption {
+          label: format!("Open chest ({dir_label})"),
+          action: InteractionAction::OpenChest(e)
+        });
+      }
+      if let Ok(door) = door_q.get(e) {
+        let verb = if door.open { "Close" } else { "Open" };
+        let name = named_q.get(e).map_or("door", |n| n.name);
+        tile_opts.push(InteractionOption {
+          label: format!("{verb} {name} ({dir_label})"),
+          action: InteractionAction::ToggleDoor(e)
+        });
+      }
+      if flight_console_q.get(e).is_ok() {
+        tile_opts.push(InteractionOption {
+          label: format!("Use flight console ({dir_label})"),
+          action: InteractionAction::OpenWorldMap
+        });
+      }
+    }
+  }
+  if (wy as usize) < level.height
+    && (wx as usize) < level.width
+    && level.items[wy as usize][wx as usize].is_some()
+  {
+    tile_opts.push(InteractionOption {
+      label: format!("Pick up item ({dir_label})"),
+      action: InteractionAction::PickUpItem(wx, wy)
+    });
+  }
+  tile_opts
+}
+
+fn resolve_bump_interact(
+  mut pending: ResMut<PendingBumpInteract>,
   mut ui: ResMut<UiState>,
-  world_map: Res<WorldMapView>,
+  current: Res<CurrentZone>,
   index: Res<TileEntityIndex>,
-  mut commands: Commands,
-  mut player_q: Query<(&mut PlayerPos, &mut Inventory), With<Player>>,
   dialogue_q: Query<(&Named, &Dialogue)>,
   tree_q: Query<Entity, With<Tree>>,
-  mut pending_chest: ResMut<ChestOpenPending>,
   mut loot_chest_q: Query<(&mut LootChest, &mut Glyph, &Location)>,
   door_q: Query<&Door>,
   named_q: Query<&Named>,
+  flight_console_q: Query<Entity, With<FlightConsole>>,
+) {
+  let Some((tx, ty, tz)) = pending.0.take() else {
+    return;
+  };
+  let level = current.0.level(tz);
+  let opts = gather_interactions_at_tile(
+    tx,
+    ty,
+    "ahead",
+    level,
+    index.0.get(&(tx, ty, tz)),
+    &tree_q,
+    &dialogue_q,
+    &mut loot_chest_q,
+    &door_q,
+    &named_q,
+    &flight_console_q,
+  );
+  if !opts.is_empty() {
+    ui.interact = InteractMenu::Open { options: opts };
+  }
+}
+
+fn flush_pending_chest_open(
+  mut pending_chest: ResMut<ChestOpenPending>,
+  mut commands: Commands,
+  mut player_q: Query<(&mut PlayerPos, &mut Inventory), With<Player>>,
+  mut loot_chest_q: Query<(&mut LootChest, &mut Glyph, &Location)>,
   mut log: ResMut<LogEntries>,
   mut clock: ResMut<Clock>,
-  mut tb: ResMut<TurnBasedWorldState>
+  mut tb: ResMut<TurnBasedWorldState>,
 ) {
   if let Some(ent) = pending_chest.0.take() {
     apply_open_chest(
@@ -1258,68 +1391,53 @@ fn handle_interact(
       &mut loot_chest_q,
       &mut *log,
       &mut *clock,
-      &mut *tb
+      &mut *tb,
     );
   }
+}
 
+fn handle_interact(
+  keys: Res<ButtonInput<KeyCode>>,
+  current: Res<CurrentZone>,
+  mut ui: ResMut<UiState>,
+  world_map: Res<WorldMapView>,
+  index: Res<TileEntityIndex>,
+  player_q: Query<&PlayerPos, With<Player>>,
+  dialogue_q: Query<(&Named, &Dialogue)>,
+  tree_q: Query<Entity, With<Tree>>,
+  mut loot_chest_q: Query<(&mut LootChest, &mut Glyph, &Location)>,
+  door_q: Query<&Door>,
+  named_q: Query<&Named>,
+  flight_console_q: Query<Entity, With<FlightConsole>>,
+) {
   if ui.any_open() || world_map.open || !keys.just_pressed(KeyCode::Space) {
     return;
   }
 
-  if let Ok((pos, _)) = player_q.single() {
+  if let Ok(pos) = player_q.single() {
     let level = current.0.level(pos.z);
-    let options: Vec<_> = (-1i32..=1)
-      .flat_map(|dy| (-1i32..=1).map(move |dx| (dx, dy)))
-      .flat_map(|(dx, dy)| {
-      let wx = pos.x + dx;
-      let wy = pos.y + dy;
+    let mut options = Vec::new();
+    for dy in -1i32..=1 {
+      for dx in -1i32..=1 {
+        let wx = pos.x + dx;
+        let wy = pos.y + dy;
         let dir =
           if dx == 0 && dy == 0 { "here".to_string() } else { direction_name(dx, dy) };
-        let mut tile_opts = Vec::new();
-      if let Some(entities) = index.0.get(&(wx, wy, pos.z)) {
-        for &e in entities.iter() {
-          if tree_q.get(e).is_ok() {
-              tile_opts.push(InteractionOption {
-              label: format!("Chop tree ({dir})"),
-                action: InteractionAction::ChopTree(e)
-            });
-          }
-          if let Ok((named, dialogue)) = dialogue_q.get(e) {
-              tile_opts.push(InteractionOption {
-              label: format!("Talk to {}", named.name),
-                action: InteractionAction::Talk { speaker: named.name, tree: dialogue.0 }
-            });
-          }
-          if let Ok((chest, _, _)) = loot_chest_q.get(e)
-            && !chest.opened
-          {
-              tile_opts.push(InteractionOption {
-              label: format!("Open chest ({dir})"),
-                action: InteractionAction::OpenChest(e)
-            });
-          }
-          if let Ok(door) = door_q.get(e) {
-            let verb = if door.open { "Close" } else { "Open" };
-            let name = named_q.get(e).map_or("door", |n| n.name);
-              tile_opts.push(InteractionOption {
-              label: format!("{verb} {name} ({dir})"),
-                action: InteractionAction::ToggleDoor(e)
-            });
-          }
-        }
+        options.extend(gather_interactions_at_tile(
+          wx,
+          wy,
+          &dir,
+          level,
+          index.0.get(&(wx, wy, pos.z)),
+          &tree_q,
+          &dialogue_q,
+          &mut loot_chest_q,
+          &door_q,
+          &named_q,
+          &flight_console_q,
+        ));
       }
-        if (wy as usize) < level.height
-          && (wx as usize) < level.width
-        && level.items[wy as usize][wx as usize].is_some()
-      {
-          tile_opts.push(InteractionOption {
-          label: format!("Pick up item ({dir})"),
-            action: InteractionAction::PickUpItem(wx, wy)
-        });
-      }
-        tile_opts
-      })
-      .collect();
+    }
 
     if !options.is_empty() {
       ui.interact = InteractMenu::Open { options };
@@ -1414,13 +1532,6 @@ fn setup(
 
     prefabs::Prefab::starting_ship().stamp_entities(&mut commands, sox, soy, 0);
 
-    Object::space_cat().spawn_at(
-      &mut commands,
-      sox + ship::SPACE_CAT_X,
-      soy + ship::SPACE_CAT_Y,
-      0,
-    );
-
     log_message(
       &mut *log,
       format!(
@@ -1429,8 +1540,10 @@ fn setup(
       ),
     );
 
-    // Spawn starter planet NPCs at destination-local coords mapped into the active zone
+    // Spawn prefab-placed entities on the starter planet (trees at `t`, etc.)
     if let Some((dox, doy)) = current.0.dest_origin {
+        prefabs::Prefab::starter_planet_surface().stamp_entities(&mut commands, dox, doy, 0);
+
         for &(lx, ly) in galaxy_gen::STARTER_NPC_COORDS {
             let wx = dox + lx;
             let wy = doy + ly;
@@ -1443,14 +1556,6 @@ fn setup(
         _ => continue
             };
             obj.spawn_at(&mut commands, wx, wy, 0);
-        }
-
-        // Spawn trees as entities at destination coords
-        // Trees on open grass, away from crystal markers (see starter_planet_surface.txt)
-        for &(lx, ly) in &[(3, 3), (45, 3), (3, 45), (45, 45)] {
-            let wx = dox + lx;
-            let wy = doy + ly;
-            Object::tree().spawn_at(&mut commands, wx, wy, 0);
         }
     }
 
@@ -1711,9 +1816,10 @@ fn player_input(
     mut tb: ResMut<TurnBasedWorldState>,
     mut time_mode_auto: ResMut<TimeModeAuto>,
     index: Res<TileEntityIndex>,
+    mut pending_bump: ResMut<PendingBumpInteract>,
     mut player_query: Query<(&mut PlayerPos, &Stats, &mut Inventory), With<Player>>,
     mut enemy_query: Query<&mut Stats, (With<Enemy>, Without<Player>)>,
-  collidable_q: Query<&Collidable>
+    collidable_q: Query<&Collidable>,
 ) {
     if !ui.any_open() && !world_map.open && keys.just_pressed(KeyCode::KeyT) {
         if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
@@ -1791,6 +1897,8 @@ fn player_input(
                                 *inventory.0.entry(item).or_insert(0) += 1;
                             }
                         }
+                    } else {
+                        pending_bump.0 = Some((target_x, target_y, pos.z));
                     }
                 }
 

@@ -82,6 +82,7 @@ impl Prefab {
       .assoc('r', (Tile::Road, []))
       .assoc('c', (Tile::CrystalGrowth, []))
       .assoc('~', (Tile::AlienFluid, []))
+      .assoc('t', (Tile::AlienGrass, [Object::tree()]))
   }
 
   /// Full starter ship deck (`SHIP_WIDTH` × `SHIP_HEIGHT`), matching the former procedural layout.
@@ -95,7 +96,7 @@ W.....a............W
 W.....#............W
 W.....#............W
 W..................W
-W............#.....W
+W.........k..#.....W
 W............a..=..W
 W............#..==.W
 W..................W
@@ -109,6 +110,7 @@ W..................W
     .assoc('a', (Tile::AirlockDoor, []))
     .assoc('=', (Tile::Conduit, []))
     .assoc('C', (Tile::DeckPlate, [Object::flight_console()]))
+    .assoc('k', (Tile::DeckPlate, [Object::space_cat()]))
   }
 
   /// Write tiles into `level` at `(ox + x, oy + y)` for each layout cell.
