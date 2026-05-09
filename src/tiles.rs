@@ -231,7 +231,7 @@ impl Tile {
         causes_falling: false,
         name: "Ash",
         has_atmosphere: true,
-        space_qud_sprite: None
+        space_qud_sprite: Some(("textures/space_qud/ground.png", [0.32, 0.30, 0.28], [0.55, 0.53, 0.50]))
       },
       Tile::Lava => TileProperties {
         glyph: "~",
@@ -327,7 +327,7 @@ impl Tile {
         causes_falling: false,
         name: "Cave Wall",
         has_atmosphere: true,
-        space_qud_sprite: None
+        space_qud_sprite: Some(("textures/space_qud/cobble tile.png", [0.28, 0.26, 0.24], [0.48, 0.46, 0.42]))
       },
       Tile::CaveFloor => TileProperties {
         glyph: ".",
