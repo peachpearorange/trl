@@ -492,6 +492,7 @@ fn main() {
   galaxy.insert(origin, starter_planet.clone());
   galaxy.insert(locations::asteroid_field::ID, locations::asteroid_field::generate());
   galaxy.insert(locations::meridian_station::ID, locations::meridian_station::generate());
+  galaxy.insert(locations::lava_planet::ID, locations::lava_planet::generate());
 
   // Ship starts docked at the starter planet
   let active = active_zone::ActiveZone::docked(&ship_location, &starter_planet)
@@ -1614,6 +1615,10 @@ fn gather_interactions_at_tile(
             InteractionOption {
               label: "Chart course — Meridian Station".into(),
               action: InteractionAction::Navigate { dest: locations::meridian_station::ID }
+            },
+            InteractionOption {
+              label: "Chart course — Lava Planet".into(),
+              action: InteractionAction::Navigate { dest: locations::lava_planet::ID }
             }
           ]
           .into_iter()
