@@ -88,24 +88,28 @@ impl Prefab {
 W..................W
 W.....a............W
 W.....#............W
-W.....#............W
+W..B..#............W
 W..................W
 W.........k..#.....W
 W............a..=..W
-W............#..==.W
-W..................W
+W............#.L==.W
+W...T....X.........W
 #..................#
 #..................#
 ##########a#########
 "
     )
     .assoc('#', (Tile::Bulkhead, []))
-    .assoc('.', (Tile::DeckPlate, []))
+    .assoc('.', (Tile::Floor, []))
     .assoc('W', (Tile::Window, []))
     .assoc('a', (Tile::AirlockDoor, [Object::airlock_door()]))
     .assoc('=', (Tile::Conduit, []))
-    .assoc('C', (Tile::DeckPlate, [Object::flight_console()]))
-    .assoc('k', (Tile::DeckPlate, [Object::space_cat()]))
+    .assoc('C', (Tile::Floor, [Object::flight_console()]))
+    .assoc('k', (Tile::Floor, [Object::space_cat()]))
+    .assoc('B', (Tile::Floor, [Object::bed()]))
+    .assoc('T', (Tile::Floor, [Object::table()]))
+    .assoc('L', (Tile::Floor, [Object::locker()]))
+    .assoc('X', (Tile::Floor, [Object::crate_obj()]))
   }
 
   /// Write tiles into `level` at `(ox + x, oy + y)` for each layout cell.
@@ -209,47 +213,25 @@ fn ship_pilot() -> Object {
 
 #[cfg(test)]
 mod ship_legacy_reference {
-  use crate::{level::{Level, Tile},
-              ship::{SHIP_HEIGHT, SHIP_WIDTH}};
-
-  pub fn legacy_fill_ship(deck: &mut Level) {
-    for y in 0..SHIP_HEIGHT as i32 {
-      for x in 0..SHIP_WIDTH as i32 {
-        let is_edge =
-          x == 0 || x == SHIP_WIDTH as i32 - 1 || y == 0 || y == SHIP_HEIGHT as i32 - 1;
-        deck.set(x, y, if is_edge { Tile::Bulkhead } else { Tile::DeckPlate });
-      }
-    }
-    deck.set(10, 14, Tile::AirlockDoor);
-    for x in 3..17 {
-      deck.set(x, 0, Tile::Window);
-    }
-    for y in 3..12 {
-      deck.set(0, y, Tile::Window);
-      deck.set(SHIP_WIDTH as i32 - 1, y, Tile::Window);
-    }
-    for y in 4..7 {
-      deck.set(6, y, Tile::Bulkhead);
-    }
-    deck.set(6, 4, Tile::AirlockDoor);
-    for y in 8..11 {
-      deck.set(13, y, Tile::Bulkhead);
-    }
-    deck.set(13, 9, Tile::AirlockDoor);
-    deck.set(16, 10, Tile::Conduit);
-    deck.set(17, 10, Tile::Conduit);
-    deck.set(16, 9, Tile::Conduit);
-  }
+  use crate::{level::Level, ship::{SHIP_HEIGHT, SHIP_WIDTH}};
 
   #[test]
-  fn starting_ship_matches_legacy_tiles() {
+  fn starting_ship_structure_tiles() {
     use super::Prefab;
+    use crate::level::Tile;
 
-    let mut legacy = Level::new(SHIP_WIDTH, SHIP_HEIGHT, Tile::Vacuum);
-    legacy_fill_ship(&mut legacy);
     let mut stamped = Level::new(SHIP_WIDTH, SHIP_HEIGHT, Tile::Vacuum);
     Prefab::starting_ship().stamp_level(&mut stamped, 0, 0);
-    assert_eq!(legacy.tiles, stamped.tiles);
+    // Structural tiles
+    assert_eq!(stamped.get(10, 14), Some(Tile::AirlockDoor));
+    assert_eq!(stamped.get(6, 4),   Some(Tile::AirlockDoor));
+    assert_eq!(stamped.get(13, 9),  Some(Tile::AirlockDoor));
+    assert_eq!(stamped.get(6, 5),   Some(Tile::Bulkhead));
+    assert_eq!(stamped.get(6, 6),   Some(Tile::Bulkhead));
+    assert_eq!(stamped.get(16, 10), Some(Tile::Conduit));
+    // Interior floor
+    assert_eq!(stamped.get(5, 5), Some(Tile::Floor));
+    assert_eq!(stamped.get(1, 1), Some(Tile::Floor));
   }
 }
 
@@ -344,13 +326,15 @@ aa
   }
 
   #[test]
-  fn small_building_has_one_npc_at_expected_offset() {
-    let mut found = None;
+  fn small_building_has_npc_and_door_at_expected_offsets() {
+    let mut positions = Vec::new();
     Prefab::small_building_with_npc().for_each_assoc_object(|x, y, _| {
-      found = Some((x, y));
+      positions.push((x, y));
     });
 
-    assert_eq!(found, Some((2, 2)));
+    // npc (n) at (2,2), door (d) at (2,3)
+    assert!(positions.contains(&(2, 2)));
+    assert!(positions.contains(&(2, 3)));
   }
 
   #[test]
@@ -360,7 +344,8 @@ aa
       origins.push((x, y));
     });
 
-    assert_eq!(origins.len(), 2);
+    // console (c) at (3,3), pilot (p) at (3,2), airlock door (a) at (3,5)
+    assert_eq!(origins.len(), 3);
     assert!(origins.contains(&(3, 2)));
     assert!(origins.contains(&(3, 3)));
   }

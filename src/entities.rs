@@ -538,6 +538,18 @@ impl Object {
     ))
   }
 
+  pub fn crate_obj() -> Self {
+    Self::structure(true).add((
+      Glyph::palette_sprite(
+        "textures/space_qud/crate.png",
+        'c',
+        Color::srgb(0.42, 0.32, 0.18),
+        Color::srgb(0.72, 0.60, 0.38)
+      ),
+      Named { name: "Crate", flavor: "A battered storage crate. Probably empty." }
+    ))
+  }
+
   pub fn robot() -> Self {
     Self::enemy().add((
       Named {
