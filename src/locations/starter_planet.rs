@@ -12,10 +12,3 @@ pub fn generate() -> Location {
   )
 }
 
-pub const NPC_COORDS: &[(i32, i32)] = &[
-  (22, 25), // mira
-  (20, 23), // chronos
-  (26, 22), // unit7
-  (22, 21), // kong
-  (24, 23)  // guard
-];

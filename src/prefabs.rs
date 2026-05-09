@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use {crate::{entities::{Glyph, Named, Object, Stats},
-             level::{Level, Tile}},
+             level::{Level, Tile},
+             npcs},
      bevy::prelude::{Color, Commands}};
 
 pub trait AssocMarker {
@@ -202,18 +203,18 @@ impl Prefab {
     prefab(
       "
 ###WWWWWWWWWWWWWW###
-#..................#
+#.m...........H....#
 #.........C........#
 W..................W
 W.....a............W
 W.....#............W
 W..B..#............W
-W..................W
+W...U...........G..W
 W.........k..#.....W
 W............a..=..W
 W............#.L==.W
 W...T....X.........W
-#..................#
+#.d................#
 #..................#
 ##########a#########
 "
@@ -229,6 +230,11 @@ W...T....X.........W
     .assoc('T', (Tile::Floor, [Object::table()]))
     .assoc('L', (Tile::Floor, [Object::locker()]))
     .assoc('X', (Tile::Floor, [Object::crate_obj()]))
+    .assoc('m', (Tile::Floor, [npcs::mira::mira()]))
+    .assoc('H', (Tile::Floor, [npcs::chronos::chronos()]))
+    .assoc('U', (Tile::Floor, [npcs::unit7::unit7()]))
+    .assoc('G', (Tile::Floor, [npcs::kong::kong()]))
+    .assoc('d', (Tile::Floor, [npcs::guard::guard()]))
   }
 }
 

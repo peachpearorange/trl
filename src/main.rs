@@ -1819,19 +1819,6 @@ fn spawn_zone_geometry(
     && let Some((dox, doy)) = zone.dest_origin
   {
     prefabs::Prefab::starter_planet_surface().stamp_entities(commands, dox, doy, 0);
-    for &(lx, ly) in locations::starter_planet::NPC_COORDS {
-      let wx = dox + lx;
-      let wy = doy + ly;
-      let (obj, _dx, _dy) = match (lx, ly) {
-        (22, 25) => (npcs::mira::mira(), 0, 0),
-        (20, 23) => (npcs::chronos::chronos(), 0, 0),
-        (26, 22) => (npcs::unit7::unit7(), 0, 0),
-        (22, 21) => (npcs::kong::kong(), 0, 0),
-        (24, 23) => (npcs::guard::guard(), 0, 0),
-        _ => continue
-      };
-      obj.spawn_at(commands, wx, wy, 0);
-    }
   }
   if docked_at == Some(locations::meridian_station::ID)
     && let Some((dox, doy)) = zone.dest_origin
