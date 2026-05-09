@@ -1,4 +1,4 @@
-use trl::{galaxy::{Location, LocationId},
+use crate::{galaxy::{Location, LocationId},
           level::{LocationType, Tile, ZONE_WIDTH, ZONE_HEIGHT}};
 
 pub const ID: LocationId = (1, 0, 0);

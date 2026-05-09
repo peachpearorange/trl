@@ -1,4 +1,4 @@
-use trl::{galaxy::{Location, LocationId},
+use crate::{galaxy::{Location, LocationId},
           level::{LocationType, Tile, ZONE_WIDTH, ZONE_HEIGHT},
           prefabs::{prefab, Prefab}};
 

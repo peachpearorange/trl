@@ -8,10 +8,6 @@ default-run = "trl"
 name = "trl"
 path = "src/main.rs"
 
-[[bin]]
-name = "gen_textures"
-path = "tools/gen_textures.rs"
-
 [dependencies]
 bevy = "0.18.0"
 rand = "0.9.2"

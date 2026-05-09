@@ -1,6 +1,6 @@
 use {bevy::prelude::*,
      std::collections::{HashMap, HashSet},
-     trl::entities::{Collidable, Enemy, Location, Stats, TimeSinceAction, Wearing}};
+     crate::entities::{Collidable, Enemy, Location, Stats, TimeSinceAction, Wearing}};
 
 // ---------------------------------------------------------------------------
 // Tile-entity spatial index
@@ -149,7 +149,7 @@ pub fn enemy_ai(
 #[cfg(test)]
 mod tests {
   use {super::*,
-       trl::entities::{Armor, Wearing}};
+       crate::entities::{Armor, Wearing}};
 
   #[test]
   fn no_armor_deals_full_damage() {

@@ -1,4 +1,4 @@
-use {bevy::prelude::Color, trl::entities::*};
+use {bevy::prelude::Color, crate::entities::*};
 
 static DIALOGUE: DialogueTree = tree(&[
   node("root", "Hmm? Oh. Another one. What do you want?", &[

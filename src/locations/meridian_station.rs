@@ -1,5 +1,5 @@
-use {bevy::prelude::Color, trl::entities::*};
-use trl::{galaxy::{Location, LocationId},
+use {bevy::prelude::Color, crate::entities::*};
+use crate::{galaxy::{Location, LocationId},
           level::{LocationType, Tile, ZONE_WIDTH, ZONE_HEIGHT},
           prefabs::{prefab, Prefab}};
 

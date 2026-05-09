@@ -1,5 +1,17 @@
 mod ui;
-use trl::level;
+pub mod active_zone;
+pub mod atmosphere;
+pub mod crew;
+pub mod docking;
+pub mod entities;
+pub mod faction;
+pub mod galaxy;
+pub mod level;
+pub mod navigation;
+pub mod prefabs;
+pub mod ship;
+pub mod sprites;
+pub mod tiles;
 mod combat;
 mod crafting;
 mod locations;
@@ -11,14 +23,13 @@ use {bevy::prelude::*,
      combat::{TileEntityIndex, enemy_ai, maintain_tile_index},
      level::{FovGrid, Item, Tile, ZONE_HEIGHT, ZONE_WIDTH, compute_fov},
      std::collections::{HashMap, HashSet},
-     trl::entities::{AirlockDoor, BlocksSight, Collidable, Dialogue, DialogueNode,
-                     DialogueTree, Door, Enemy, FlightConsole, Glyph, Location, LootChest,
-                     Named, Stats, Tree, Visuals},
+     crate::entities::{AirlockDoor, BlocksSight, Collidable, Dialogue, DialogueNode,
+                       DialogueTree, Door, Enemy, FlightConsole, Glyph, Location, LootChest,
+                       Named, Stats, Tree, Visuals},
      ui::{LogEntries, log_message}};
 
-use trl::{active_zone::{self, ActiveZone},
-          docking, galaxy, prefabs, ship,
-          sprites::{PaletteImageCache, palette_sprite_handle}};
+use {active_zone::ActiveZone,
+     sprites::{PaletteImageCache, palette_sprite_handle}};
 
 /// Tile art is authored at this resolution (e.g. space_qud masks).
 pub const SPRITE_TEXELS: f32 = 20.0;

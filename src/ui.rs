@@ -20,7 +20,7 @@ use {crate::{Clock, GAME_VIEWPORT_WIDTH_FRAC, STATUS_BAR_HEIGHT, game_pane_rect,
             ui::{AlignItems, Display, FlexDirection, JustifyContent}},
      haalka::{jonmo::SignalProcessing, prelude::*},
      jonmo::{prelude::*, signal},
-     trl::entities::{Named, Stats}};
+     crate::entities::{Named, Stats}};
 
 // ---------------------------------------------------------------------------
 // Data shapes — written by sync_ui, read by Haalka signals
