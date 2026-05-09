@@ -206,22 +206,22 @@ impl Prefab {
 "
     )
     .assoc('#', (Tile::Bulkhead, []))
-    .assoc('.', (Tile::Floor, []))
+    .assoc('.', (Tile::DeckPlate, []))
     .assoc('W', (Tile::Window, []))
     .assoc('a', (Tile::AirlockDoor, [Object::airlock_door()]))
-    .assoc('l', (Tile::Floor, [Object::airlock_door()]))
+    .assoc('l', (Tile::DeckPlate, [Object::airlock_door()]))
     .assoc('=', (Tile::Conduit, []))
-    .assoc('C', (Tile::Floor, [Object::flight_console()]))
-    .assoc('k', (Tile::Floor, [Object::space_cat()]))
-    .assoc('B', (Tile::Floor, [Object::bed()]))
-    .assoc('T', (Tile::Floor, [Object::table()]))
-    .assoc('L', (Tile::Floor, [Object::locker()]))
-    .assoc('X', (Tile::Floor, [Object::crate_obj()]))
-    .assoc('m', (Tile::Floor, [npcs::mira::mira()]))
-    .assoc('H', (Tile::Floor, [npcs::chronos::chronos()]))
-    .assoc('U', (Tile::Floor, [npcs::unit7::unit7()]))
-    .assoc('G', (Tile::Floor, [npcs::kong::kong()]))
-    .assoc('d', (Tile::Floor, [npcs::guard::guard()]))
+    .assoc('C', (Tile::DeckPlate, [Object::flight_console()]))
+    .assoc('k', (Tile::DeckPlate, [Object::space_cat()]))
+    .assoc('B', (Tile::DeckPlate, [Object::bed()]))
+    .assoc('T', (Tile::DeckPlate, [Object::table()]))
+    .assoc('L', (Tile::DeckPlate, [Object::locker()]))
+    .assoc('X', (Tile::DeckPlate, [Object::crate_obj()]))
+    .assoc('m', (Tile::DeckPlate, [npcs::mira::mira()]))
+    .assoc('H', (Tile::DeckPlate, [npcs::chronos::chronos()]))
+    .assoc('U', (Tile::DeckPlate, [npcs::unit7::unit7()]))
+    .assoc('G', (Tile::DeckPlate, [npcs::kong::kong()]))
+    .assoc('d', (Tile::DeckPlate, [npcs::guard::guard()]))
   }
 }
 
@@ -243,7 +243,7 @@ mod tests {
             www
             "
     )
-    .assoc('k', (Tile::Floor, [chest(), enemy()]))
+    .assoc('k', (Tile::DeckPlate, [chest(), enemy()]))
     .assoc('w', (Tile::Wall, []));
 
     let mut level = Level::new(3, 3, Tile::Vacuum);
@@ -349,7 +349,7 @@ aa
     // airlock at bottom centre
     assert_eq!(stamped.get(16, 15), Some(Tile::AirlockDoor));
     // console
-    assert_eq!(stamped.get(29, 7),  Some(Tile::Floor));
+    assert_eq!(stamped.get(29, 7),  Some(Tile::DeckPlate));
     // conduit column (cols 5-8 of rows 6-8)
     assert_eq!(stamped.get(5, 6),   Some(Tile::Conduit));
     assert_eq!(stamped.get(5, 8),   Some(Tile::Conduit));

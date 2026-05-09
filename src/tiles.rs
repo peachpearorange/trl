@@ -1,7 +1,7 @@
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Tile {
   Air,
-  Floor,
+  DeckPlate,
   Wall,
   CobblestoneWall,
   BrickWall,
@@ -25,7 +25,6 @@ pub enum Tile {
   CaveFloor,
   CrystalFormation,
   // --- Space tiles ---
-  DeckPlate,
   Bulkhead,
   Window,
   AirlockDoor,
@@ -80,17 +79,17 @@ impl Tile {
         has_atmosphere: false,
         space_qud_sprite: None
       },
-      Tile::Floor => TileProperties {
+      Tile::DeckPlate => TileProperties {
         glyph: ".",
-        color: [0.6, 0.5, 0.3],
-        minimap_color: [0.62, 0.55, 0.40],
+        color: [0.50, 0.56, 0.64],
+        minimap_color: [0.42, 0.48, 0.56],
         texture_path: None,
         walkable: true,
         opaque: false,
         causes_falling: false,
-        name: "Floor",
+        name: "Deck Plate",
         has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/floor3.png", [0.35, 0.30, 0.22], [0.62, 0.55, 0.40]))
+        space_qud_sprite: Some(("textures/space_qud/floor .png", [0.42, 0.50, 0.60], [0.72, 0.80, 0.90]))
       },
       Tile::Wall => TileProperties {
         glyph: "#",
@@ -357,18 +356,6 @@ impl Tile {
         space_qud_sprite: None
       },
       // --- Space tiles ---
-      Tile::DeckPlate => TileProperties {
-        glyph: ".",
-        color: [0.55, 0.58, 0.62],
-        minimap_color: [0.45, 0.47, 0.5],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Deck Plate",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/floor4.png", [0.55, 0.62, 0.72], [0.80, 0.86, 0.94]))
-      },
       Tile::Bulkhead => TileProperties {
         glyph: "#",
         color: [0.45, 0.47, 0.50],
@@ -415,7 +402,7 @@ impl Tile {
         causes_falling: false,
         name: "Station Floor",
         has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/grid.png", [0.52, 0.56, 0.62], [0.88, 0.90, 0.94]))
+        space_qud_sprite: Some(("textures/space_qud/floor4.png", [0.52, 0.56, 0.62], [0.88, 0.90, 0.94]))
       },
       Tile::StationWall => TileProperties {
         glyph: "#",

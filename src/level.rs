@@ -236,7 +236,7 @@ pub fn fill_rect(level: &mut Level, x: i32, y: i32, w: usize, h: usize, tile: Ti
 pub fn place_room(level: &mut Level, x: i32, y: i32, w: usize, h: usize, wall: Tile) {
   fill_rect(level, x, y, w, h, wall);
   if w > 2 && h > 2 {
-    fill_rect(level, x + 1, y + 1, w - 2, h - 2, Tile::Floor);
+    fill_rect(level, x + 1, y + 1, w - 2, h - 2, Tile::DeckPlate);
   }
 }
 
@@ -274,16 +274,16 @@ pub fn place_corridor(level: &mut Level, x1: i32, y1: i32, x2: i32, y2: i32) {
   let (mut cx, cy1, cy2) = (x1, y1, y2);
   let dx = if x2 > x1 { 1 } else { -1 };
   while cx != x2 {
-    level.set(cx, cy1, Tile::Floor);
+    level.set(cx, cy1, Tile::DeckPlate);
     cx += dx;
   }
   let mut cy = cy1;
   let dy = if cy2 > cy1 { 1 } else { -1 };
   while cy != cy2 {
-    level.set(x2, cy, Tile::Floor);
+    level.set(x2, cy, Tile::DeckPlate);
     cy += dy;
   }
-  level.set(x2, cy2, Tile::Floor);
+  level.set(x2, cy2, Tile::DeckPlate);
 }
 
 /// Place a pair of stairs connecting two levels at the same (x, y).
@@ -317,7 +317,7 @@ pub fn clear_around(level: &mut Level, x: i32, y: i32, radius: i32) {
   for dy in -radius..=radius {
     for dx in -radius..=radius {
       if level.get(x + dx, y + dy).is_some_and(|t| !t.walkable()) {
-        level.set(x + dx, y + dy, Tile::Floor);
+        level.set(x + dx, y + dy, Tile::DeckPlate);
       }
     }
   }
@@ -330,17 +330,17 @@ pub fn place_wide_corridor(level: &mut Level, x1: i32, y1: i32, x2: i32, y2: i32
     let (mut cx, cy) = (x1, y1);
     let dx = if x2 > x1 { 1 } else { -1 };
     while cx != x2 {
-      level.set(cx, cy + offset, Tile::Floor);
+      level.set(cx, cy + offset, Tile::DeckPlate);
       cx += dx;
     }
     // vertical leg
     let mut cy2 = y1;
     let dy = if y2 > y1 { 1 } else { -1 };
     while cy2 != y2 {
-      level.set(x2 + offset, cy2, Tile::Floor);
+      level.set(x2 + offset, cy2, Tile::DeckPlate);
       cy2 += dy;
     }
-    level.set(x2 + offset, y2, Tile::Floor);
+    level.set(x2 + offset, y2, Tile::DeckPlate);
   }
 }
 
