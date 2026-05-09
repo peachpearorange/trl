@@ -34,5 +34,5 @@ impl Ship {
 /// Build the ship interior as a Location.
 pub fn build_ship_interior() -> crate::galaxy::Location {
   use crate::{galaxy::Location, level::Tile};
-  Location::from_prefab(Prefab::starting_ship(), LocationType::ShipInterior, Tile::Vacuum)
+  Location::from_prefab(Prefab::starting_ship(), LocationType::ShipInterior, Tile::Blank)
 }

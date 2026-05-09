@@ -44,7 +44,10 @@ pub enum Tile {
   AlienGrass,
   CrystalGrowth,
   AlienFluid,
-  ShipDock
+  ShipDock,
+  /// Transparent filler for ship bounding-box corners — skipped when merging
+  /// the ship into a docked zone so it never overwrites the destination tiles.
+  Blank
 }
 
 /// Properties bundled with each [`Tile`] variant.
@@ -510,7 +513,7 @@ impl Tile {
         has_atmosphere: false,
         space_qud_sprite: Some((
           "textures/space_qud/space background.png",
-          [0.04, 0.06, 0.14],
+          [1.0, 1.0, 1.0],
           [0.62, 0.72, 0.92]
         ))
       },
@@ -595,6 +598,18 @@ impl Tile {
         opaque: false,
         causes_falling: false,
         name: "Ship Dock",
+        has_atmosphere: false,
+        space_qud_sprite: None
+      },
+      Tile::Blank => TileProperties {
+        glyph: " ",
+        color: [0.0, 0.0, 0.0],
+        minimap_color: [0.0, 0.0, 0.0],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Blank",
         has_atmosphere: false,
         space_qud_sprite: None
       }

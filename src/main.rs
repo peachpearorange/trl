@@ -2041,7 +2041,7 @@ fn spawn_level_tiles(
     for y in 0..level.height {
       for x in 0..level.width {
         let tile = level.tiles[y][x];
-        if tile == Tile::Air {
+        if tile == Tile::Air || tile == Tile::Blank {
           continue;
         }
         let pos = tile_screen_pos(x as f32, y as f32, zone.width, zone.height);

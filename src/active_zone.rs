@@ -100,6 +100,7 @@ impl ActiveZone {
       for x in 0..ship_loc.width {
         for z in 0..ship_loc.depth {
           let tile = ship_loc.levels[z].tiles[y][x];
+          if tile == Tile::Blank { continue; }
           let lx = ship_origin.0 + x as i32;
           let ly = ship_origin.1 + y as i32;
           if lx >= 0 && ly >= 0 && (lx as usize) < total_w && (ly as usize) < total_h {
