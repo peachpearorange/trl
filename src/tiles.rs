@@ -86,7 +86,7 @@ impl Tile {
         causes_falling: false,
         name: "Floor",
         has_atmosphere: true,
-        space_qud_sprite: None
+        space_qud_sprite: Some(("textures/space_qud/floor3.png", [0.35, 0.30, 0.22], [0.62, 0.55, 0.40]))
       },
       Tile::Wall => TileProperties {
         glyph: "#",
@@ -146,7 +146,7 @@ impl Tile {
         causes_falling: false,
         name: "Water",
         has_atmosphere: true,
-        space_qud_sprite: None
+        space_qud_sprite: Some(("textures/space_qud/liquid tile.png", [0.08, 0.18, 0.55], [0.28, 0.52, 0.88]))
       },
       Tile::Sand => TileProperties {
         glyph: ",",
@@ -242,7 +242,7 @@ impl Tile {
         causes_falling: false,
         name: "Lava",
         has_atmosphere: true,
-        space_qud_sprite: None
+        space_qud_sprite: Some(("textures/space_qud/liquid tile.png", [0.72, 0.18, 0.04], [0.95, 0.52, 0.08]))
       },
       Tile::ShallowWater => TileProperties {
         glyph: "~",
@@ -266,7 +266,7 @@ impl Tile {
         causes_falling: false,
         name: "Deep Water",
         has_atmosphere: true,
-        space_qud_sprite: None
+        space_qud_sprite: Some(("textures/space_qud/liquid tile.png", [0.04, 0.08, 0.42], [0.12, 0.28, 0.68]))
       },
       Tile::Road => TileProperties {
         glyph: "·",
@@ -302,7 +302,7 @@ impl Tile {
         causes_falling: false,
         name: "Wooden Floor",
         has_atmosphere: true,
-        space_qud_sprite: None
+        space_qud_sprite: Some(("textures/space_qud/floor4.png", [0.45, 0.32, 0.18], [0.72, 0.58, 0.32]))
       },
       Tile::Fence => TileProperties {
         glyph: "+",
@@ -338,7 +338,7 @@ impl Tile {
         causes_falling: false,
         name: "Cave Floor",
         has_atmosphere: true,
-        space_qud_sprite: None
+        space_qud_sprite: Some(("textures/space_qud/floor3.png", [0.30, 0.28, 0.25], [0.48, 0.44, 0.38]))
       },
       Tile::CrystalFormation => TileProperties {
         glyph: "*",
@@ -435,7 +435,7 @@ impl Tile {
         causes_falling: false,
         name: "Derelict Floor",
         has_atmosphere: true,
-        space_qud_sprite: None
+        space_qud_sprite: Some(("textures/space_qud/floor2.png", [0.28, 0.26, 0.22], [0.42, 0.38, 0.32]))
       },
       Tile::DerelictWall => TileProperties {
         glyph: "#",
@@ -583,7 +583,7 @@ impl Tile {
         causes_falling: false,
         name: "Alien Fluid",
         has_atmosphere: true,
-        space_qud_sprite: None
+        space_qud_sprite: Some(("textures/space_qud/liquid tile.png", [0.35, 0.12, 0.52], [0.68, 0.32, 0.88]))
       }
     }
   }

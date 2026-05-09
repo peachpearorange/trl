@@ -302,6 +302,11 @@ pub fn npc_person_glyph(ch: char, primary: Color, secondary: Color) -> Glyph {
   Glyph::palette_sprite("textures/space_qud/person (1).png", ch, primary, secondary)
 }
 
+/// Space Qud–style robot silhouette mask (`robo (1).png`).
+pub fn npc_robo_glyph(ch: char, primary: Color, secondary: Color) -> Glyph {
+  Glyph::palette_sprite("textures/space_qud/robo (1).png", ch, primary, secondary)
+}
+
 impl Object {
   fn new(bundle: impl Bundle + Clone + Send + Sync + 'static) -> Self {
     Self(Arc::new(move |e: &mut EntityCommands| {
@@ -457,10 +462,11 @@ impl Object {
         Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 3.0, attack_speed: 1.0 },
         Wielding(Some(Item::Spear)),
         Wearing(None),
-        Glyph::sprite(
-          "textures/shady_looking_guy_in_clothes_meant_for_a_hot_desert.png",
+        Glyph::palette_sprite(
+          "textures/space_qud/gunman .png",
           'r',
-          Color::srgb(0.9, 0.6, 0.4),
+          Color::srgb(0.72, 0.48, 0.28),
+          Color::srgb(0.95, 0.78, 0.55),
         ),
       ))
   }
@@ -475,10 +481,11 @@ impl Object {
         Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 3.0, attack_speed: 1.0 },
         Wielding(Some(Item::Spear)),
         Wearing(Some(Armor::Leather)),
-        Glyph::sprite(
-          "textures/retro-future_post-apocalyptic_settlement_guard.png",
+        Glyph::palette_sprite(
+          "textures/space_qud/mogussy.png",
           'r',
-          Color::srgb(0.7, 0.5, 0.3),
+          Color::srgb(0.55, 0.42, 0.28),
+          Color::srgb(0.82, 0.68, 0.45),
         ),
       ))
   }
