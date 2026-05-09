@@ -183,21 +183,6 @@ impl Prefab {
     .assoc('p', (Tile::DeckPlate, [ship_pilot()]))
   }
 
-  /// Starter planet surface (`ZONE_WIDTH` × `ZONE_HEIGHT`): building, landing strip, crystals.
-  /// Layout lives in `assets/prefabs/starter_planet_surface.txt`.
-  pub fn starter_planet_surface() -> Self {
-    prefab(include_str!("../assets/prefabs/starter_planet_surface.txt"))
-      .assoc('g', (Tile::AlienGrass, []))
-      .assoc('w', (Tile::StationWall, []))
-      .assoc('f', (Tile::StationFloor, []))
-      .assoc('d', (Tile::Door, [Object::door()]))
-      .assoc('r', (Tile::Road, []))
-      .assoc('c', (Tile::CrystalGrowth, []))
-      .assoc('~', (Tile::AlienFluid, []))
-      .assoc('t', (Tile::AlienGrass, [Object::tree()]))
-      .assoc('P', (Tile::ShipDock, []))
-  }
-
   /// Full starter ship deck (`SHIP_WIDTH` × `SHIP_HEIGHT`).
   pub fn starting_ship() -> Self {
     prefab(
@@ -208,14 +193,14 @@ impl Prefab {
             ##.....#B#......L#B#.....##
            ##.====.#.l.......l.#......##
           ##..====.#.#...k...#.#.......WW
-         ##.U.====.###.......###........W
-         ##..........#.......#......H.C.W
-         ##.G.====.###.......###........W
-          ##..====.#.m...T...X.#.......WW
+         ##.U.====.###...TT..###........W
+         ##..........#...TT..#......H.C.W
+         ##.G.====.###...TT..###........W
+          ##..====.#.m.......X.#.......WW
            ##.d==..#...........#......##
             ##.....######.######.....##
              ###...................###
-               #########...#########
+               ###WWWWW#...#WWWWW###
                        #...#
                        ##a##
 "

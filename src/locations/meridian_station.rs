@@ -6,7 +6,30 @@ use crate::{galaxy::{Location, LocationId},
 pub const ID: LocationId = (0, 1, 0);
 
 pub fn station_prefab() -> Prefab {
-  prefab(include_str!("../../assets/prefabs/space_station.txt"))
+  prefab(
+"vvvvvvvvvvvvvvvvvv#####P#####vvvvvvvvvvvvvvvvvvv
+vvvvvvvvvvvvvvvvvv#.........#vvvvvvvvvvvvvvvvvvv
+vvvvvvvvvvvvvvvvvv#.........#vvvvvvvvvvvvvvvvvvv
+vvvvvvvvvvvvvvvvvv#.........#vvvvvvvvvvvvvvvvvvv
+vvvvvvvvvvvvvvvvvv#.........#vvvvvvvvvvvvvvvvvvv
+vvvvvvvvvvvv###########D############vvvvvvvvvvvv
+vvvvvvvvvvvv#......................#vvvvvvvvvvvv
+vvvvvvvvvvvv#......................#vvvvvvvvvvvv
+vvvvvvvvvvvv#......................#vvvvvvvvvvvv
+vvvvvvvvvvvv#......................#vvvvvvvvvvvv
+vv###########......................###########vv
+vv#........##......................##........#vv
+vvW........##......................##........Wvv
+vvW........##......................##........Wvv
+vvW........D........................D........Wvv
+vvW........##......................##........Wvv
+vvW........##......................##........Wvv
+vvW........##......................##........Wvv
+vv#........##......................##........#vv
+vv###########......................###########vv
+vvvvvvvvvvvv#......................#vvvvvvvvvvvv
+vvvvvvvvvvvv########################vvvvvvvvvvvv
+")
     .assoc('v', (Tile::Vacuum, []))
     .assoc('#', (Tile::StationWall, []))
     .assoc('.', (Tile::StationFloor, []))

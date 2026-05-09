@@ -1818,7 +1818,7 @@ fn spawn_zone_geometry(
   if docked_at == Some(locations::starter_planet::ID)
     && let Some((dox, doy)) = zone.dest_origin
   {
-    prefabs::Prefab::starter_planet_surface().stamp_entities(commands, dox, doy, 0);
+    locations::starter_planet::surface_prefab().stamp_entities(commands, dox, doy, 0);
   }
   if docked_at == Some(locations::meridian_station::ID)
     && let Some((dox, doy)) = zone.dest_origin
