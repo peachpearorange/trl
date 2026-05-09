@@ -1,6 +1,9 @@
 use {bevy::prelude::*,
+     rand::seq::SliceRandom,
      std::collections::{HashMap, HashSet},
-     crate::entities::{Collidable, Enemy, Location, Stats, TimeSinceAction, Wearing}};
+     crate::{entities::{Collidable, Enemy, Location, Stats, TimeSinceAction, WalkAroundRandomly,
+                        Wearing},
+             tiles::Tile}};
 
 // ---------------------------------------------------------------------------
 // Tile-entity spatial index
@@ -77,6 +80,37 @@ pub fn tile_blocked(
     || index.0.get(&(x, y, z)).is_some_and(|entities| {
       entities.iter().any(|&e| collidable_q.get(e).is_ok_and(|c| c.0))
     })
+}
+
+/// All 8-directional neighbor offsets, shuffled each call for unbiased wandering.
+const NEIGHBOR_DIRS: [(i32, i32); 8] =
+  [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
+
+pub fn npc_wander(
+  current: Res<crate::CurrentZone>,
+  index: Res<TileEntityIndex>,
+  collidable_q: Query<&Collidable>,
+  mut npc_q: Query<(&mut Location, &mut WalkAroundRandomly), Without<Enemy>>
+) {
+  let mut rng = rand::rng();
+  for (mut location, mut wander) in npc_q.iter_mut() {
+    wander.timer += 1;
+    if wander.timer >= wander.interval
+      && let Location::Coords { x, y, z, .. } = *location
+    {
+      wander.timer = 0;
+      let level = current.0.level(z);
+      let mut dirs = NEIGHBOR_DIRS;
+      dirs.shuffle(&mut rng);
+      if let Some(&(dx, dy)) = dirs.iter().find(|&&(dx, dy)| {
+        let (nx, ny) = (x + dx, y + dy);
+        !tile_blocked(level, nx, ny, z, &index, &collidable_q)
+          && level.get(nx, ny) != Some(Tile::AirlockDoor)
+      }) {
+        *location = Location::xyz(x + dx, y + dy, z);
+      }
+    }
+  }
 }
 
 pub fn enemy_ai(

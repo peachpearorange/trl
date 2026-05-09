@@ -262,6 +262,13 @@ pub struct TimeSinceAction(pub u32);
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Gravity;
 
+/// NPC wander behavior: move to a random adjacent passable tile every `interval` sim steps.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct WalkAroundRandomly {
+  pub timer: u32,
+  pub interval: u32
+}
+
 /// Marker component for the flight console entity.
 #[derive(Component, Clone, Copy)]
 pub struct FlightConsole;
@@ -328,9 +335,15 @@ impl Object {
     e.id()
   }
 
-  /// NPC base: Neutral faction, non-blocking.
+  /// NPC base: Neutral faction, non-blocking, wanders slowly.
   pub fn npc() -> Self {
-    Self::new((Collidable(false), Character, FactionComp(Faction::Neutral), Gravity))
+    Self::new((
+      Collidable(false),
+      Character,
+      FactionComp(Faction::Neutral),
+      Gravity,
+      WalkAroundRandomly { timer: 0, interval: 8 }
+    ))
   }
 
   /// Fully-defined NPC: named, statted, equipped, visible, conversable.
