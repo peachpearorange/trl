@@ -148,7 +148,10 @@ enum DialogueState {
 struct UiState {
   pause: PauseMenu,
   interact: InteractMenu,
-  dialogue: DialogueState
+  dialogue: DialogueState,
+  /// Set by `handle_dialogue` when ESC closes dialogue; read+cleared by `handle_menus`
+  /// so the same ESC keypress doesn't also open the pause menu.
+  escape_consumed: bool
 }
 
 impl UiState {
@@ -993,13 +996,21 @@ fn any_direction_just_pressed(keys: &ButtonInput<KeyCode>) -> bool {
     || keys.just_pressed(KeyCode::ArrowRight)
 }
 
-fn resolve_move(level: &level::Level, px: i32, py: i32, dx: i32, dy: i32) -> (i32, i32) {
-  if level.walkable(px + dx, py + dy) {
+fn resolve_move(
+  level: &level::Level,
+  px: i32,
+  py: i32,
+  dx: i32,
+  dy: i32,
+  entity_blocked: impl Fn(i32, i32) -> bool
+) -> (i32, i32) {
+  let passable = |x, y| level.walkable(x, y) && !entity_blocked(x, y);
+  if passable(px + dx, py + dy) {
     (dx, dy)
   } else if dx != 0 && dy != 0 {
-    if level.walkable(px + dx, py) {
+    if passable(px + dx, py) {
       (dx, 0)
-    } else if level.walkable(px, py + dy) {
+    } else if passable(px, py + dy) {
       (0, dy)
     } else {
       (0, 0)
@@ -1167,9 +1178,10 @@ fn handle_menus(
       );
     }
   } else {
+    let escape_consumed = std::mem::take(&mut ui.escape_consumed);
     match ui.pause {
       PauseMenu::Closed => {
-        let open = keys.just_pressed(KeyCode::Escape)
+        let open = (!escape_consumed && keys.just_pressed(KeyCode::Escape))
           || (keys.just_pressed(KeyCode::Slash)
             && (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight)));
 
@@ -1219,6 +1231,7 @@ fn handle_dialogue(
     let node = tree.find(node_name);
     if keys.just_pressed(KeyCode::Escape) {
       ui.dialogue = DialogueState::Closed;
+      ui.escape_consumed = true;
     } else if let Some(idx) = [
       KeyCode::Digit1,
       KeyCode::Digit2,
@@ -1885,6 +1898,14 @@ fn apply_pending_navigation(
   for e in despawn_entities {
     commands.entity(e).despawn();
   }
+  // Capture the player's offset within the OLD ship before swapping zones.
+  let player_ship_offset = player.single().ok().map(|(pos, ..)| {
+    let (old_sox, old_soy) = current.0.ship_origin;
+    let rel_x = (pos.x - old_sox).clamp(0, ship::SHIP_WIDTH as i32 - 1);
+    let rel_y = (pos.y - old_soy).clamp(0, ship::SHIP_HEIGHT as i32 - 1);
+    (rel_x, rel_y)
+  });
+
   *current = CurrentZone(new_zone);
   fov.0 = FovGrid::new(current.0.width, current.0.height);
   spawn_zone_geometry(
@@ -1896,10 +1917,11 @@ fn apply_pending_navigation(
     ship.docked_at
   );
   let (sox, soy) = current.0.ship_origin;
-  let start_x = ship::SHIP_WIDTH / 2;
-  let start_y = ship::SHIP_HEIGHT / 2;
-  let local_x = sox + start_x as i32;
-  let local_y = soy + start_y as i32;
+  // Reapply offset to the new zone's ship_origin, falling back to ship center.
+  let (offset_x, offset_y) =
+    player_ship_offset.unwrap_or((ship::SHIP_WIDTH as i32 / 2, ship::SHIP_HEIGHT as i32 / 2));
+  let local_x = sox + offset_x;
+  let local_y = soy + offset_y;
   let start_local = Vec2::new(local_x as f32, local_y as f32);
   if let Ok((mut pos, mut location, mut vis, mut tf)) = player.single_mut() {
     pos.x = local_x;
@@ -2200,7 +2222,9 @@ fn player_input(
       && !keys.pressed(KeyCode::ShiftLeft)
       && !keys.pressed(KeyCode::ShiftRight)
     {
-      clock.advance(PlayerAction::Wait.time_cost());
+      if clock.mode == TimeMode::TurnBased {
+        clock.advance(PlayerAction::Wait.time_cost());
+      }
       note_player_turn_moved_world(&*clock, &mut *tb);
     } else if !turn_based_block
       && (if clock.mode == TimeMode::TurnBased {
@@ -2214,9 +2238,21 @@ fn player_input(
       let dir = read_direction(&keys);
       let (raw_dx, raw_dy) = (dir.0, dir.1);
 
-      let (dx, dy) = resolve_move(level, pos.x, pos.y, raw_dx, raw_dy);
+      // Entity-blocking closure: collidable entities that aren't enemies (enemies are
+      // handled by bump-attack, not sliding).
+      let is_entity_blocked = |x, y| {
+        index.0.get(&(x, y, pos.z)).is_some_and(|entities| {
+          entities
+            .iter()
+            .any(|&e| collidable_q.get(e).is_ok_and(|c| c.0) && enemy_query.get(e).is_err())
+        })
+      };
+      let (dx, dy) = resolve_move(level, pos.x, pos.y, raw_dx, raw_dy, is_entity_blocked);
 
-      if (dx, dy) != (0, 0) {
+      if (dx, dy) == (0, 0) {
+        // Fully blocked — trigger bump interaction on the raw target so doors/NPCs/etc. respond.
+        pending_bump.0 = Some((pos.x + raw_dx, pos.y + raw_dy, pos.z));
+      } else {
         let target_x = pos.x + dx;
         let target_y = pos.y + dy;
 
@@ -2229,27 +2265,21 @@ fn player_input(
             es.hp -= player_attack;
           }
         } else {
-          let blocked = !level.walkable(target_x, target_y)
-            || index.0.get(&(target_x, target_y, pos.z)).is_some_and(|entities| {
-              entities.iter().any(|&e| collidable_q.get(e).is_ok_and(|c| c.0))
-            });
+          // resolve_move already ensured target is passable (tile + entity).
+          pos.x = target_x;
+          pos.y = target_y;
 
-          if !blocked {
-            pos.x = target_x;
-            pos.y = target_y;
-
-            let lvl = current.0.level(pos.z);
-            if (pos.y as usize) < lvl.height && (pos.x as usize) < lvl.width {
-              if let Some(item) = lvl.items[pos.y as usize][pos.x as usize] {
-                *inventory.0.entry(item).or_insert(0) += 1;
-              }
+          let lvl = current.0.level(pos.z);
+          if (pos.y as usize) < lvl.height && (pos.x as usize) < lvl.width {
+            if let Some(item) = lvl.items[pos.y as usize][pos.x as usize] {
+              *inventory.0.entry(item).or_insert(0) += 1;
             }
-          } else {
-            pending_bump.0 = Some((target_x, target_y, pos.z));
           }
         }
 
-        clock.advance(PlayerAction::Move { dx, dy }.time_cost());
+        if clock.mode == TimeMode::TurnBased {
+          clock.advance(PlayerAction::Move { dx, dy }.time_cost());
+        }
         clock.move_cooldown_frames = RENDER_FRAMES_PER_SIM_STEP;
         note_player_turn_moved_world(&*clock, &mut *tb);
       }
