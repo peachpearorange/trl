@@ -512,6 +512,7 @@ fn main() {
   galaxy.insert(locations::asteroid_field::ID, locations::asteroid_field::generate());
   galaxy.insert(locations::meridian_station::ID, locations::meridian_station::generate());
   galaxy.insert(locations::lava_planet::ID, locations::lava_planet::generate());
+  galaxy.insert(locations::gamma_station::ID, locations::gamma_station::generate());
 
   // Ship starts docked at the starter planet
   let active = active_zone::ActiveZone::docked(&ship_location, &starter_planet)
@@ -1639,6 +1640,10 @@ fn gather_interactions_at_tile(
             InteractionOption {
               label: "Chart course — Lava Planet".into(),
               action: InteractionAction::Navigate { dest: locations::lava_planet::ID }
+            },
+            InteractionOption {
+              label: "Chart course — Gamma Station".into(),
+              action: InteractionAction::Navigate { dest: locations::gamma_station::ID }
             }
           ]
           .into_iter()
@@ -1833,6 +1838,11 @@ fn spawn_zone_geometry(
   {
     locations::starter_planet::surface_prefab().stamp_entities(commands, dox, doy, 0);
   }
+  if docked_at == Some(locations::gamma_station::ID)
+    && let Some((dox, doy)) = zone.dest_origin
+  {
+    locations::gamma_station::station_prefab().stamp_entities(commands, dox, doy, 0);
+  }
   if docked_at == Some(locations::meridian_station::ID)
     && let Some((dox, doy)) = zone.dest_origin
   {
@@ -1940,6 +1950,7 @@ fn apply_pending_navigation(
     locations::starter_planet::ID => "origin planet",
     locations::asteroid_field::ID => "asteroid field",
     locations::meridian_station::ID => "Meridian Station",
+    locations::gamma_station::ID => "Gamma Station",
     _ => "destination"
   };
   log_message(&mut *log, format!("Astrogation: docked — {dest_name} sector."));
