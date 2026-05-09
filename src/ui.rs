@@ -484,17 +484,20 @@ fn message_log() -> impl Element {
       n.border = UiRect::all(Val::Px(1.0));
       n.border_radius = BorderRadius::all(Val::Px(4.0));
       n.padding = UiRect::all(Val::Px(PANEL_PAD));
-      n.overflow = Overflow::scroll_y();
-      n.column_gap = Val::Px(1.0);
+      n.row_gap = Val::Px(4.0);
     })
     .background_color(BackgroundColor(Color::NONE))
     .border_color(BorderColor::all(Color::NONE))
     .item(panel_label("Log"))
     .item(
+      // Scrollable area anchored to the bottom: new messages appear at the bottom,
+      // older ones scroll upward.
       El::<Node>::new()
         .with_node(|mut n| {
           n.width = Val::Percent(100.0);
-          n.min_height = Val::Px(4.0);
+          n.flex_grow = 1.0;
+          n.overflow = Overflow::scroll_y();
+          n.justify_content = JustifyContent::FlexEnd;
         })
         .child_signal(signal::from_resource_changed::<LogDisplayData>().map_in(|d| {
           Column::<Node>::new()
