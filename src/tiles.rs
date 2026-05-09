@@ -387,7 +387,7 @@ impl Tile {
         causes_falling: false,
         name: "Window",
         has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/window.png", [0.22, 0.32, 0.52], [0.62, 0.76, 0.94]))
+        space_qud_sprite: Some(("textures/space_qud/window (1).png", [0.22, 0.32, 0.52], [0.62, 0.76, 0.94]))
       },
       Tile::AirlockDoor => TileProperties {
         glyph: "+",

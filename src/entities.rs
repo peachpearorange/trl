@@ -489,4 +489,118 @@ impl Object {
         ),
       ))
   }
+
+  pub fn boulder() -> Self {
+    Self::structure(true).add((
+      Glyph::palette_sprite(
+        "textures/space_qud/rock.png",
+        'o',
+        Color::srgb(0.32, 0.30, 0.28),
+        Color::srgb(0.58, 0.55, 0.50)
+      ),
+      Named { name: "Boulder", flavor: "A massive rock. Immovable." }
+    ))
+  }
+
+  pub fn bed() -> Self {
+    Self::structure(true).add((
+      Glyph::palette_sprite(
+        "textures/space_qud/bed.png",
+        'b',
+        Color::srgb(0.52, 0.38, 0.22),
+        Color::srgb(0.88, 0.84, 0.72)
+      ),
+      Named { name: "Bed", flavor: "A place to sleep. Looks like it hasn't been used in a while." }
+    ))
+  }
+
+  pub fn table() -> Self {
+    Self::structure(true).add((
+      Glyph::palette_sprite(
+        "textures/space_qud/table.png",
+        't',
+        Color::srgb(0.48, 0.34, 0.18),
+        Color::srgb(0.72, 0.58, 0.36)
+      ),
+      Named { name: "Table", flavor: "A sturdy table." }
+    ))
+  }
+
+  pub fn locker() -> Self {
+    Self::structure(true).add((
+      Glyph::palette_sprite(
+        "textures/space_qud/locker.png",
+        'l',
+        Color::srgb(0.32, 0.38, 0.42),
+        Color::srgb(0.62, 0.68, 0.72)
+      ),
+      Named { name: "Locker", flavor: "A metal locker. Whatever was inside is long gone." }
+    ))
+  }
+
+  pub fn robot() -> Self {
+    Self::enemy().add((
+      Named {
+        name: "Robot",
+        flavor: "A damaged security robot. Its threat-response routines are still very much active."
+      },
+      Stats { hp: 15, max_hp: 15, attack: 4, move_speed: 2.5, attack_speed: 0.8 },
+      Wielding(None),
+      Wearing(None),
+      Glyph::palette_sprite(
+        "textures/space_qud/robo.png",
+        'R',
+        Color::srgb(0.28, 0.52, 0.58),
+        Color::srgb(0.55, 0.82, 0.88)
+      )
+    ))
+  }
+
+  pub fn wack_robot() -> Self {
+    Self::enemy().add((
+      Named {
+        name: "Salvage Bot",
+        flavor: "A repurposed salvage drone running corrupted directives. Approaches everything as scrap."
+      },
+      Stats { hp: 8, max_hp: 8, attack: 3, move_speed: 3.5, attack_speed: 1.2 },
+      Wielding(None),
+      Wearing(None),
+      Glyph::palette_sprite(
+        "textures/space_qud/wack robo.png",
+        'R',
+        Color::srgb(0.62, 0.38, 0.18),
+        Color::srgb(0.88, 0.68, 0.32)
+      )
+    ))
+  }
+
+  pub fn mushroom_creature() -> Self {
+    Self::enemy().add((
+      Named {
+        name: "Mycelid",
+        flavor: "A ambulatory fungal mass. Moves with unsettling purpose."
+      },
+      Stats { hp: 6, max_hp: 6, attack: 2, move_speed: 2.0, attack_speed: 0.6 },
+      Wielding(None),
+      Wearing(None),
+      Glyph::palette_sprite(
+        "textures/space_qud/mushroom.png",
+        'm',
+        Color::srgb(0.42, 0.28, 0.18),
+        Color::srgb(0.82, 0.72, 0.55)
+      )
+    ))
+  }
+
+  pub fn laser_sword() -> Self {
+    Self::structure(false).add((
+      Glyph::palette_sprite(
+        "textures/space_qud/laser sword.png",
+        '/',
+        Color::srgb(0.18, 0.08, 0.52),
+        Color::srgb(0.42, 0.82, 0.98)
+      ),
+      Named { name: "Laser Sword", flavor: "An energy blade, dormant. Still hums faintly." }
+    ))
+  }
 }
