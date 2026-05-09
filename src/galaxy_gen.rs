@@ -1,9 +1,10 @@
 use crate::{galaxy::{LandingSpot, Location, LocationId},
-            level::{LocationType, Tile},
+            level::{LocationType, Tile, ZONE_HEIGHT, ZONE_WIDTH},
             prefabs::Prefab};
 
 pub const ID_STARTER_PLANET: LocationId = (0, 0, 0);
 pub const ID_ASTEROID_FIELD: LocationId = (1, 0, 0);
+pub const ID_SPACE_STATION: LocationId = (0, 1, 0);
 
 /// Generate a small starter planet at the origin of the galaxy.
 pub fn generate_starter_planet() -> Location {
@@ -69,4 +70,28 @@ pub const STARTER_NPC_COORDS: &[(i32, i32)] = &[
   (26, 22), // unit7
   (22, 21), // kong
   (24, 23)  // guard
+];
+
+/// Generate Meridian Station — a modular orbital facility with docking bay,
+/// medical wing, and engineering wing.
+pub fn generate_space_station() -> Location {
+  let mut loc = Location::new(
+    ZONE_WIDTH,
+    ZONE_HEIGHT,
+    1,
+    LocationType::SpaceStation,
+    Tile::Vacuum
+  );
+  Prefab::space_station().stamp_level(loc.level_mut(0), 0, 0);
+  // Landing spot: the AirlockDoor 'A' at row 0, col 23 — ship connects here.
+  loc.landing_spots.push(LandingSpot { x: 23, y: 0, z: 0 });
+  loc
+}
+
+/// NPC coordinates for Meridian Station (station-local = zone coords, stamped at 0,0).
+pub const STATION_NPC_COORDS: &[(i32, i32)] = &[
+  (23, 3),  // DOCK-1 — docking bay center
+  (23, 10), // AIDEN-3 — hub interior, near entry
+  (6, 14),  // WREN-9 — medical wing
+  (41, 14)  // FORGE — engineering wing
 ];

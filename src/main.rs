@@ -488,6 +488,7 @@ fn main() {
   let starter_planet = galaxy_gen::generate_starter_planet();
   galaxy.insert(origin, starter_planet.clone());
   galaxy.insert(galaxy_gen::ID_ASTEROID_FIELD, galaxy_gen::generate_asteroid_field());
+  galaxy.insert(galaxy_gen::ID_SPACE_STATION, galaxy_gen::generate_space_station());
 
   // Ship starts docked at the starter planet
   let active = active_zone::ActiveZone::docked(
@@ -1610,6 +1611,10 @@ fn gather_interactions_at_tile(
             InteractionOption {
               label: "Chart course — Space asteroid field".into(),
               action: InteractionAction::Navigate { dest: galaxy_gen::ID_ASTEROID_FIELD }
+            },
+            InteractionOption {
+              label: "Chart course — Meridian Station".into(),
+              action: InteractionAction::Navigate { dest: galaxy_gen::ID_SPACE_STATION }
             }
           ]
           .into_iter()
@@ -1813,6 +1818,23 @@ fn spawn_zone_geometry(
       obj.spawn_at(commands, wx, wy, 0);
     }
   }
+  if docked_at == Some(galaxy_gen::ID_SPACE_STATION)
+    && let Some((dox, doy)) = zone.dest_origin
+  {
+    prefabs::Prefab::space_station().stamp_entities(commands, dox, doy, 0);
+    for &(lx, ly) in galaxy_gen::STATION_NPC_COORDS {
+      let wx = dox + lx;
+      let wy = doy + ly;
+      let obj = match (lx, ly) {
+        (23, 3) => npcs::station_robots::dock1(),
+        (23, 10) => npcs::station_robots::aiden3(),
+        (6, 14) => npcs::station_robots::wren9(),
+        (41, 14) => npcs::station_robots::forge(),
+        _ => continue
+      };
+      obj.spawn_at(commands, wx, wy, 0);
+    }
+  }
 }
 
 fn apply_pending_navigation(
@@ -1893,6 +1915,7 @@ fn apply_pending_navigation(
   let dest_name = match dest {
     galaxy_gen::ID_STARTER_PLANET => "origin planet",
     galaxy_gen::ID_ASTEROID_FIELD => "asteroid field",
+    galaxy_gen::ID_SPACE_STATION => "Meridian Station",
     _ => "destination"
   };
   log_message(&mut *log, format!("Astrogation: docked — {dest_name} sector."));
