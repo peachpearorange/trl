@@ -89,7 +89,7 @@ impl Tile {
         causes_falling: false,
         name: "Deck Plate",
         has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/floor .png", [0.42, 0.50, 0.60], [0.72, 0.80, 0.90]))
+        space_qud_sprite: Some(("textures/space_qud/floor3.png", [0.42, 0.50, 0.60], [0.72, 0.80, 0.90]))
       },
       Tile::Wall => TileProperties {
         glyph: "#",

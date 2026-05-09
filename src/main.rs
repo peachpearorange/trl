@@ -615,7 +615,6 @@ fn main() {
         sync_entity_positions,
         camera_follow,
         update_fov_visuals,
-        hide_tile_under_occupants,
         update_tile_hover_highlight
       )
         .chain()
@@ -892,40 +891,6 @@ fn update_fov_visuals(
   }
 }
 
-/// Hide the base floor tile when any object entity or floor item occupies the cell.
-fn hide_tile_under_occupants(
-  index: Res<TileEntityIndex>,
-  current: Res<CurrentZone>,
-  player_q: Query<&PlayerPos, With<Player>>,
-  mut tile_png: Query<(&TileGlyph, &mut Visibility), With<TilePng>>,
-  mut tile_text: Query<
-    (&TileGlyph, &mut Visibility),
-    (Without<TilePng>, Without<ItemGlyph>)
-  >
-) {
-  let Ok(pos) = player_q.single() else {
-    return;
-  };
-  let level = current.0.level(pos.z);
-  let occluded = |ix: i32, iy: i32| {
-    index.0.get(&(ix, iy, pos.z)).is_some_and(|ents| !ents.is_empty())
-      || (iy >= 0
-        && ix >= 0
-        && (iy as usize) < level.height
-        && (ix as usize) < level.width
-        && level.items[iy as usize][ix as usize].is_some())
-  };
-  for (tg, mut vis) in tile_png.iter_mut() {
-    let ix = tg.x as i32;
-    let iy = tg.y as i32;
-    *vis = if occluded(ix, iy) { Visibility::Hidden } else { Visibility::Visible };
-  }
-  for (tg, mut vis) in tile_text.iter_mut() {
-    let ix = tg.x as i32;
-    let iy = tg.y as i32;
-    *vis = if occluded(ix, iy) { Visibility::Hidden } else { Visibility::Visible };
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Time
