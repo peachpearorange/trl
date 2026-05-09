@@ -1,4 +1,27 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::collections::HashMap;
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::PathBuf;
+
+#[cfg(target_arch = "wasm32")]
+#[derive(rust_embed::RustEmbed)]
+#[folder = "assets/"]
+struct EmbeddedAssets;
+
+fn load_asset_bytes(relative_path: &str) -> Vec<u8> {
+  #[cfg(not(target_arch = "wasm32"))]
+  {
+    let fs_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets").join(relative_path);
+    std::fs::read(&fs_path)
+      .unwrap_or_else(|e| panic!("load_asset_bytes: failed to read {}: {e}", fs_path.display()))
+  }
+  #[cfg(target_arch = "wasm32")]
+  {
+    EmbeddedAssets::get(relative_path)
+      .unwrap_or_else(|| panic!("load_asset_bytes: embedded asset not found: {relative_path}"))
+      .data
+      .into_owned()
+  }
+}
 
 use {bevy::{asset::RenderAssetUsages,
             color::LinearRgba,
@@ -97,10 +120,9 @@ pub fn palette_sprite_handle(
   if let Some(h) = cache.0.get(&key) {
     h.clone()
   } else {
-    let fs_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets").join(path);
-    let dyn_img = image::open(&fs_path).unwrap_or_else(|e| {
-      panic!("palette_sprite_handle: failed to open {}: {e}", fs_path.display())
-    });
+    let bytes = load_asset_bytes(path);
+    let dyn_img = image::load_from_memory(&bytes)
+      .unwrap_or_else(|e| panic!("palette_sprite_handle: failed to decode {path}: {e}"));
     let rgba = dyn_img.to_rgba8();
     let (w, h) = rgba.dimensions();
     let data = bake_palette_png(&rgba, primary, secondary);
