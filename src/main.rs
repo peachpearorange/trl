@@ -26,7 +26,7 @@ use {bevy::prelude::*,
      crate::entities::{AirlockDoor, BlocksSight, Collidable, Dialogue, DialogueNode,
                        DialogueTree, Door, Enemy, FlightConsole, Glyph, Location, LootChest,
                        Named, Stats, Tree, Visuals},
-     ui::{LogEntries, log_message}};
+     ui::{LogEntries, LogSpan, log_message, log_spans}};
 
 use {active_zone::ActiveZone,
      sprites::{PaletteImageCache, palette_sprite_handle}};
@@ -42,6 +42,8 @@ const DOOR_CLOSED_PRI: Color = Color::srgb(0.34, 0.37, 0.41);
 const DOOR_CLOSED_SEC: Color = Color::srgb(0.52, 0.55, 0.58);
 const DOOR_OPEN_PRI: Color = Color::srgb(0.48, 0.55, 0.58);
 const DOOR_OPEN_SEC: Color = Color::srgb(0.72, 0.78, 0.82);
+/// Primary color used for the player sprite and "You:" log labels.
+pub const PLAYER_PRIMARY: Color = Color::srgb(0.18, 0.42, 0.92);
 /// Simulated 60Hz display: one grid step / one input gate spans this many render updates.
 pub const RENDER_FRAMES_PER_SIM_STEP: u32 = 6;
 /// How many sim steps run per real-time second (= assumed display Hz / render frames per step).
@@ -97,7 +99,7 @@ struct InteractionOption {
 #[derive(Clone, Debug)]
 enum InteractionAction {
   ToggleDoor(Entity),
-  Talk { speaker: &'static str, tree: &'static DialogueTree },
+  Talk { speaker: &'static str, tree: &'static DialogueTree, speaker_color: Color },
   ChopTree(Entity),
   PickUpItem(i32, i32),
   OpenChest(Entity),
@@ -138,7 +140,8 @@ enum DialogueState {
   Open {
     speaker: &'static str,
     tree: &'static DialogueTree,
-    node_name: &'static str
+    node_name: &'static str,
+    speaker_color: Color
   }
 }
 
@@ -1214,8 +1217,16 @@ fn handle_menus(
   }
 }
 
-fn log_dialogue_node_block(log: &mut LogEntries, speaker: &str, node: &DialogueNode) {
-  log_message(log, format!("{speaker}: {}", node.text));
+fn log_dialogue_node_block(
+  log: &mut LogEntries,
+  speaker: &str,
+  speaker_color: Color,
+  node: &DialogueNode
+) {
+  log_spans(log, vec![
+    LogSpan::colored(format!("{speaker}:"), speaker_color),
+    LogSpan::plain(format!(" {}", node.text))
+  ]);
 }
 
 fn handle_dialogue(
@@ -1229,8 +1240,8 @@ fn handle_dialogue(
     return;
   }
 
-  if let DialogueState::Open { speaker, tree, node_name } = &ui.dialogue {
-    let (speaker, tree, node_name) = (*speaker, *tree, *node_name);
+  if let DialogueState::Open { speaker, tree, node_name, speaker_color } = &ui.dialogue {
+    let (speaker, tree, node_name, speaker_color) = (*speaker, *tree, *node_name, *speaker_color);
     let node = tree.find(node_name);
     if keys.just_pressed(KeyCode::Escape) {
       ui.dialogue = DialogueState::Closed;
@@ -1251,11 +1262,15 @@ fn handle_dialogue(
       && idx < node.choices.len()
     {
       let choice = &node.choices[idx];
-      log_message(&mut *log, format!("You: {}", choice.text));
+      log_spans(&mut *log, vec![
+        LogSpan::colored("You:", PLAYER_PRIMARY),
+        LogSpan::plain(format!(" {}", choice.text))
+      ]);
       if let Some(next_name) = choice.next {
-        ui.dialogue = DialogueState::Open { speaker, tree, node_name: next_name };
+        ui.dialogue =
+          DialogueState::Open { speaker, tree, node_name: next_name, speaker_color };
         let next_node = tree.find(next_name);
-        log_dialogue_node_block(&mut *log, speaker, next_node);
+        log_dialogue_node_block(&mut *log, speaker, speaker_color, next_node);
       } else {
         ui.dialogue = DialogueState::Closed;
       }
@@ -1412,10 +1427,11 @@ fn execute_interaction(
   player_query: &mut Query<(&mut PlayerPos, &mut Inventory), With<Player>>
 ) {
   // No player/position needed; must not sit behind `player_query` or logging can be skipped.
-  if let InteractionAction::Talk { speaker, tree } = action {
+  if let InteractionAction::Talk { speaker, tree, speaker_color } = action {
     let node = tree.find(tree.nodes[0].name);
-    ui.dialogue = DialogueState::Open { speaker, tree, node_name: tree.nodes[0].name };
-    log_dialogue_node_block(log, speaker, node);
+    ui.dialogue =
+      DialogueState::Open { speaker, tree, node_name: tree.nodes[0].name, speaker_color: *speaker_color };
+    log_dialogue_node_block(log, speaker, *speaker_color, node);
   } else if let InteractionAction::Navigate { .. } = action {
   } else if let Ok((pos, mut inventory)) = player_query.single_mut() {
     match action {
@@ -1580,6 +1596,7 @@ fn gather_interactions_at_tile(
   tile_entities: Option<&Vec<Entity>>,
   tree_q: &Query<Entity, With<Tree>>,
   dialogue_q: &Query<(&Named, &Dialogue)>,
+  glyph_q: &Query<&Glyph>,
   loot_chest_q: &mut Query<(&mut LootChest, &mut Glyph, &Location)>,
   door_q: &Query<&Door>,
   named_q: &Query<&Named>,
@@ -1604,9 +1621,20 @@ fn gather_interactions_at_tile(
           dialogue_q
             .get(e)
             .ok()
-            .map(|(named, dialogue)| InteractionOption {
-              label: format!("Talk to {}", named.name),
-              action: InteractionAction::Talk { speaker: named.name, tree: dialogue.0 }
+            .map(|(named, dialogue)| {
+              let speaker_color = glyph_q
+                .get(e)
+                .ok()
+                .map(|g| g.sprite_palette.map(|(primary, _)| primary).unwrap_or(g.color))
+                .unwrap_or(Color::srgb(0.78, 0.80, 0.86));
+              InteractionOption {
+                label: format!("Talk to {}", named.name),
+                action: InteractionAction::Talk {
+                  speaker: named.name,
+                  tree: dialogue.0,
+                  speaker_color
+                }
+              }
             })
             .into_iter()
         )
@@ -1672,6 +1700,7 @@ fn resolve_bump_interact(
   index: Res<TileEntityIndex>,
   dialogue_q: Query<(&Named, &Dialogue)>,
   tree_q: Query<Entity, With<Tree>>,
+  glyph_q: Query<&Glyph>,
   mut loot_chest_q: Query<(&mut LootChest, &mut Glyph, &Location)>,
   door_q: Query<&Door>,
   named_q: Query<&Named>,
@@ -1689,6 +1718,7 @@ fn resolve_bump_interact(
     index.0.get(&(tx, ty, tz)),
     &tree_q,
     &dialogue_q,
+    &glyph_q,
     &mut loot_chest_q,
     &door_q,
     &named_q,
@@ -1778,6 +1808,7 @@ fn handle_interact(
   player_q: Query<&PlayerPos, With<Player>>,
   dialogue_q: Query<(&Named, &Dialogue)>,
   tree_q: Query<Entity, With<Tree>>,
+  glyph_q: Query<&Glyph>,
   mut loot_chest_q: Query<(&mut LootChest, &mut Glyph, &Location)>,
   door_q: Query<&Door>,
   named_q: Query<&Named>,
@@ -1804,6 +1835,7 @@ fn handle_interact(
           index.0.get(&(wx, wy, pos.z)),
           &tree_q,
           &dialogue_q,
+          &glyph_q,
           &mut loot_chest_q,
           &door_q,
           &named_q,

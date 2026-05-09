@@ -17,7 +17,7 @@ use {crate::{Clock, GAME_VIEWPORT_WIDTH_FRAC, STATUS_BAR_HEIGHT, game_pane_rect,
              utils::mapv, world_to_level_cell},
      bevy::{prelude::*,
             text::FontWeight,
-            ui::{AlignItems, Display, FlexDirection, JustifyContent}},
+            ui::{AlignItems, Display, FlexDirection, FlexWrap, JustifyContent}},
      haalka::{jonmo::SignalProcessing, prelude::*},
      jonmo::{prelude::*, signal},
      crate::entities::{Named, Stats}};
@@ -56,19 +56,37 @@ pub struct HoverInfo {
   pub flavor: Option<String>
 }
 
-/// Accumulated messages; capped at 100 entries. Updated by game systems in `Update`.
-#[derive(Resource, Clone, Default)]
-pub struct LogEntries(pub Vec<String>);
-
-/// Log body for the sidebar, like [`InvDisplayData`]: one string set in [`sync_ui`], read by
-/// `reactive_text` (avoids `item_signal` + nested `Column` issues in Jonmo).
-#[derive(Resource, Clone, Default)]
-pub struct LogDisplayData {
-  pub text: String
+/// One inline run of text with an optional color override (None = default log color).
+#[derive(Clone, PartialEq, Debug)]
+pub struct LogSpan {
+  pub text: String,
+  pub color: Option<Color>
 }
 
-/// Push one line or multiline block; oldest entries are dropped to keep at most 100.
+impl LogSpan {
+  pub fn plain(text: impl Into<String>) -> Self { Self { text: text.into(), color: None } }
+  pub fn colored(text: impl Into<String>, color: Color) -> Self {
+    Self { text: text.into(), color: Some(color) }
+  }
+}
+
+pub type LogLine = Vec<LogSpan>;
+
+/// Accumulated messages; capped at 100 entries. Updated by game systems in `Update`.
+#[derive(Resource, Clone, Default)]
+pub struct LogEntries(pub Vec<LogLine>);
+
+/// Log body for the sidebar — last 50 lines, written by `sync_ui`, read by Haalka signal.
+#[derive(Resource, Clone, Default, PartialEq)]
+pub struct LogDisplayData(pub Vec<LogLine>);
+
+/// Push a plain-text line; oldest entries are dropped to keep at most 100.
 pub fn log_message(log: &mut LogEntries, line: String) {
+  log_spans(log, vec![LogSpan::plain(line)]);
+}
+
+/// Push a multi-span line with per-span color control.
+pub fn log_spans(log: &mut LogEntries, line: LogLine) {
   const MAX: usize = 100;
   while log.0.len() >= MAX {
     log.0.remove(0);
@@ -473,18 +491,27 @@ fn message_log() -> impl Element {
     .border_color(BorderColor::all(Color::NONE))
     .item(panel_label("Log"))
     .item(
-      // Same pattern as `inventory_list`: one `reactive_text` driven by a sync-only resource.
       El::<Node>::new()
         .with_node(|mut n| {
           n.width = Val::Percent(100.0);
           n.min_height = Val::Px(4.0);
         })
-        .child(reactive_text(
-          signal::from_resource::<LogDisplayData>().map_in(|d| d.text.clone()),
-          FONT_SIZE_SMALL,
-          DIM_TEXT,
-          W_UI
-        ))
+        .child_signal(signal::from_resource::<LogDisplayData>().map_in(|d| {
+          Column::<Node>::new()
+            .with_node(|mut n| {
+              n.width = Val::Percent(100.0);
+              n.row_gap = Val::Px(1.0);
+            })
+            .items(d.0.into_iter().map(|line| {
+              Row::<Node>::new()
+                .with_node(|mut n| {
+                  n.flex_wrap = FlexWrap::Wrap;
+                })
+                .items(line.into_iter().map(|span| {
+                  static_text(span.text, FONT_SIZE_SMALL, span.color.unwrap_or(DIM_TEXT), W_UI)
+                }))
+            }))
+        }))
     )
 }
 
@@ -721,7 +748,7 @@ fn sync_ui(
     crate::InteractMenu::Closed => None
   })
   .or_else(|| match &ui.dialogue {
-    crate::DialogueState::Open { speaker, tree, node_name } => {
+    crate::DialogueState::Open { speaker, tree, node_name, .. } => {
       let node = tree.find(node_name);
       let options: Vec<String> = mapv(|c| c.text.to_string(), node.choices);
       Some(OverlayKind::Dialogue {
@@ -732,20 +759,18 @@ fn sync_ui(
     crate::DialogueState::Closed => None
   });
 
-  // ── Log: oldest at top, newest at bottom; keep last 50 *messages* ──
+  // ── Log: oldest at top, newest at bottom; keep last 50 lines ──
   {
     let n = res_log.0.len();
     let start = n.saturating_sub(50);
-    let lines: String = if n == 0 {
-      String::new()
+    let new_lines: Vec<LogLine> = if n == 0 {
+      vec![vec![LogSpan::plain("\u{2014}")]]
     } else {
-      res_log.0[start..]
-        .iter()
-        .flat_map(|s| s.lines().map(String::from))
-        .collect::<Vec<_>>()
-        .join("\n")
+      res_log.0[start..].to_vec()
     };
-    log_display.text = if lines.is_empty() { "\u{2014}".into() } else { lines };
+    if log_display.0 != new_lines {
+      log_display.0 = new_lines;
+    }
   }
 }
 
