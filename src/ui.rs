@@ -496,7 +496,7 @@ fn message_log() -> impl Element {
           n.width = Val::Percent(100.0);
           n.min_height = Val::Px(4.0);
         })
-        .child_signal(signal::from_resource::<LogDisplayData>().map_in(|d| {
+        .child_signal(signal::from_resource_changed::<LogDisplayData>().map_in(|d| {
           Column::<Node>::new()
             .with_node(|mut n| {
               n.width = Val::Percent(100.0);
