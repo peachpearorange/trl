@@ -35,18 +35,16 @@ impl ActiveZone {
     }
   }
 
-  /// Create an ActiveZone with ship docked to a destination at a landing spot.
-  /// Position the destination so its landing spot is adjacent to the ship's airlock.
-  pub fn docked(
-    ship_loc: &Location,
-    dest: &Location,
-    landing_spot_idx: usize
-  ) -> Option<Self> {
-    let spot = dest.landing_spots.get(landing_spot_idx)?;
-
-    // Ship airlock is at (AIRLOCK_X, AIRLOCK_Y) in ship-local coords.
-    // Position the destination so its landing spot is adjacent (south) of the airlock.
-    let dest_origin = (AIRLOCK_X - spot.x, AIRLOCK_Y + 1 - spot.y);
+  /// Create an ActiveZone with ship docked to a destination.
+  /// Scans the destination level for a ShipDock tile and positions the
+  /// destination so that tile is adjacent (south) of the ship's airlock.
+  pub fn docked(ship_loc: &Location, dest: &Location) -> Option<Self> {
+    use crate::level::Tile;
+    let level0 = dest.level(0);
+    let (dpx, dpy) = (0..dest.height as i32)
+      .flat_map(|y| (0..dest.width as i32).map(move |x| (x, y)))
+      .find(|&(x, y)| level0.get(x, y) == Some(Tile::ShipDock))?;
+    let dest_origin = (AIRLOCK_X - dpx, AIRLOCK_Y + 1 - dpy);
 
     // Compute bounding box
     let ship_x0 = 0i32;

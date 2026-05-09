@@ -2,17 +2,12 @@ use crate::{active_zone::ActiveZone,
             galaxy::{Galaxy, LocationId},
             ship::Ship};
 
-/// Dock the ship at a specific landing spot of the destination location.
+/// Dock the ship at the destination location.
 /// Returns the new merged ActiveZone, or None if docking failed.
-pub fn dock(
-  galaxy: &Galaxy,
-  ship: &mut Ship,
-  dest_id: LocationId,
-  landing_spot_idx: usize
-) -> Option<ActiveZone> {
+pub fn dock(galaxy: &Galaxy, ship: &mut Ship, dest_id: LocationId) -> Option<ActiveZone> {
   let ship_loc = galaxy.get(ship.location_id)?;
   let dest = galaxy.get(dest_id)?;
-  let merged = ActiveZone::docked(ship_loc, dest, landing_spot_idx)?;
+  let merged = ActiveZone::docked(ship_loc, dest)?;
   ship.docked_at = Some(dest_id);
   Some(merged)
 }

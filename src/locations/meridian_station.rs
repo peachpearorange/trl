@@ -1,4 +1,32 @@
 use {bevy::prelude::Color, trl::entities::*};
+use trl::{galaxy::{Location, LocationId},
+          level::{LocationType, Tile, ZONE_WIDTH, ZONE_HEIGHT},
+          prefabs::{prefab, Prefab}};
+
+pub const ID: LocationId = (0, 1, 0);
+
+pub fn station_prefab() -> Prefab {
+  prefab(include_str!("../../assets/prefabs/space_station.txt"))
+    .assoc('v', (Tile::Vacuum, []))
+    .assoc('#', (Tile::StationWall, []))
+    .assoc('.', (Tile::StationFloor, []))
+    .assoc('W', (Tile::Window, []))
+    .assoc('D', (Tile::Door, [Object::door()]))
+    .assoc('P', (Tile::ShipDock, []))
+}
+
+pub fn generate() -> Location {
+  let mut loc = Location::new(ZONE_WIDTH, ZONE_HEIGHT, 1, LocationType::SpaceStation, Tile::Vacuum);
+  station_prefab().stamp_level(loc.level_mut(0), 0, 0);
+  loc
+}
+
+pub const NPC_COORDS: &[(i32, i32)] = &[
+  (23, 3),  // DOCK-1 — docking bay center
+  (23, 10), // AIDEN-3 — hub interior, near entry
+  (6, 14),  // WREN-9 — medical wing
+  (41, 14)  // FORGE — engineering wing
+];
 
 // ── DOCK-1 ──────────────────────────────────────────────────────────────────
 

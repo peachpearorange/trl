@@ -43,7 +43,8 @@ pub enum Tile {
   AlienSoil,
   AlienGrass,
   CrystalGrowth,
-  AlienFluid
+  AlienFluid,
+  ShipDock
 }
 
 /// Properties bundled with each [`Tile`] variant.
@@ -584,6 +585,18 @@ impl Tile {
         name: "Alien Fluid",
         has_atmosphere: true,
         space_qud_sprite: Some(("textures/space_qud/liquid tile.png", [0.35, 0.12, 0.52], [0.68, 0.32, 0.88]))
+      },
+      Tile::ShipDock => TileProperties {
+        glyph: "P",
+        color: [0.85, 0.72, 0.1],
+        minimap_color: [0.75, 0.62, 0.05],
+        texture_path: None,
+        walkable: true,
+        opaque: false,
+        causes_falling: false,
+        name: "Ship Dock",
+        has_atmosphere: false,
+        space_qud_sprite: None
       }
     }
   }

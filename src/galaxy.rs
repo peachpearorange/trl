@@ -5,14 +5,6 @@ use {crate::level::{Level, LocationType},
 /// Unique identifier for a Location in the Galaxy.
 pub type LocationId = (i32, i32, i32);
 
-/// Where the ship connects when docking at this location.
-#[derive(Clone, Debug)]
-pub struct LandingSpot {
-  pub x: i32,
-  pub y: i32,
-  pub z: usize
-}
-
 /// One variable-size zone in the galaxy.
 #[derive(Clone, Debug)]
 pub struct Location {
@@ -20,8 +12,7 @@ pub struct Location {
   pub height: usize,
   pub depth: usize,
   pub levels: Vec<Level>,
-  pub location_type: LocationType,
-  pub landing_spots: Vec<LandingSpot>
+  pub location_type: LocationType
 }
 
 impl Location {
@@ -33,7 +24,7 @@ impl Location {
     fill: crate::level::Tile
   ) -> Self {
     let levels = (0..depth).map(|_| Level::new(width, height, fill)).collect();
-    Location { width, height, depth, levels, location_type, landing_spots: Vec::new() }
+    Location { width, height, depth, levels, location_type }
   }
 
   pub fn level(&self, z: usize) -> &Level { &self.levels[z] }

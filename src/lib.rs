@@ -8,7 +8,6 @@ pub mod docking;
 pub mod entities;
 pub mod faction;
 pub mod galaxy;
-pub mod galaxy_gen;
 pub mod level;
 pub mod navigation;
 pub mod prefabs;

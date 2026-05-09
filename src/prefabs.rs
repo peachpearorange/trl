@@ -64,19 +64,7 @@ impl Prefab {
     .assoc('p', (Tile::DeckPlate, [ship_pilot()]))
   }
 
-  /// Meridian Station: multi-module space station with docking bay, medical wing, engineering wing.
-  /// Layout lives in `assets/prefabs/space_station.txt`.
-  pub fn space_station() -> Self {
-    prefab(include_str!("../assets/prefabs/space_station.txt"))
-      .assoc('v', (Tile::Vacuum, []))
-      .assoc('#', (Tile::StationWall, []))
-      .assoc('.', (Tile::StationFloor, []))
-      .assoc('W', (Tile::Window, []))
-      .assoc('D', (Tile::Door, [Object::door()]))
-      .assoc('A', (Tile::AirlockDoor, [Object::airlock_door()]))
-  }
-
-  /// Starter planet surface (`ZONE_WIDTH` × `ZONE_HEIGHT`): building, landing strip, crystals.
+/// Starter planet surface (`ZONE_WIDTH` × `ZONE_HEIGHT`): building, landing strip, crystals.
   /// Layout lives in `assets/prefabs/starter_planet_surface.txt`.
   pub fn starter_planet_surface() -> Self {
     prefab(include_str!("../assets/prefabs/starter_planet_surface.txt"))

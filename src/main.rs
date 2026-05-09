@@ -2,6 +2,7 @@ mod ui;
 use trl::level;
 mod combat;
 mod crafting;
+mod locations;
 mod loot;
 mod npcs;
 mod utils;
@@ -16,7 +17,7 @@ use {bevy::prelude::*,
      ui::{LogEntries, log_message}};
 
 use trl::{active_zone::{self, ActiveZone},
-          docking, galaxy, galaxy_gen, prefabs, ship,
+          docking, galaxy, prefabs, ship,
           sprites::{PaletteImageCache, palette_sprite_handle}};
 
 /// Tile art is authored at this resolution (e.g. space_qud masks).
@@ -484,19 +485,15 @@ fn main() {
   galaxy.insert(ship_id, ship_location.clone());
 
   // Add starter planet at origin
-  let origin: galaxy::LocationId = galaxy_gen::ID_STARTER_PLANET;
-  let starter_planet = galaxy_gen::generate_starter_planet();
+  let origin: galaxy::LocationId = locations::starter_planet::ID;
+  let starter_planet = locations::starter_planet::generate();
   galaxy.insert(origin, starter_planet.clone());
-  galaxy.insert(galaxy_gen::ID_ASTEROID_FIELD, galaxy_gen::generate_asteroid_field());
-  galaxy.insert(galaxy_gen::ID_SPACE_STATION, galaxy_gen::generate_space_station());
+  galaxy.insert(locations::asteroid_field::ID, locations::asteroid_field::generate());
+  galaxy.insert(locations::meridian_station::ID, locations::meridian_station::generate());
 
   // Ship starts docked at the starter planet
-  let active = active_zone::ActiveZone::docked(
-    &ship_location,
-    &starter_planet,
-    0 // first landing spot
-  )
-  .expect("ship should dock at starter planet");
+  let active = active_zone::ActiveZone::docked(&ship_location, &starter_planet)
+    .expect("ship should dock at starter planet");
 
   let ship_res = ship::Ship {
     location_id: ship_id,
@@ -1606,15 +1603,15 @@ fn gather_interactions_at_tile(
           [
             InteractionOption {
               label: "Chart course — Origin planet".into(),
-              action: InteractionAction::Navigate { dest: galaxy_gen::ID_STARTER_PLANET }
+              action: InteractionAction::Navigate { dest: locations::starter_planet::ID }
             },
             InteractionOption {
               label: "Chart course — Space asteroid field".into(),
-              action: InteractionAction::Navigate { dest: galaxy_gen::ID_ASTEROID_FIELD }
+              action: InteractionAction::Navigate { dest: locations::asteroid_field::ID }
             },
             InteractionOption {
               label: "Chart course — Meridian Station".into(),
-              action: InteractionAction::Navigate { dest: galaxy_gen::ID_SPACE_STATION }
+              action: InteractionAction::Navigate { dest: locations::meridian_station::ID }
             }
           ]
           .into_iter()
@@ -1800,11 +1797,11 @@ fn spawn_zone_geometry(
   spawn_level_tiles(commands, asset_server, palette_cache, images, zone);
   let (sox, soy) = zone.ship_origin;
   prefabs::Prefab::starting_ship().stamp_entities(commands, sox, soy, 0);
-  if docked_at == Some(galaxy_gen::ID_STARTER_PLANET)
+  if docked_at == Some(locations::starter_planet::ID)
     && let Some((dox, doy)) = zone.dest_origin
   {
     prefabs::Prefab::starter_planet_surface().stamp_entities(commands, dox, doy, 0);
-    for &(lx, ly) in galaxy_gen::STARTER_NPC_COORDS {
+    for &(lx, ly) in locations::starter_planet::NPC_COORDS {
       let wx = dox + lx;
       let wy = doy + ly;
       let (obj, _dx, _dy) = match (lx, ly) {
@@ -1818,18 +1815,18 @@ fn spawn_zone_geometry(
       obj.spawn_at(commands, wx, wy, 0);
     }
   }
-  if docked_at == Some(galaxy_gen::ID_SPACE_STATION)
+  if docked_at == Some(locations::meridian_station::ID)
     && let Some((dox, doy)) = zone.dest_origin
   {
-    prefabs::Prefab::space_station().stamp_entities(commands, dox, doy, 0);
-    for &(lx, ly) in galaxy_gen::STATION_NPC_COORDS {
+    locations::meridian_station::station_prefab().stamp_entities(commands, dox, doy, 0);
+    for &(lx, ly) in locations::meridian_station::NPC_COORDS {
       let wx = dox + lx;
       let wy = doy + ly;
       let obj = match (lx, ly) {
-        (23, 3) => npcs::station_robots::dock1(),
-        (23, 10) => npcs::station_robots::aiden3(),
-        (6, 14) => npcs::station_robots::wren9(),
-        (41, 14) => npcs::station_robots::forge(),
+        (23, 3) => locations::meridian_station::dock1(),
+        (23, 10) => locations::meridian_station::aiden3(),
+        (6, 14) => locations::meridian_station::wren9(),
+        (41, 14) => locations::meridian_station::forge(),
         _ => continue
       };
       obj.spawn_at(commands, wx, wy, 0);
@@ -1867,7 +1864,7 @@ fn apply_pending_navigation(
     );
     return;
   }
-  let Some(new_zone) = docking::dock(&galaxy, &mut ship, dest, 0) else {
+  let Some(new_zone) = docking::dock(&galaxy, &mut ship, dest) else {
     log_message(
       &mut *log,
       "Astrogation: cannot plot a dock for that destination.".into()
@@ -1913,9 +1910,9 @@ fn apply_pending_navigation(
         + Vec3::Z;
   }
   let dest_name = match dest {
-    galaxy_gen::ID_STARTER_PLANET => "origin planet",
-    galaxy_gen::ID_ASTEROID_FIELD => "asteroid field",
-    galaxy_gen::ID_SPACE_STATION => "Meridian Station",
+    locations::starter_planet::ID => "origin planet",
+    locations::asteroid_field::ID => "asteroid field",
+    locations::meridian_station::ID => "Meridian Station",
     _ => "destination"
   };
   log_message(&mut *log, format!("Astrogation: docked — {dest_name} sector."));
