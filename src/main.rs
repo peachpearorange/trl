@@ -1,3 +1,4 @@
+#![warn(dead_code)]
 mod ui;
 pub mod active_zone;
 pub mod atmosphere;

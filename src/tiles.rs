@@ -53,7 +53,6 @@ pub enum Tile {
 pub struct TileProperties {
   pub glyph: &'static str,
   pub color: [f32; 3],
-  pub minimap_color: [f32; 3],
   pub texture_path: Option<&'static str>,
   pub walkable: bool,
   pub opaque: bool,
@@ -70,7 +69,6 @@ impl Tile {
       Tile::Air => TileProperties {
         glyph: " ",
         color: [0.0, 0.0, 0.0],
-        minimap_color: [0.04, 0.06, 0.10],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -82,7 +80,6 @@ impl Tile {
       Tile::DeckPlate => TileProperties {
         glyph: ".",
         color: [0.50, 0.56, 0.64],
-        minimap_color: [0.42, 0.48, 0.56],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -94,7 +91,6 @@ impl Tile {
       Tile::Wall => TileProperties {
         glyph: "#",
         color: [0.4, 0.4, 0.4],
-        minimap_color: [0.38, 0.38, 0.40],
         texture_path: None,
         walkable: false,
         opaque: true,
@@ -106,7 +102,6 @@ impl Tile {
       Tile::CobblestoneWall => TileProperties {
         glyph: "#",
         color: [0.5, 0.5, 0.5],
-        minimap_color: [0.38, 0.38, 0.40],
         texture_path: None,
         walkable: false,
         opaque: true,
@@ -118,7 +113,6 @@ impl Tile {
       Tile::BrickWall => TileProperties {
         glyph: "#",
         color: [0.6, 0.3, 0.2],
-        minimap_color: [0.38, 0.38, 0.40],
         texture_path: None,
         walkable: false,
         opaque: true,
@@ -130,7 +124,6 @@ impl Tile {
       Tile::Grass => TileProperties {
         glyph: "\"",
         color: [0.2, 0.6, 0.2],
-        minimap_color: [0.22, 0.62, 0.30],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -142,7 +135,6 @@ impl Tile {
       Tile::Water => TileProperties {
         glyph: "~",
         color: [0.2, 0.3, 0.8],
-        minimap_color: [0.12, 0.28, 0.70],
         texture_path: None,
         walkable: false,
         opaque: false,
@@ -154,7 +146,6 @@ impl Tile {
       Tile::Sand => TileProperties {
         glyph: ",",
         color: [0.8, 0.7, 0.4],
-        minimap_color: [0.92, 0.80, 0.52],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -166,7 +157,6 @@ impl Tile {
       Tile::StairsUp => TileProperties {
         glyph: "<",
         color: [0.9, 0.9, 0.2],
-        minimap_color: [0.62, 0.55, 0.40],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -178,7 +168,6 @@ impl Tile {
       Tile::StairsDown => TileProperties {
         glyph: ">",
         color: [0.9, 0.9, 0.2],
-        minimap_color: [0.62, 0.55, 0.40],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -190,7 +179,6 @@ impl Tile {
       Tile::Door => TileProperties {
         glyph: "+",
         color: [0.6, 0.3, 0.1],
-        minimap_color: [0.38, 0.38, 0.40],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -202,7 +190,6 @@ impl Tile {
       Tile::TallGrass => TileProperties {
         glyph: "\"",
         color: [0.25, 0.65, 0.25],
-        minimap_color: [0.12, 0.48, 0.20],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -214,7 +201,6 @@ impl Tile {
       Tile::Bush => TileProperties {
         glyph: "%",
         color: [0.15, 0.45, 0.15],
-        minimap_color: [0.10, 0.38, 0.12],
         texture_path: None,
         walkable: false,
         opaque: false,
@@ -226,7 +212,6 @@ impl Tile {
       Tile::Ash => TileProperties {
         glyph: ".",
         color: [0.55, 0.53, 0.5],
-        minimap_color: [0.92, 0.80, 0.52],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -238,7 +223,6 @@ impl Tile {
       Tile::Lava => TileProperties {
         glyph: "~",
         color: [0.9, 0.3, 0.05],
-        minimap_color: [0.95, 0.32, 0.08],
         texture_path: None,
         walkable: false,
         opaque: false,
@@ -250,7 +234,6 @@ impl Tile {
       Tile::ShallowWater => TileProperties {
         glyph: "~",
         color: [0.3, 0.5, 0.85],
-        minimap_color: [0.22, 0.55, 0.82],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -262,7 +245,6 @@ impl Tile {
       Tile::DeepWater => TileProperties {
         glyph: "≈",
         color: [0.1, 0.15, 0.6],
-        minimap_color: [0.05, 0.16, 0.42],
         texture_path: None,
         walkable: false,
         opaque: false,
@@ -274,7 +256,6 @@ impl Tile {
       Tile::Road => TileProperties {
         glyph: "·",
         color: [0.45, 0.4, 0.35],
-        minimap_color: [0.50, 0.46, 0.40],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -286,7 +267,6 @@ impl Tile {
       Tile::WoodWall => TileProperties {
         glyph: "#",
         color: [0.45, 0.3, 0.15],
-        minimap_color: [0.38, 0.38, 0.40],
         texture_path: None,
         walkable: false,
         opaque: true,
@@ -298,7 +278,6 @@ impl Tile {
       Tile::WoodFloor => TileProperties {
         glyph: ".",
         color: [0.55, 0.4, 0.25],
-        minimap_color: [0.55, 0.42, 0.30],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -310,7 +289,6 @@ impl Tile {
       Tile::Fence => TileProperties {
         glyph: "+",
         color: [0.5, 0.35, 0.2],
-        minimap_color: [0.45, 0.55, 0.50],
         texture_path: None,
         walkable: false,
         opaque: false,
@@ -322,7 +300,6 @@ impl Tile {
       Tile::CaveWall => TileProperties {
         glyph: "#",
         color: [0.3, 0.28, 0.25],
-        minimap_color: [0.38, 0.38, 0.40],
         texture_path: None,
         walkable: false,
         opaque: true,
@@ -334,7 +311,6 @@ impl Tile {
       Tile::CaveFloor => TileProperties {
         glyph: ".",
         color: [0.4, 0.38, 0.35],
-        minimap_color: [0.62, 0.55, 0.40],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -346,7 +322,6 @@ impl Tile {
       Tile::CrystalFormation => TileProperties {
         glyph: "*",
         color: [0.5, 0.8, 0.95],
-        minimap_color: [0.45, 0.55, 0.50],
         texture_path: None,
         walkable: false,
         opaque: false,
@@ -359,7 +334,6 @@ impl Tile {
       Tile::Bulkhead => TileProperties {
         glyph: "#",
         color: [0.45, 0.47, 0.50],
-        minimap_color: [0.35, 0.37, 0.4],
         texture_path: None,
         walkable: false,
         opaque: true,
@@ -371,7 +345,6 @@ impl Tile {
       Tile::Window => TileProperties {
         glyph: "o",
         color: [0.2, 0.25, 0.7],
-        minimap_color: [0.15, 0.2, 0.55],
         texture_path: None,
         walkable: false,
         opaque: false,
@@ -383,7 +356,6 @@ impl Tile {
       Tile::AirlockDoor => TileProperties {
         glyph: "+",
         color: [0.7, 0.65, 0.3],
-        minimap_color: [0.6, 0.55, 0.2],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -395,7 +367,6 @@ impl Tile {
       Tile::StationFloor => TileProperties {
         glyph: ".",
         color: [0.55, 0.58, 0.62],
-        minimap_color: [0.45, 0.47, 0.5],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -407,7 +378,6 @@ impl Tile {
       Tile::StationWall => TileProperties {
         glyph: "#",
         color: [0.5, 0.52, 0.55],
-        minimap_color: [0.35, 0.37, 0.4],
         texture_path: None,
         walkable: false,
         opaque: true,
@@ -419,7 +389,6 @@ impl Tile {
       Tile::DerelictFloor => TileProperties {
         glyph: ".",
         color: [0.35, 0.33, 0.3],
-        minimap_color: [0.28, 0.26, 0.22],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -431,7 +400,6 @@ impl Tile {
       Tile::DerelictWall => TileProperties {
         glyph: "#",
         color: [0.3, 0.28, 0.25],
-        minimap_color: [0.28, 0.26, 0.22],
         texture_path: None,
         walkable: false,
         opaque: true,
@@ -443,7 +411,6 @@ impl Tile {
       Tile::Conduit => TileProperties {
         glyph: "=",
         color: [0.6, 0.55, 0.2],
-        minimap_color: [0.5, 0.45, 0.15],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -455,7 +422,6 @@ impl Tile {
       Tile::AsteroidRock => TileProperties {
         glyph: "#",
         color: [0.4, 0.35, 0.3],
-        minimap_color: [0.42, 0.38, 0.33],
         texture_path: None,
         walkable: false,
         opaque: true,
@@ -467,7 +433,6 @@ impl Tile {
       Tile::AsteroidFloor => TileProperties {
         glyph: ".",
         color: [0.5, 0.45, 0.4],
-        minimap_color: [0.42, 0.38, 0.33],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -479,7 +444,6 @@ impl Tile {
       Tile::Regolith => TileProperties {
         glyph: ",",
         color: [0.55, 0.5, 0.45],
-        minimap_color: [0.6, 0.62, 0.68],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -491,7 +455,6 @@ impl Tile {
       Tile::Vacuum => TileProperties {
         glyph: " ",
         color: [0.0, 0.0, 0.0],
-        minimap_color: [0.02, 0.03, 0.06],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -507,7 +470,6 @@ impl Tile {
       Tile::IceFloor => TileProperties {
         glyph: ",",
         color: [0.7, 0.75, 0.85],
-        minimap_color: [0.6, 0.62, 0.68],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -519,7 +481,6 @@ impl Tile {
       Tile::IceWall => TileProperties {
         glyph: "#",
         color: [0.5, 0.55, 0.7],
-        minimap_color: [0.45, 0.5, 0.62],
         texture_path: None,
         walkable: false,
         opaque: true,
@@ -531,7 +492,6 @@ impl Tile {
       Tile::AlienSoil => TileProperties {
         glyph: ",",
         color: [0.45, 0.35, 0.55],
-        minimap_color: [0.35, 0.45, 0.3],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -543,7 +503,6 @@ impl Tile {
       Tile::AlienGrass => TileProperties {
         glyph: "\"",
         color: [0.3, 0.55, 0.3],
-        minimap_color: [0.35, 0.45, 0.3],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -555,7 +514,6 @@ impl Tile {
       Tile::CrystalGrowth => TileProperties {
         glyph: "*",
         color: [0.5, 0.8, 0.95],
-        minimap_color: [0.4, 0.65, 0.8],
         texture_path: None,
         walkable: false,
         opaque: false,
@@ -567,7 +525,6 @@ impl Tile {
       Tile::AlienFluid => TileProperties {
         glyph: "~",
         color: [0.5, 0.3, 0.7],
-        minimap_color: [0.4, 0.25, 0.6],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -579,7 +536,6 @@ impl Tile {
       Tile::ShipDock => TileProperties {
         glyph: "P",
         color: [0.85, 0.72, 0.1],
-        minimap_color: [0.75, 0.62, 0.05],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -591,7 +547,6 @@ impl Tile {
       Tile::Blank => TileProperties {
         glyph: " ",
         color: [0.0, 0.0, 0.0],
-        minimap_color: [0.0, 0.0, 0.0],
         texture_path: None,
         walkable: true,
         opaque: false,
@@ -605,7 +560,6 @@ impl Tile {
 
   pub fn glyph(self) -> &'static str { self.properties().glyph }
   pub fn color(self) -> [f32; 3] { self.properties().color }
-  pub fn minimap_color(self) -> [f32; 3] { self.properties().minimap_color }
   pub fn texture_path(self) -> Option<&'static str> { self.properties().texture_path }
   pub fn walkable(self) -> bool { self.properties().walkable }
   pub fn opaque(self) -> bool { self.properties().opaque }
