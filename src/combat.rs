@@ -52,15 +52,13 @@ pub fn resolve_damage(attack: i32, wearing: Option<&Wearing>) -> i32 {
 // Enemy AI
 // ---------------------------------------------------------------------------
 
-/// Assumed 60 display updates per real-time second; maps `Stats` speeds to frame counts.
-const ASSUMED_RENDER_HZ: f32 = 60.0;
-
-fn move_interval_frames(move_speed: f32) -> u32 {
-  ((ASSUMED_RENDER_HZ / move_speed).round() as u32).max(1)
+/// Sim steps between moves/attacks for a given speed (actions per real-time second).
+fn move_interval(move_speed: f32) -> u32 {
+  (crate::SIM_STEPS_PER_SEC / move_speed).round().max(1.0) as u32
 }
 
-fn attack_interval_frames(attack_speed: f32) -> u32 {
-  ((ASSUMED_RENDER_HZ / attack_speed).round() as u32).max(1)
+fn attack_interval(attack_speed: f32) -> u32 {
+  (crate::SIM_STEPS_PER_SEC / attack_speed).round().max(1.0) as u32
 }
 
 fn step_toward(ex: i32, ey: i32, px: i32, py: i32) -> (i32, i32) {
@@ -135,13 +133,12 @@ pub fn enemy_ai(
     let mut claimed: HashSet<(i32, i32)> = HashSet::new();
 
     for (mut location, mut timer, enemy_stats, enemy_wearing) in enemy_q.iter_mut() {
-      // `enemy_ai` runs once per sim step; advance in display-frame units to match `attack_interval_frames` / `move_interval_frames`.
-      timer.0 = timer.0.saturating_add(crate::RENDER_FRAMES_PER_SIM_STEP);
+      timer.0 = timer.0.saturating_add(1);
 
       if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location {
         let dist = (px - ex).abs().max((py - ey).abs());
-        let atk_fr = attack_interval_frames(enemy_stats.attack_speed);
-        let mov_fr = move_interval_frames(enemy_stats.move_speed);
+        let atk_fr = attack_interval(enemy_stats.attack_speed);
+        let mov_fr = move_interval(enemy_stats.move_speed);
 
         if dist == 1 && timer.0 >= atk_fr {
           let dmg = resolve_damage(enemy_stats.attack, enemy_wearing);

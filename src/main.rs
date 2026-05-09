@@ -44,6 +44,8 @@ const DOOR_OPEN_PRI: Color = Color::srgb(0.48, 0.55, 0.58);
 const DOOR_OPEN_SEC: Color = Color::srgb(0.72, 0.78, 0.82);
 /// Simulated 60Hz display: one grid step / one input gate spans this many render updates.
 pub const RENDER_FRAMES_PER_SIM_STEP: u32 = 6;
+/// How many sim steps run per real-time second (= assumed display Hz / render frames per step).
+pub const SIM_STEPS_PER_SEC: f32 = 60.0 / RENDER_FRAMES_PER_SIM_STEP as f32;
 const FOV_RADIUS: i32 = 99;
 const DIM_FACTOR: f32 = 0.3;
 /// Haalka layout: game view is left of the sidebar (`GAME_VIEWPORT_WIDTH_FRAC`); sidebar is
