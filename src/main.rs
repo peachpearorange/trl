@@ -458,11 +458,13 @@ fn setup_glyph_visuals(
 }
 
 fn sync_entity_positions(
+  current: Res<CurrentZone>,
   mut query: Query<(&Visuals, &mut Transform), With<GlyphVisual>>
 ) {
+  let (w, h) = (current.0.width, current.0.height);
   for (vis, mut transform) in query.iter_mut() {
     transform.translation =
-      tile_screen_pos(vis.display.x, vis.display.y, ZONE_WIDTH, ZONE_HEIGHT)
+      tile_screen_pos(vis.display.x, vis.display.y, w, h)
         + Vec3::new(0.0, 0.0, 2.0);
   }
 }
