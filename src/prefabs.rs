@@ -85,6 +85,26 @@ impl Prefab {
     }
   }
 
+  /// `(width, height)` of the bounding box of the layout (max col+1, row count).
+  pub fn dimensions(&self) -> (usize, usize) {
+    let raw_lines =
+      self.layout.lines().filter(|l| !l.trim().is_empty()).collect::<Vec<_>>();
+    let indent = raw_lines
+      .iter()
+      .filter_map(|line| {
+        line.char_indices().find(|(_, ch)| !ch.is_whitespace()).map(|(i, _)| i)
+      })
+      .min()
+      .unwrap_or(0);
+    let h = raw_lines.len();
+    let w = raw_lines
+      .iter()
+      .map(|line| line.get(indent..).unwrap_or(line).chars().count())
+      .max()
+      .unwrap_or(0);
+    (w, h)
+  }
+
   /// Write tiles into `level` at `(ox + x, oy + y)` for each layout cell.
   pub fn stamp_level(&self, level: &mut Level, ox: i32, oy: i32) {
     self.visit_cells(|lx, ly, tile, _templates| {
@@ -174,6 +194,7 @@ impl Prefab {
       .assoc('c', (Tile::CrystalGrowth, []))
       .assoc('~', (Tile::AlienFluid, []))
       .assoc('t', (Tile::AlienGrass, [Object::tree()]))
+      .assoc('P', (Tile::ShipDock, []))
   }
 
   /// Full starter ship deck (`SHIP_WIDTH` × `SHIP_HEIGHT`).

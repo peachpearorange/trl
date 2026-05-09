@@ -1,14 +1,15 @@
 use crate::{galaxy::{Location, LocationId},
-          level::{LocationType, Tile, ZONE_WIDTH, ZONE_HEIGHT},
+          level::{LocationType, Tile},
           prefabs::Prefab};
 
 pub const ID: LocationId = (0, 0, 0);
 
 pub fn generate() -> Location {
-  let mut loc = Location::new(ZONE_WIDTH, ZONE_HEIGHT, 1, LocationType::PlanetSurface { breathable: true }, Tile::Vacuum);
-  Prefab::starter_planet_surface().stamp_level(loc.level_mut(0), 0, 0);
-  loc.level_mut(0).set(24, 29, Tile::ShipDock);
-  loc
+  Location::from_prefab(
+    Prefab::starter_planet_surface(),
+    LocationType::PlanetSurface { breathable: true },
+    Tile::AlienGrass
+  )
 }
 
 pub const NPC_COORDS: &[(i32, i32)] = &[

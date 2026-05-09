@@ -1,6 +1,6 @@
 use {bevy::prelude::Color, crate::entities::*};
 use crate::{galaxy::{Location, LocationId},
-          level::{LocationType, Tile, ZONE_WIDTH, ZONE_HEIGHT},
+          level::{LocationType, Tile},
           prefabs::{prefab, Prefab}};
 
 pub const ID: LocationId = (0, 1, 0);
@@ -16,9 +16,7 @@ pub fn station_prefab() -> Prefab {
 }
 
 pub fn generate() -> Location {
-  let mut loc = Location::new(ZONE_WIDTH, ZONE_HEIGHT, 1, LocationType::SpaceStation, Tile::Vacuum);
-  station_prefab().stamp_level(loc.level_mut(0), 0, 0);
-  loc
+  Location::from_prefab(station_prefab(), LocationType::SpaceStation, Tile::Vacuum)
 }
 
 pub const NPC_COORDS: &[(i32, i32)] = &[

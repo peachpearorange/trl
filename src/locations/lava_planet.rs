@@ -1,5 +1,5 @@
 use crate::{galaxy::{Location, LocationId},
-          level::{LocationType, Tile, ZONE_WIDTH, ZONE_HEIGHT},
+          level::{LocationType, Tile},
           prefabs::{prefab, Prefab}};
 
 pub const ID: LocationId = (2, 0, 0);
@@ -14,11 +14,9 @@ pub fn lava_prefab() -> Prefab {
 }
 
 pub fn generate() -> Location {
-  let mut loc = Location::new(
-    ZONE_WIDTH, ZONE_HEIGHT, 1,
+  Location::from_prefab(
+    lava_prefab(),
     LocationType::PlanetSurface { breathable: false },
     Tile::Ash
-  );
-  lava_prefab().stamp_level(loc.level_mut(0), 0, 0);
-  loc
+  )
 }

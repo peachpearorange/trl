@@ -1,4 +1,4 @@
-use {crate::level::{Level, LocationType},
+use {crate::{level::{Level, LocationType, Tile}, prefabs::Prefab},
      bevy::prelude::*,
      std::collections::HashMap};
 
@@ -25,6 +25,14 @@ impl Location {
   ) -> Self {
     let levels = (0..depth).map(|_| Level::new(width, height, fill)).collect();
     Location { width, height, depth, levels, location_type }
+  }
+
+  /// Build a `Location` sized to `prefab`'s layout and stamp level 0 with it.
+  pub fn from_prefab(prefab: Prefab, location_type: LocationType, fill: Tile) -> Self {
+    let (w, h) = prefab.dimensions();
+    let mut loc = Location::new(w, h, 1, location_type, fill);
+    prefab.stamp_level(loc.level_mut(0), 0, 0);
+    loc
   }
 
   pub fn level(&self, z: usize) -> &Level { &self.levels[z] }
