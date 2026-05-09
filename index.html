@@ -21,5 +21,12 @@
   </head>
   <body>
     <link data-trunk rel="copy-dir" href="assets"/>
+    <script>
+      document.addEventListener("click", () => {
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen();
+        }
+      });
+    </script>
   </body>
 </html>
