@@ -202,21 +202,22 @@ impl Prefab {
   pub fn starting_ship() -> Self {
     prefab(
       "
-###WWWWWWWWWWWWWW###
-#.m...........H....#
-#.........C........#
-W..................W
-W.....a............W
-W.....#............W
-W..B..#............W
-W...U...........G..W
-W.........k..#.....W
-W............a..=..W
-W............#.L==.W
-W...T....X.........W
-#.d................#
-#..................#
-##########a#########
+                 #################
+               ###...............###
+             ###...######.######...###
+            ##.....#...........#.....##
+           ##.====.#.B.......L.#......##
+          ##..====.#.....k.....#.......WW
+         ##.U.====.###.......###........W
+         ##..........#.......#......H.C.W
+         ##.G.====.###.......###........W
+          ##..====.#.m...T...X.#.......WW
+           ##.d==..#...........#......##
+            ##.....######.######.....##
+             ###.........#.........###
+               #########.#.#########
+                       #.#.#
+                       ##a##
 "
     )
     .assoc('#', (Tile::Bulkhead, []))
@@ -355,17 +356,19 @@ aa
 
   #[test]
   fn starting_ship_structure_tiles() {
-    use crate::ship::{SHIP_HEIGHT, SHIP_WIDTH};
-
-    let mut stamped = Level::new(SHIP_WIDTH, SHIP_HEIGHT, Tile::Vacuum);
-    Prefab::starting_ship().stamp_level(&mut stamped, 0, 0);
-    assert_eq!(stamped.get(10, 14), Some(Tile::AirlockDoor));
-    assert_eq!(stamped.get(6, 4),   Some(Tile::AirlockDoor));
-    assert_eq!(stamped.get(13, 9),  Some(Tile::AirlockDoor));
-    assert_eq!(stamped.get(6, 5),   Some(Tile::Bulkhead));
-    assert_eq!(stamped.get(6, 6),   Some(Tile::Bulkhead));
-    assert_eq!(stamped.get(16, 10), Some(Tile::Conduit));
-    assert_eq!(stamped.get(5, 5),   Some(Tile::Floor));
-    assert_eq!(stamped.get(1, 1),   Some(Tile::Floor));
+    let p = Prefab::starting_ship();
+    let (w, h) = p.dimensions();
+    let mut stamped = Level::new(w, h, Tile::Vacuum);
+    p.stamp_level(&mut stamped, 0, 0);
+    // airlock at bottom centre
+    assert_eq!(stamped.get(16, 15), Some(Tile::AirlockDoor));
+    // console
+    assert_eq!(stamped.get(29, 7),  Some(Tile::Floor));
+    // conduit column (cols 5-8 of rows 6-8)
+    assert_eq!(stamped.get(5, 6),   Some(Tile::Conduit));
+    assert_eq!(stamped.get(5, 8),   Some(Tile::Conduit));
+    // bulkhead outer hull
+    assert_eq!(stamped.get(0, 6),   Some(Tile::Bulkhead));
+    assert_eq!(stamped.get(0, 8),   Some(Tile::Bulkhead));
   }
 }
