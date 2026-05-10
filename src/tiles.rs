@@ -98,6 +98,14 @@ pub enum Tile {
   CrystalGrowth,
   #[assoc(glyph = "~", color = [0.5, 0.3, 0.7], walkable = true, name = "Alien Fluid", space_qud_sprite = ("textures/space_qud/liquid tile.png", [0.35, 0.12, 0.52], [0.68, 0.32, 0.88]))]
   AlienFluid,
+  #[assoc(glyph = "~", color = [0.1, 0.75, 0.8], walkable = true, name = "Bioluminescent Pool", space_qud_sprite = ("textures/space_qud/liquid tile.png", [0.04, 0.48, 0.62], [0.18, 0.88, 0.95]))]
+  BioluminescentPool,
+  #[assoc(glyph = "~", color = [0.65, 0.85, 0.1], walkable = true, name = "Acid Pool", space_qud_sprite = ("textures/space_qud/liquid tile.png", [0.42, 0.62, 0.05], [0.72, 0.92, 0.22]))]
+  AcidPool,
+  #[assoc(glyph = "~", color = [0.75, 0.12, 0.18], walkable = true, name = "Crimson Pool", space_qud_sprite = ("textures/space_qud/liquid tile.png", [0.52, 0.06, 0.08], [0.88, 0.28, 0.32]))]
+  CrimsonPool,
+  #[assoc(glyph = "~", color = [0.85, 0.52, 0.08], walkable = true, name = "Amber Pool", space_qud_sprite = ("textures/space_qud/liquid tile.png", [0.62, 0.32, 0.04], [0.92, 0.68, 0.22]))]
+  AmberPool,
   #[assoc(glyph = "P", color = [0.85, 0.72, 0.1], walkable = true, name = "Ship Dock", has_atmosphere = false)]
   ShipDock,
   /// Transparent filler for ship bounding-box corners — skipped when merging

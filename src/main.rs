@@ -511,6 +511,7 @@ fn main() {
   galaxy.insert(locations::asteroid_field::ID, locations::asteroid_field::generate());
   galaxy.insert(locations::meridian_station::ID, locations::meridian_station::generate());
   galaxy.insert(locations::lava_planet::ID, locations::lava_planet::generate());
+  galaxy.insert(locations::mushroom_planet::ID, locations::mushroom_planet::generate());
   galaxy.insert(locations::gamma_station::ID, locations::gamma_station::generate());
 
   // Ship starts docked at the starter planet
@@ -1647,6 +1648,10 @@ fn gather_interactions_at_tile(
             InteractionOption {
               label: "Chart course — Gamma Station".into(),
               action: InteractionAction::Navigate { dest: locations::gamma_station::ID }
+            },
+            InteractionOption {
+              label: "Chart course — Mushroom Planet".into(),
+              action: InteractionAction::Navigate { dest: locations::mushroom_planet::ID }
             }
           ]
           .into_iter()
@@ -1951,6 +1956,7 @@ fn apply_pending_navigation(
     locations::asteroid_field::ID => "asteroid field",
     locations::meridian_station::ID => "Meridian Station",
     locations::gamma_station::ID => "Gamma Station",
+    locations::mushroom_planet::ID => "Mushroom Planet",
     _ => "destination"
   };
   log_message(&mut *log, format!("Astrogation: docked — {dest_name} sector."));

@@ -629,6 +629,13 @@ impl Object {
     ))
   }
 
+  pub fn mushroom(primary: Color, secondary: Color, name: &'static str) -> Self {
+    Self::structure(false).add((
+      Glyph::palette_sprite("textures/space_qud/mushroom.png", 'm', primary, secondary),
+      Named { name, flavor: "A large fungal growth rooted in the alien soil." }
+    ))
+  }
+
   pub fn laser_sword() -> Self {
     Self::structure(false).add((
       Glyph::palette_sprite(
