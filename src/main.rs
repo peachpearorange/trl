@@ -558,7 +558,7 @@ fn main() {
     .insert_resource(TileEntityIndex::default())
     .add_plugins(ui::UiPlugin)
     .add_systems(Startup, (setup, ui::spawn_haalka_root).chain())
-    .configure_sets(Update, SimStep.run_if(should_run_sim_step))
+    .configure_sets(Update, SimStep.run_if(should_run_sim_step).before(FramePipeline::PlayerMove))
     .configure_sets(
       Update,
       (
