@@ -22,7 +22,7 @@ mod utils;
 
 use {bevy::prelude::*,
      combat::{TileEntityIndex, enemy_ai, maintain_tile_index, npc_wander},
-     level::{FovGrid, Item, Tile, ZONE_HEIGHT, ZONE_WIDTH, compute_fov},
+     level::{FovGrid, Item, LocationType, Tile, ZONE_HEIGHT, ZONE_WIDTH, compute_fov},
      std::collections::{HashMap, HashSet},
      crate::entities::{AirlockDoor, BlocksSight, Collidable, Dialogue, DialogueNode,
                        DialogueTree, Door, Enemy, FlightConsole, Glyph, Location, LootChest,
@@ -1632,6 +1632,7 @@ fn gather_interactions_at_tile(
           let mut dests: Vec<InteractionOption> = galaxy
             .locations
             .iter()
+            .filter(|(_, loc)| loc.location_type != LocationType::ShipInterior)
             .map(|(&id, loc)| InteractionOption {
               label: format!("Chart course — {}", loc.name),
               action: InteractionAction::Navigate { dest: id }
@@ -1833,6 +1834,11 @@ fn spawn_zone_geometry(
     && let Some((dox, doy)) = zone.dest_origin
   {
     locations::starter_planet::surface_prefab().stamp_entities(commands, dox, doy, 0);
+  }
+  if docked_at == Some(locations::mushroom_planet::ID)
+    && let Some((dox, doy)) = zone.dest_origin
+  {
+    locations::mushroom_planet::mushroom_prefab().stamp_entities(commands, dox, doy, 0);
   }
   if docked_at == Some(locations::gamma_station::ID)
     && let Some((dox, doy)) = zone.dest_origin

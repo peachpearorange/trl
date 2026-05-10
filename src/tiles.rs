@@ -90,7 +90,7 @@ pub enum Tile {
   IceFloor,
   #[assoc(glyph = "#", color = [0.5, 0.55, 0.7], walkable = false, opaque = true, name = "Ice Wall")]
   IceWall,
-  #[assoc(glyph = ",", color = [0.45, 0.35, 0.55], walkable = true, name = "Alien Soil")]
+  #[assoc(glyph = ",", color = [0.45, 0.35, 0.55], walkable = true, name = "Alien Soil", space_qud_sprite = ("textures/space_qud/ground.png", [0.28, 0.18, 0.38], [0.52, 0.38, 0.62]))]
   AlienSoil,
   #[assoc(glyph = "\"", color = [0.3, 0.55, 0.3], walkable = true, name = "Alien Grass", space_qud_sprite = ("textures/space_qud/grass.png", [0.38, 0.16, 0.52], [0.68, 0.52, 0.88]))]
   AlienGrass,
