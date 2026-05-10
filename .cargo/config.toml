@@ -2,4 +2,4 @@
 target = "wasm32-unknown-unknown"
 
 [target.wasm32-unknown-unknown]
-runner = "wasm-server-runner"
+runner = "./run-wasm.sh"
