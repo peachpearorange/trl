@@ -190,6 +190,15 @@ pub struct Clock {
 #[derive(Resource)]
 pub struct TimeModeAuto(pub bool);
 
+/// Latches direction key presses between move ticks so a tap that lands between ticks isn't lost.
+#[derive(Resource, Default)]
+pub struct AccumulatedDir {
+  pub up: bool,
+  pub down: bool,
+  pub left: bool,
+  pub right: bool,
+}
+
 impl Clock {
   fn new() -> Self {
     Clock { time: 0, mode: TimeMode::TurnBased, move_cooldown_frames: 0 }
@@ -556,6 +565,7 @@ fn main() {
     .init_resource::<BumpInteractFlash>()
     .init_resource::<PendingBumpInteract>()
     .init_resource::<PaletteImageCache>()
+    .init_resource::<AccumulatedDir>()
     .insert_resource(UiState::default())
     .insert_resource(Fov(fov))
     .insert_resource(TileEntityIndex::default())
@@ -594,7 +604,7 @@ fn main() {
     .add_systems(Update, flush_pending_chest_open.in_set(FramePipeline::FlushChest))
     .add_systems(Update, handle_interact.in_set(FramePipeline::InteractKey))
     .add_systems(Update, handle_utility_menus.in_set(FramePipeline::UtilityMenus))
-    .add_systems(Update, player_input.in_set(FramePipeline::PlayerMove))
+    .add_systems(Update, (accumulate_dir, player_input).chain().in_set(FramePipeline::PlayerMove))
     .add_systems(Update, auto_close_airlocks.after(FramePipeline::PlayerMove))
     .add_systems(
       Update,
@@ -931,6 +941,23 @@ fn update_time_mode(
 // ---------------------------------------------------------------------------
 // Input helpers
 // ---------------------------------------------------------------------------
+
+/// Runs every frame before [`player_input`]; latches any newly-pressed direction keys so a tap
+/// that falls between move ticks is not silently dropped.
+fn accumulate_dir(keys: Res<ButtonInput<KeyCode>>, mut acc: ResMut<AccumulatedDir>) {
+  if keys.just_pressed(KeyCode::KeyW) || keys.just_pressed(KeyCode::ArrowUp) {
+    acc.up = true;
+  }
+  if keys.just_pressed(KeyCode::KeyS) || keys.just_pressed(KeyCode::ArrowDown) {
+    acc.down = true;
+  }
+  if keys.just_pressed(KeyCode::KeyA) || keys.just_pressed(KeyCode::ArrowLeft) {
+    acc.left = true;
+  }
+  if keys.just_pressed(KeyCode::KeyD) || keys.just_pressed(KeyCode::ArrowRight) {
+    acc.right = true;
+  }
+}
 
 fn read_direction(keys: &ButtonInput<KeyCode>) -> (i32, i32) {
   let up = keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp);
@@ -2192,6 +2219,7 @@ fn camera_follow(
 
 fn player_input(
   keys: Res<ButtonInput<KeyCode>>,
+  mut acc: ResMut<AccumulatedDir>,
   current: Res<CurrentZone>,
   ui: Res<UiState>,
   mut clock: ResMut<Clock>,
@@ -2236,12 +2264,18 @@ fn player_input(
       }
       note_player_turn_moved_world(&*clock, &mut *tb);
     } else if !turn_based_block
-      && any_direction_pressed(&keys)
+      && (any_direction_pressed(&keys) || acc.up || acc.down || acc.left || acc.right)
       && clock.move_cooldown_frames == 0
     {
       let level = current.0.level(pos.z);
-      let dir = read_direction(&keys);
-      let (raw_dx, raw_dy) = (dir.0, dir.1);
+      // Merge currently-held keys with any taps that were latched between ticks.
+      let up = keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) || acc.up;
+      let down = keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown) || acc.down;
+      let left = keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft) || acc.left;
+      let right = keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight) || acc.right;
+      *acc = AccumulatedDir::default();
+      let raw_dx = match (left, right) { (true, false) => -1, (false, true) => 1, _ => 0 };
+      let raw_dy = match (up, down) { (true, false) => -1, (false, true) => 1, _ => 0 };
 
       // Entity-blocking closure: collidable entities that aren't enemies (enemies are
       // handled by bump-attack, not sliding).
