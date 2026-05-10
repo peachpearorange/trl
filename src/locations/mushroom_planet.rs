@@ -1,6 +1,5 @@
-use bevy::prelude::Color;
-use crate::{entities::Object,
-            galaxy::{Location, LocationId},
+use {bevy::prelude::Color, crate::entities::*};
+use crate::{galaxy::{Location, LocationId},
             level::{LocationType, Tile},
             prefabs::{prefab, Prefab}};
 
@@ -56,7 +55,7 @@ ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss
 "
   )
   .assoc('s', (Tile::AlienSoil, []))
-  .assoc('r', (Tile::AlienSoil, []))
+  .assoc('g', (Tile::AlienGrass, []))
   .assoc('B', (Tile::BioluminescentPool, []))
   .assoc('G', (Tile::AcidPool, []))
   .assoc('C', (Tile::CrimsonPool, []))
@@ -68,6 +67,39 @@ ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss
   .assoc('3', (Tile::AlienSoil, [shroom(0.82, 0.10, 0.06, 0.98, 0.84, 0.52, "Ember Stalk")])) // deep crimson hat, warm cream stem/spots
   .assoc('4', (Tile::AlienSoil, [shroom(0.06, 0.20, 0.85, 0.70, 0.86, 0.98, "Azure Bloom")])) // cobalt hat, ice-blue stem/spots
   .assoc('5', (Tile::AlienSoil, [shroom(0.95, 0.78, 0.04, 0.98, 0.97, 0.84, "Pale Lantern")]))
+  .assoc('n', (Tile::AlienSoil, [spore_tender()]))
+}
+
+static SPORE_TENDER_DIALOGUE: DialogueTree = tree(&[
+  node(
+    "root",
+    "The mycelium remembers. Every spore that falls here is added to the record. You are new.",
+    &[go("What record?", "record"), end("I'll leave you to it.")]
+  ),
+  node(
+    "record",
+    "The fruiting bodies are memory. Their colors, their shapes — each one a thought the colony chose to express. We do not speak quickly. We speak permanently.",
+    &[end("I see.")]
+  )
+]);
+
+fn spore_tender() -> Object {
+  Object::defined_npc(
+    Named {
+      name:   "Spore-Tender",
+      flavor: "A tall fungal being, its cap a deep violet, its movements slow and deliberate. Spores drift from its gills."
+    },
+    Stats { hp: 20, max_hp: 20, attack: 2, move_speed: 1.5, attack_speed: 0.4 },
+    None,
+    None,
+    Glyph::palette_sprite(
+      "textures/space_qud/mushroom.png",
+      'n',
+      Color::srgb(0.52, 0.06, 0.72),
+      Color::srgb(0.94, 0.88, 0.98)
+    ),
+    &SPORE_TENDER_DIALOGUE
+  )
 }
 
 pub fn generate() -> Location {
