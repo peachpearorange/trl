@@ -2085,7 +2085,7 @@ fn spawn_level_tiles(
         }
 
         if tile == Tile::Vacuum {
-          if let Some((path, c1, c2)) = tile.properties().space_qud_sprite {
+          if let Some((path, c1, c2)) = tile.space_qud_sprite() {
             let handle = palette_sprite_handle(
               path,
               Color::srgb(c1[0], c1[1], c1[2]),
@@ -2109,7 +2109,7 @@ fn spawn_level_tiles(
           continue;
         }
 
-        let tex_palette = tile.properties().space_qud_sprite.map(|(p, c1, c2)| {
+        let tex_palette = tile.space_qud_sprite().map(|(p, c1, c2)| {
           (p, Some((Color::srgb(c1[0], c1[1], c1[2]), Color::srgb(c2[0], c2[1], c2[2]))))
         });
         let tex_plain = tile.texture_path().map(|p| (p, None));

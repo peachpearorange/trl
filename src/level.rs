@@ -10,7 +10,7 @@ pub enum LocationType {
   Ruins
 }
 
-pub use crate::tiles::{Tile, TileProperties};
+pub use crate::tiles::Tile;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Item {

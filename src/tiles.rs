@@ -1,569 +1,105 @@
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+use enum_assoc::Assoc;
+
+#[derive(Assoc, Clone, Copy, PartialEq, Eq, Debug)]
+#[func(pub fn glyph(&self) -> &'static str)]
+#[func(pub fn color(&self) -> [f32; 3])]
+#[func(pub fn texture_path(&self) -> Option<&'static str> { None })]
+#[func(pub fn walkable(&self) -> bool)]
+#[func(pub fn opaque(&self) -> bool { false })]
+#[func(pub fn causes_falling(&self) -> bool { false })]
+#[func(pub fn name(&self) -> &'static str)]
+#[func(pub fn has_atmosphere(&self) -> bool { true })]
+#[func(pub fn space_qud_sprite(&self) -> Option<(&'static str, [f32; 3], [f32; 3])>)]
 pub enum Tile {
+  #[assoc(glyph = " ", color = [0.0, 0.0, 0.0], walkable = true, causes_falling = true, name = "Air", has_atmosphere = false)]
   Air,
+  #[assoc(glyph = ".", color = [0.50, 0.56, 0.64], walkable = true, name = "Deck Plate", space_qud_sprite = ("textures/space_qud/floor3.png", [0.42, 0.50, 0.60], [0.72, 0.80, 0.90]))]
   DeckPlate,
+  #[assoc(glyph = "#", color = [0.4, 0.4, 0.4], walkable = false, opaque = true, name = "Wall")]
   Wall,
+  #[assoc(glyph = "#", color = [0.5, 0.5, 0.5], walkable = false, opaque = true, name = "Cobblestone Wall")]
   CobblestoneWall,
+  #[assoc(glyph = "#", color = [0.6, 0.3, 0.2], walkable = false, opaque = true, name = "Brick Wall")]
   BrickWall,
+  #[assoc(glyph = "\"", color = [0.2, 0.6, 0.2], walkable = true, name = "Grass", space_qud_sprite = ("textures/space_qud/grass.png", [0.22, 0.48, 0.18], [0.52, 0.72, 0.28]))]
   Grass,
+  #[assoc(glyph = "~", color = [0.2, 0.3, 0.8], walkable = false, name = "Water", space_qud_sprite = ("textures/space_qud/liquid tile.png", [0.08, 0.18, 0.55], [0.28, 0.52, 0.88]))]
   Water,
+  #[assoc(glyph = ",", color = [0.8, 0.7, 0.4], walkable = true, name = "Sand", space_qud_sprite = ("textures/space_qud/wavy.png", [0.72, 0.62, 0.38], [0.92, 0.86, 0.62]))]
   Sand,
+  #[assoc(glyph = "<", color = [0.9, 0.9, 0.2], walkable = true, name = "Stairs Up")]
   StairsUp,
+  #[assoc(glyph = ">", color = [0.9, 0.9, 0.2], walkable = true, name = "Stairs Down")]
   StairsDown,
+  #[assoc(glyph = "+", color = [0.6, 0.3, 0.1], walkable = true, name = "Door")]
   Door,
+  #[assoc(glyph = "\"", color = [0.25, 0.65, 0.25], walkable = true, name = "Tall Grass", space_qud_sprite = ("textures/space_qud/grass.png", [0.22, 0.48, 0.18], [0.52, 0.72, 0.28]))]
   TallGrass,
+  #[assoc(glyph = "%", color = [0.15, 0.45, 0.15], walkable = false, name = "Bush")]
   Bush,
+  #[assoc(glyph = ".", color = [0.55, 0.53, 0.5], walkable = true, name = "Ash", space_qud_sprite = ("textures/space_qud/ground.png", [0.32, 0.30, 0.28], [0.55, 0.53, 0.50]))]
   Ash,
+  #[assoc(glyph = "~", color = [0.9, 0.3, 0.05], walkable = false, name = "Lava", space_qud_sprite = ("textures/space_qud/liquid tile.png", [0.72, 0.18, 0.04], [0.95, 0.52, 0.08]))]
   Lava,
+  #[assoc(glyph = "~", color = [0.3, 0.5, 0.85], walkable = true, name = "Shallow Water", space_qud_sprite = ("textures/space_qud/wavy.png", [0.18, 0.42, 0.62], [0.45, 0.68, 0.88]))]
   ShallowWater,
+  #[assoc(glyph = "≈", color = [0.1, 0.15, 0.6], walkable = false, name = "Deep Water", space_qud_sprite = ("textures/space_qud/liquid tile.png", [0.04, 0.08, 0.42], [0.12, 0.28, 0.68]))]
   DeepWater,
+  #[assoc(glyph = "·", color = [0.45, 0.4, 0.35], walkable = true, name = "Road")]
   Road,
+  #[assoc(glyph = "#", color = [0.45, 0.3, 0.15], walkable = false, opaque = true, name = "Wooden Wall")]
   WoodWall,
+  #[assoc(glyph = ".", color = [0.55, 0.4, 0.25], walkable = true, name = "Wooden Floor", space_qud_sprite = ("textures/space_qud/floor4.png", [0.45, 0.32, 0.18], [0.72, 0.58, 0.32]))]
   WoodFloor,
+  #[assoc(glyph = "+", color = [0.5, 0.35, 0.2], walkable = false, name = "Fence")]
   Fence,
+  #[assoc(glyph = "#", color = [0.3, 0.28, 0.25], walkable = false, opaque = true, name = "Cave Wall", space_qud_sprite = ("textures/space_qud/cobble tile.png", [0.28, 0.26, 0.24], [0.48, 0.46, 0.42]))]
   CaveWall,
+  #[assoc(glyph = ".", color = [0.4, 0.38, 0.35], walkable = true, name = "Cave Floor", space_qud_sprite = ("textures/space_qud/floor3.png", [0.30, 0.28, 0.25], [0.48, 0.44, 0.38]))]
   CaveFloor,
+  #[assoc(glyph = "*", color = [0.5, 0.8, 0.95], walkable = false, name = "Crystal Formation")]
   CrystalFormation,
   // --- Space tiles ---
+  #[assoc(glyph = "#", color = [0.45, 0.47, 0.50], walkable = false, opaque = true, name = "Bulkhead", space_qud_sprite = ("textures/space_qud/wall hashtag.png", [0.28, 0.30, 0.34], [0.48, 0.52, 0.56]))]
   Bulkhead,
+  #[assoc(glyph = "o", color = [0.2, 0.25, 0.7], walkable = false, name = "Window", space_qud_sprite = ("textures/space_qud/window (1).png", [0.22, 0.32, 0.52], [0.62, 0.76, 0.94]))]
   Window,
+  #[assoc(glyph = "+", color = [0.7, 0.65, 0.3], walkable = true, name = "Airlock Door")]
   AirlockDoor,
+  #[assoc(glyph = ".", color = [0.55, 0.58, 0.62], walkable = true, name = "Station Floor", space_qud_sprite = ("textures/space_qud/floor4.png", [0.52, 0.56, 0.62], [0.88, 0.90, 0.94]))]
   StationFloor,
+  #[assoc(glyph = "#", color = [0.5, 0.52, 0.55], walkable = false, opaque = true, name = "Station Wall", space_qud_sprite = ("textures/space_qud/wall hashtag.png", [0.28, 0.30, 0.34], [0.48, 0.52, 0.56]))]
   StationWall,
+  #[assoc(glyph = ".", color = [0.35, 0.33, 0.3], walkable = true, name = "Derelict Floor", space_qud_sprite = ("textures/space_qud/floor2.png", [0.28, 0.26, 0.22], [0.42, 0.38, 0.32]))]
   DerelictFloor,
+  #[assoc(glyph = "#", color = [0.3, 0.28, 0.25], walkable = false, opaque = true, name = "Derelict Wall", space_qud_sprite = ("textures/space_qud/wall hashtag.png", [0.28, 0.30, 0.34], [0.48, 0.52, 0.56]))]
   DerelictWall,
+  #[assoc(glyph = "=", color = [0.6, 0.55, 0.2], walkable = true, name = "Conduit", space_qud_sprite = ("textures/space_qud/grid.png", [0.40, 0.28, 0.14], [0.88, 0.62, 0.22]))]
   Conduit,
+  #[assoc(glyph = "#", color = [0.4, 0.35, 0.3], walkable = false, opaque = true, name = "Asteroid Rock", space_qud_sprite = ("textures/space_qud/wall hashtag.png", [0.42, 0.38, 0.36], [0.58, 0.54, 0.52]))]
   AsteroidRock,
+  #[assoc(glyph = ".", color = [0.5, 0.45, 0.4], walkable = true, name = "Asteroid Floor", space_qud_sprite = ("textures/space_qud/ground.png", [0.48, 0.46, 0.44], [0.72, 0.70, 0.68]))]
   AsteroidFloor,
+  #[assoc(glyph = ",", color = [0.55, 0.5, 0.45], walkable = true, name = "Regolith", space_qud_sprite = ("textures/space_qud/ground.png", [0.48, 0.46, 0.44], [0.72, 0.70, 0.68]))]
   Regolith,
+  #[assoc(glyph = " ", color = [0.0, 0.0, 0.0], walkable = true, name = "Vacuum", has_atmosphere = false, space_qud_sprite = ("textures/space_qud/space background.png", [1.0, 1.0, 1.0], [0.62, 0.72, 0.92]))]
   Vacuum,
+  #[assoc(glyph = ",", color = [0.7, 0.75, 0.85], walkable = true, name = "Ice Floor")]
   IceFloor,
+  #[assoc(glyph = "#", color = [0.5, 0.55, 0.7], walkable = false, opaque = true, name = "Ice Wall")]
   IceWall,
+  #[assoc(glyph = ",", color = [0.45, 0.35, 0.55], walkable = true, name = "Alien Soil")]
   AlienSoil,
+  #[assoc(glyph = "\"", color = [0.3, 0.55, 0.3], walkable = true, name = "Alien Grass", space_qud_sprite = ("textures/space_qud/grass.png", [0.38, 0.16, 0.52], [0.68, 0.52, 0.88]))]
   AlienGrass,
+  #[assoc(glyph = "*", color = [0.5, 0.8, 0.95], walkable = false, name = "Crystal Growth")]
   CrystalGrowth,
+  #[assoc(glyph = "~", color = [0.5, 0.3, 0.7], walkable = true, name = "Alien Fluid", space_qud_sprite = ("textures/space_qud/liquid tile.png", [0.35, 0.12, 0.52], [0.68, 0.32, 0.88]))]
   AlienFluid,
+  #[assoc(glyph = "P", color = [0.85, 0.72, 0.1], walkable = true, name = "Ship Dock", has_atmosphere = false)]
   ShipDock,
   /// Transparent filler for ship bounding-box corners — skipped when merging
   /// the ship into a docked zone so it never overwrites the destination tiles.
+  #[assoc(glyph = " ", color = [0.0, 0.0, 0.0], walkable = true, name = "Blank", has_atmosphere = false)]
   Blank
-}
-
-/// Properties bundled with each [`Tile`] variant.
-pub struct TileProperties {
-  pub glyph: &'static str,
-  pub color: [f32; 3],
-  pub texture_path: Option<&'static str>,
-  pub walkable: bool,
-  pub opaque: bool,
-  pub causes_falling: bool,
-  pub name: &'static str,
-  pub has_atmosphere: bool,
-  /// Space Qud palette sprite: (path, primary [r,g,b], secondary [r,g,b]).
-  pub space_qud_sprite: Option<(&'static str, [f32; 3], [f32; 3])>
-}
-
-impl Tile {
-  pub fn properties(self) -> TileProperties {
-    match self {
-      Tile::Air => TileProperties {
-        glyph: " ",
-        color: [0.0, 0.0, 0.0],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: true,
-        name: "Air",
-        has_atmosphere: false,
-        space_qud_sprite: None
-      },
-      Tile::DeckPlate => TileProperties {
-        glyph: ".",
-        color: [0.50, 0.56, 0.64],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Deck Plate",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/floor3.png", [0.42, 0.50, 0.60], [0.72, 0.80, 0.90]))
-      },
-      Tile::Wall => TileProperties {
-        glyph: "#",
-        color: [0.4, 0.4, 0.4],
-        texture_path: None,
-        walkable: false,
-        opaque: true,
-        causes_falling: false,
-        name: "Wall",
-        has_atmosphere: true,
-        space_qud_sprite: None
-      },
-      Tile::CobblestoneWall => TileProperties {
-        glyph: "#",
-        color: [0.5, 0.5, 0.5],
-        texture_path: None,
-        walkable: false,
-        opaque: true,
-        causes_falling: false,
-        name: "Cobblestone Wall",
-        has_atmosphere: true,
-        space_qud_sprite: None
-      },
-      Tile::BrickWall => TileProperties {
-        glyph: "#",
-        color: [0.6, 0.3, 0.2],
-        texture_path: None,
-        walkable: false,
-        opaque: true,
-        causes_falling: false,
-        name: "Brick Wall",
-        has_atmosphere: true,
-        space_qud_sprite: None
-      },
-      Tile::Grass => TileProperties {
-        glyph: "\"",
-        color: [0.2, 0.6, 0.2],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Grass",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/grass.png", [0.22, 0.48, 0.18], [0.52, 0.72, 0.28]))
-      },
-      Tile::Water => TileProperties {
-        glyph: "~",
-        color: [0.2, 0.3, 0.8],
-        texture_path: None,
-        walkable: false,
-        opaque: false,
-        causes_falling: false,
-        name: "Water",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/liquid tile.png", [0.08, 0.18, 0.55], [0.28, 0.52, 0.88]))
-      },
-      Tile::Sand => TileProperties {
-        glyph: ",",
-        color: [0.8, 0.7, 0.4],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Sand",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/wavy.png", [0.72, 0.62, 0.38], [0.92, 0.86, 0.62]))
-      },
-      Tile::StairsUp => TileProperties {
-        glyph: "<",
-        color: [0.9, 0.9, 0.2],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Stairs Up",
-        has_atmosphere: true,
-        space_qud_sprite: None
-      },
-      Tile::StairsDown => TileProperties {
-        glyph: ">",
-        color: [0.9, 0.9, 0.2],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Stairs Down",
-        has_atmosphere: true,
-        space_qud_sprite: None
-      },
-      Tile::Door => TileProperties {
-        glyph: "+",
-        color: [0.6, 0.3, 0.1],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Door",
-        has_atmosphere: true,
-        space_qud_sprite: None
-      },
-      Tile::TallGrass => TileProperties {
-        glyph: "\"",
-        color: [0.25, 0.65, 0.25],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Tall Grass",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/grass.png", [0.22, 0.48, 0.18], [0.52, 0.72, 0.28]))
-      },
-      Tile::Bush => TileProperties {
-        glyph: "%",
-        color: [0.15, 0.45, 0.15],
-        texture_path: None,
-        walkable: false,
-        opaque: false,
-        causes_falling: false,
-        name: "Bush",
-        has_atmosphere: true,
-        space_qud_sprite: None
-      },
-      Tile::Ash => TileProperties {
-        glyph: ".",
-        color: [0.55, 0.53, 0.5],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Ash",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/ground.png", [0.32, 0.30, 0.28], [0.55, 0.53, 0.50]))
-      },
-      Tile::Lava => TileProperties {
-        glyph: "~",
-        color: [0.9, 0.3, 0.05],
-        texture_path: None,
-        walkable: false,
-        opaque: false,
-        causes_falling: false,
-        name: "Lava",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/liquid tile.png", [0.72, 0.18, 0.04], [0.95, 0.52, 0.08]))
-      },
-      Tile::ShallowWater => TileProperties {
-        glyph: "~",
-        color: [0.3, 0.5, 0.85],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Shallow Water",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/wavy.png", [0.18, 0.42, 0.62], [0.45, 0.68, 0.88]))
-      },
-      Tile::DeepWater => TileProperties {
-        glyph: "≈",
-        color: [0.1, 0.15, 0.6],
-        texture_path: None,
-        walkable: false,
-        opaque: false,
-        causes_falling: false,
-        name: "Deep Water",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/liquid tile.png", [0.04, 0.08, 0.42], [0.12, 0.28, 0.68]))
-      },
-      Tile::Road => TileProperties {
-        glyph: "·",
-        color: [0.45, 0.4, 0.35],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Road",
-        has_atmosphere: true,
-        space_qud_sprite: None
-      },
-      Tile::WoodWall => TileProperties {
-        glyph: "#",
-        color: [0.45, 0.3, 0.15],
-        texture_path: None,
-        walkable: false,
-        opaque: true,
-        causes_falling: false,
-        name: "Wooden Wall",
-        has_atmosphere: true,
-        space_qud_sprite: None
-      },
-      Tile::WoodFloor => TileProperties {
-        glyph: ".",
-        color: [0.55, 0.4, 0.25],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Wooden Floor",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/floor4.png", [0.45, 0.32, 0.18], [0.72, 0.58, 0.32]))
-      },
-      Tile::Fence => TileProperties {
-        glyph: "+",
-        color: [0.5, 0.35, 0.2],
-        texture_path: None,
-        walkable: false,
-        opaque: false,
-        causes_falling: false,
-        name: "Fence",
-        has_atmosphere: true,
-        space_qud_sprite: None
-      },
-      Tile::CaveWall => TileProperties {
-        glyph: "#",
-        color: [0.3, 0.28, 0.25],
-        texture_path: None,
-        walkable: false,
-        opaque: true,
-        causes_falling: false,
-        name: "Cave Wall",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/cobble tile.png", [0.28, 0.26, 0.24], [0.48, 0.46, 0.42]))
-      },
-      Tile::CaveFloor => TileProperties {
-        glyph: ".",
-        color: [0.4, 0.38, 0.35],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Cave Floor",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/floor3.png", [0.30, 0.28, 0.25], [0.48, 0.44, 0.38]))
-      },
-      Tile::CrystalFormation => TileProperties {
-        glyph: "*",
-        color: [0.5, 0.8, 0.95],
-        texture_path: None,
-        walkable: false,
-        opaque: false,
-        causes_falling: false,
-        name: "Crystal Formation",
-        has_atmosphere: true,
-        space_qud_sprite: None
-      },
-      // --- Space tiles ---
-      Tile::Bulkhead => TileProperties {
-        glyph: "#",
-        color: [0.45, 0.47, 0.50],
-        texture_path: None,
-        walkable: false,
-        opaque: true,
-        causes_falling: false,
-        name: "Bulkhead",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/wall hashtag.png", [0.28, 0.30, 0.34], [0.48, 0.52, 0.56]))
-      },
-      Tile::Window => TileProperties {
-        glyph: "o",
-        color: [0.2, 0.25, 0.7],
-        texture_path: None,
-        walkable: false,
-        opaque: false,
-        causes_falling: false,
-        name: "Window",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/window (1).png", [0.22, 0.32, 0.52], [0.62, 0.76, 0.94]))
-      },
-      Tile::AirlockDoor => TileProperties {
-        glyph: "+",
-        color: [0.7, 0.65, 0.3],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Airlock Door",
-        has_atmosphere: true,
-        space_qud_sprite: None
-      },
-      Tile::StationFloor => TileProperties {
-        glyph: ".",
-        color: [0.55, 0.58, 0.62],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Station Floor",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/floor4.png", [0.52, 0.56, 0.62], [0.88, 0.90, 0.94]))
-      },
-      Tile::StationWall => TileProperties {
-        glyph: "#",
-        color: [0.5, 0.52, 0.55],
-        texture_path: None,
-        walkable: false,
-        opaque: true,
-        causes_falling: false,
-        name: "Station Wall",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/wall hashtag.png", [0.28, 0.30, 0.34], [0.48, 0.52, 0.56]))
-      },
-      Tile::DerelictFloor => TileProperties {
-        glyph: ".",
-        color: [0.35, 0.33, 0.3],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Derelict Floor",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/floor2.png", [0.28, 0.26, 0.22], [0.42, 0.38, 0.32]))
-      },
-      Tile::DerelictWall => TileProperties {
-        glyph: "#",
-        color: [0.3, 0.28, 0.25],
-        texture_path: None,
-        walkable: false,
-        opaque: true,
-        causes_falling: false,
-        name: "Derelict Wall",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/wall hashtag.png", [0.28, 0.30, 0.34], [0.48, 0.52, 0.56]))
-      },
-      Tile::Conduit => TileProperties {
-        glyph: "=",
-        color: [0.6, 0.55, 0.2],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Conduit",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/grid.png", [0.40, 0.28, 0.14], [0.88, 0.62, 0.22]))
-      },
-      Tile::AsteroidRock => TileProperties {
-        glyph: "#",
-        color: [0.4, 0.35, 0.3],
-        texture_path: None,
-        walkable: false,
-        opaque: true,
-        causes_falling: false,
-        name: "Asteroid Rock",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/wall hashtag.png", [0.42, 0.38, 0.36], [0.58, 0.54, 0.52]))
-      },
-      Tile::AsteroidFloor => TileProperties {
-        glyph: ".",
-        color: [0.5, 0.45, 0.4],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Asteroid Floor",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/ground.png", [0.48, 0.46, 0.44], [0.72, 0.70, 0.68]))
-      },
-      Tile::Regolith => TileProperties {
-        glyph: ",",
-        color: [0.55, 0.5, 0.45],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Regolith",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/ground.png", [0.48, 0.46, 0.44], [0.72, 0.70, 0.68]))
-      },
-      Tile::Vacuum => TileProperties {
-        glyph: " ",
-        color: [0.0, 0.0, 0.0],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Vacuum",
-        has_atmosphere: false,
-        space_qud_sprite: Some((
-          "textures/space_qud/space background.png",
-          [1.0, 1.0, 1.0],
-          [0.62, 0.72, 0.92]
-        ))
-      },
-      Tile::IceFloor => TileProperties {
-        glyph: ",",
-        color: [0.7, 0.75, 0.85],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Ice Floor",
-        has_atmosphere: true,
-        space_qud_sprite: None
-      },
-      Tile::IceWall => TileProperties {
-        glyph: "#",
-        color: [0.5, 0.55, 0.7],
-        texture_path: None,
-        walkable: false,
-        opaque: true,
-        causes_falling: false,
-        name: "Ice Wall",
-        has_atmosphere: true,
-        space_qud_sprite: None
-      },
-      Tile::AlienSoil => TileProperties {
-        glyph: ",",
-        color: [0.45, 0.35, 0.55],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Alien Soil",
-        has_atmosphere: true,
-        space_qud_sprite: None
-      },
-      Tile::AlienGrass => TileProperties {
-        glyph: "\"",
-        color: [0.3, 0.55, 0.3],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Alien Grass",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/grass.png", [0.38, 0.16, 0.52], [0.68, 0.52, 0.88]))
-      },
-      Tile::CrystalGrowth => TileProperties {
-        glyph: "*",
-        color: [0.5, 0.8, 0.95],
-        texture_path: None,
-        walkable: false,
-        opaque: false,
-        causes_falling: false,
-        name: "Crystal Growth",
-        has_atmosphere: true,
-        space_qud_sprite: None
-      },
-      Tile::AlienFluid => TileProperties {
-        glyph: "~",
-        color: [0.5, 0.3, 0.7],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Alien Fluid",
-        has_atmosphere: true,
-        space_qud_sprite: Some(("textures/space_qud/liquid tile.png", [0.35, 0.12, 0.52], [0.68, 0.32, 0.88]))
-      },
-      Tile::ShipDock => TileProperties {
-        glyph: "P",
-        color: [0.85, 0.72, 0.1],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Ship Dock",
-        has_atmosphere: false,
-        space_qud_sprite: None
-      },
-      Tile::Blank => TileProperties {
-        glyph: " ",
-        color: [0.0, 0.0, 0.0],
-        texture_path: None,
-        walkable: true,
-        opaque: false,
-        causes_falling: false,
-        name: "Blank",
-        has_atmosphere: false,
-        space_qud_sprite: None
-      }
-    }
-  }
-
-  pub fn glyph(self) -> &'static str { self.properties().glyph }
-  pub fn color(self) -> [f32; 3] { self.properties().color }
-  pub fn texture_path(self) -> Option<&'static str> { self.properties().texture_path }
-  pub fn walkable(self) -> bool { self.properties().walkable }
-  pub fn opaque(self) -> bool { self.properties().opaque }
-  pub fn causes_falling(self) -> bool { self.properties().causes_falling }
-  pub fn name(self) -> &'static str { self.properties().name }
-  pub fn has_atmosphere(self) -> bool { self.properties().has_atmosphere }
 }
