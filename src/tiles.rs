@@ -51,6 +51,8 @@ pub enum Tile {
   WoodWall,
   #[assoc(glyph = ".", color = [0.55, 0.4, 0.25], walkable = true, name = "Wooden Floor", space_qud_sprite = ("textures/space_qud/floor4.png", [0.45, 0.32, 0.18], [0.72, 0.58, 0.32]))]
   WoodFloor,
+  #[assoc(glyph = ".", color = [0.42, 0.28, 0.14], walkable = true, name = "Wood Tile", space_qud_sprite = ("textures/space_qud/tiles1.png", [0.28, 0.16, 0.08], [0.62, 0.44, 0.24]))]
+  WoodTile,
   #[assoc(glyph = "+", color = [0.5, 0.35, 0.2], walkable = false, name = "Fence")]
   Fence,
   #[assoc(glyph = "#", color = [0.3, 0.28, 0.25], walkable = false, opaque = true, name = "Cave Wall", space_qud_sprite = ("textures/space_qud/cobble tile.png", [0.28, 0.26, 0.24], [0.48, 0.46, 0.42]))]

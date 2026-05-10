@@ -2079,11 +2079,18 @@ fn spawn_level_tiles(
         }
 
         if tile == Tile::Vacuum {
-          if let Some((path, c1, c2)) = tile.space_qud_sprite() {
+          {
+            let star_idx = ((x as u32).wrapping_mul(2654435761) ^ (y as u32).wrapping_mul(40503)) % 4 + 1;
+            let path: &'static str = match star_idx {
+              1 => "textures/space_qud/stars1.png",
+              2 => "textures/space_qud/stars2.png",
+              3 => "textures/space_qud/stars3.png",
+              _ => "textures/space_qud/stars4.png",
+            };
             let handle = palette_sprite_handle(
               path,
-              Color::srgb(c1[0], c1[1], c1[2]),
-              Color::srgb(c2[0], c2[1], c2[2]),
+              Color::srgb(1.0, 1.0, 1.0),
+              Color::srgb(0.62, 0.72, 0.92),
               palette_cache,
               images
             );

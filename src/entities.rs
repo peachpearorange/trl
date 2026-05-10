@@ -539,6 +539,18 @@ impl Object {
     ))
   }
 
+  pub fn chair() -> Self {
+    Self::structure(false).add((
+      Glyph::palette_sprite(
+        "textures/space_qud/chair.png",
+        'h',
+        Color::srgb(0.38, 0.26, 0.14),
+        Color::srgb(0.68, 0.52, 0.32)
+      ),
+      Named { name: "Chair", flavor: "A chair. Something to sit on." }
+    ))
+  }
+
   pub fn locker() -> Self {
     Self::structure(true).add((
       Glyph::palette_sprite(
