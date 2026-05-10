@@ -1875,10 +1875,15 @@ fn apply_pending_navigation(
   mut palette_cache: ResMut<PaletteImageCache>,
   mut images: ResMut<Assets<Image>>,
   mut log: ResMut<LogEntries>,
-  tile_glyphs: Query<Entity, With<TileGlyph>>,
-  item_glyphs: Query<Entity, With<ItemGlyph>>,
-  glyph_vis: Query<Entity, (With<GlyphVisual>, Without<Player>)>,
-  located: Query<Entity, (With<Location>, Without<Player>)>,
+  mut clock: ResMut<Clock>,
+  mut tb: ResMut<TurnBasedWorldState>,
+  to_despawn: Query<
+    Entity,
+    (
+      Or<(With<TileGlyph>, With<ItemGlyph>, With<GlyphVisual>, With<Location>)>,
+      Without<Player>
+    )
+  >,
   mut player: Query<
     (&mut PlayerPos, &mut Location, &mut Visuals, &mut Transform),
     With<Player>
@@ -1901,13 +1906,7 @@ fn apply_pending_navigation(
     );
     return;
   };
-  let despawn_entities: HashSet<Entity> = tile_glyphs
-    .iter()
-    .chain(item_glyphs.iter())
-    .chain(glyph_vis.iter())
-    .chain(located.iter())
-    .collect();
-  for e in despawn_entities {
+  for e in to_despawn.iter() {
     commands.entity(e).despawn();
   }
   // Capture the player's offset within the OLD ship before swapping zones.
@@ -1956,6 +1955,7 @@ fn apply_pending_navigation(
     _ => "destination"
   };
   log_message(&mut *log, format!("Astrogation: docked — {dest_name} sector."));
+  clock.spend_turn(&mut tb);
 }
 
 fn setup(
