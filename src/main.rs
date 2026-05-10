@@ -61,21 +61,6 @@ pub const STATUS_BAR_HEIGHT: f32 = 32.0;
 // Player actions
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, Debug)]
-enum PlayerAction {
-  Move { dx: i32, dy: i32 },
-  Wait
-}
-
-impl PlayerAction {
-  fn time_cost(self) -> u32 {
-    match self {
-      PlayerAction::Move { dx, dy } if dx != 0 && dy != 0 => 2,
-      PlayerAction::Move { .. } => 1,
-      PlayerAction::Wait => 1
-    }
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Time system
@@ -204,8 +189,14 @@ impl Clock {
     Clock { time: 0, mode: TimeMode::TurnBased, move_cooldown_frames: 0 }
   }
 
-  fn advance(&mut self, cost: u32) {
-    self.time = self.time.saturating_add(u64::from(cost));
+  /// The player did something: advance sim time, set animation cooldown, and (in turn-based
+  /// mode) schedule the world to take a turn.
+  fn spend_turn(&mut self, tb: &mut TurnBasedWorldState) {
+    self.time = self.time.saturating_add(1);
+    self.move_cooldown_frames = RENDER_FRAMES_PER_SIM_STEP;
+    if self.mode == TimeMode::TurnBased {
+      tb.world_tick_pending = true;
+    }
   }
 }
 
@@ -233,11 +224,6 @@ struct PendingNavigation(pub Option<galaxy::LocationId>);
 #[derive(Resource, Default)]
 struct BumpInteractFlash(pub Option<InteractionOption>);
 
-fn note_player_turn_moved_world(clock: &Clock, tb: &mut TurnBasedWorldState) {
-  if clock.mode == TimeMode::TurnBased {
-    tb.world_tick_pending = true;
-  }
-}
 
 /// Increments the display frame and, in real-time mode, advances the sim clock every
 /// [`RENDER_FRAMES_PER_SIM_STEP`] frames (same ordering as the former separate systems).
@@ -1323,8 +1309,7 @@ fn apply_open_chest(
         if kinds == 1 { "" } else { "s" }
       )
     );
-    clock.advance(1);
-    note_player_turn_moved_world(clock, tb);
+    clock.spend_turn(tb);
   }
 }
 
@@ -1429,8 +1414,7 @@ fn execute_interaction(
       InteractionAction::ChopTree(entity) => {
         commands.entity(*entity).despawn();
         *inventory.0.entry(Item::Wood).or_insert(0) += 1;
-        clock.advance(2);
-        note_player_turn_moved_world(clock, tb);
+        clock.spend_turn(tb);
       }
       InteractionAction::PickUpItem(wx, wy) => {
         let level = zone.level_mut(pos.z);
@@ -1440,8 +1424,7 @@ fn execute_interaction(
             level.set_item(*wx, *wy, None);
           }
         }
-        clock.advance(1);
-        note_player_turn_moved_world(clock, tb);
+        clock.spend_turn(tb);
       }
       InteractionAction::OpenChest(_) => {}
       InteractionAction::Salvage(item) => {
@@ -1459,8 +1442,7 @@ fn execute_interaction(
           *inventory.0.entry(comp).or_insert(0) += q;
         }
         log_message(log, format!("Salvaged {} into scrap.", item.name()));
-        clock.advance(1);
-        note_player_turn_moved_world(clock, tb);
+        clock.spend_turn(tb);
       }
       InteractionAction::Craft(recipe_idx) => {
         let Some(recipe) = crafting::RECIPES.get(*recipe_idx) else {
@@ -1471,8 +1453,7 @@ fn execute_interaction(
         }
         crafting::apply_craft(&mut inventory.0, recipe);
         log_message(log, format!("Crafted {}.", recipe.output.name()));
-        clock.advance(2);
-        note_player_turn_moved_world(clock, tb);
+        clock.spend_turn(tb);
       }
     }
   }
@@ -1526,9 +1507,7 @@ fn dispatch_interactive_choice(
           asset_server
         );
       }
-      clock.advance(1);
-      clock.move_cooldown_frames = RENDER_FRAMES_PER_SIM_STEP;
-      note_player_turn_moved_world(clock, tb);
+      clock.spend_turn(tb);
     }
     other => {
       execute_interaction(other, zone, clock, tb, ui, log, commands, player_query);
@@ -2259,11 +2238,7 @@ fn player_input(
       && !keys.pressed(KeyCode::ShiftRight))
       || (clock.mode == TimeMode::TurnBased && keys.pressed(KeyCode::Space));
     if !turn_based_block && wait_pressed {
-      if clock.mode == TimeMode::TurnBased {
-        clock.advance(PlayerAction::Wait.time_cost());
-        clock.move_cooldown_frames = RENDER_FRAMES_PER_SIM_STEP;
-      }
-      note_player_turn_moved_world(&*clock, &mut *tb);
+      clock.spend_turn(&mut tb);
     } else if !turn_based_block
       && (any_direction_pressed(&keys) || acc.up || acc.down || acc.left || acc.right)
       && clock.move_cooldown_frames == 0
@@ -2317,11 +2292,7 @@ fn player_input(
           }
         }
 
-        if clock.mode == TimeMode::TurnBased {
-          clock.advance(PlayerAction::Move { dx, dy }.time_cost());
-        }
-        clock.move_cooldown_frames = RENDER_FRAMES_PER_SIM_STEP;
-        note_player_turn_moved_world(&*clock, &mut *tb);
+        clock.spend_turn(&mut tb);
       }
     }
   }
