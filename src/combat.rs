@@ -173,7 +173,7 @@ pub fn enemy_ai(
     }
   }
   if clock.mode == crate::TimeMode::TurnBased {
-    tb.pending_enemy_phase = false;
+    tb.world_tick_pending = false;
   }
 }
 

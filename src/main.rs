@@ -202,10 +202,10 @@ impl Clock {
 
 /// In turn-based mode, the world only advances in [`SimStep`] after a player spends a turn and
 /// move animation finishes (`move_cooldown_frames == 0`); this flag schedules that one tick.
-/// Cleared at the end of [`combat::enemy_ai`] after that tick runs.
+/// Cleared at the end of [`combat::enemy_ai`] once all world systems have run.
 #[derive(Resource, Default)]
 pub struct TurnBasedWorldState {
-  pub pending_enemy_phase: bool
+  pub world_tick_pending: bool
 }
 
 /// Filled by [`player_input`] when a move is blocked; [`resolve_bump_interact`] reads it the same frame.
@@ -226,7 +226,7 @@ struct BumpInteractFlash(pub Option<InteractionOption>);
 
 fn note_player_turn_moved_world(clock: &Clock, tb: &mut TurnBasedWorldState) {
   if clock.mode == TimeMode::TurnBased {
-    tb.pending_enemy_phase = true;
+    tb.world_tick_pending = true;
   }
 }
 
@@ -252,7 +252,7 @@ fn should_run_sim_step(
   if clock.mode == TimeMode::RealTime {
     frame.0 > 0 && frame.0 % u64::from(RENDER_FRAMES_PER_SIM_STEP) == 0
   } else {
-    tb.pending_enemy_phase && clock.move_cooldown_frames == 0
+    tb.world_tick_pending && clock.move_cooldown_frames == 0
   }
 }
 
@@ -2201,7 +2201,7 @@ fn player_input(
       clock.mode = match clock.mode {
         TimeMode::RealTime => TimeMode::TurnBased,
         TimeMode::TurnBased => {
-          tb.pending_enemy_phase = false;
+          tb.world_tick_pending = false;
           TimeMode::RealTime
         }
       };
@@ -2217,7 +2217,7 @@ fn player_input(
     }
 
     let turn_based_block = clock.mode == TimeMode::TurnBased
-      && (clock.move_cooldown_frames > 0 || tb.pending_enemy_phase);
+      && (clock.move_cooldown_frames > 0 || tb.world_tick_pending);
 
     let wait_pressed = (keys.just_pressed(KeyCode::Period)
       && !keys.pressed(KeyCode::ShiftLeft)
