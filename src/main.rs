@@ -192,7 +192,7 @@ pub struct TimeModeAuto(pub bool);
 
 impl Clock {
   fn new() -> Self {
-    Clock { time: 0, mode: TimeMode::RealTime, move_cooldown_frames: 0 }
+    Clock { time: 0, mode: TimeMode::TurnBased, move_cooldown_frames: 0 }
   }
 
   fn advance(&mut self, cost: u32) {
@@ -547,7 +547,7 @@ fn main() {
     .init_resource::<RenderFrame>()
     .init_resource::<TurnBasedWorldState>()
     .insert_resource(Clock::new())
-    .insert_resource(TimeModeAuto(true))
+    .insert_resource(TimeModeAuto(false))
     .init_resource::<ChestOpenPending>()
     .init_resource::<PendingNavigation>()
     .init_resource::<BumpInteractFlash>()
@@ -958,16 +958,6 @@ fn any_direction_pressed(keys: &ButtonInput<KeyCode>) -> bool {
     || keys.pressed(KeyCode::ArrowRight)
 }
 
-fn any_direction_just_pressed(keys: &ButtonInput<KeyCode>) -> bool {
-  keys.just_pressed(KeyCode::KeyW)
-    || keys.just_pressed(KeyCode::KeyA)
-    || keys.just_pressed(KeyCode::KeyS)
-    || keys.just_pressed(KeyCode::KeyD)
-    || keys.just_pressed(KeyCode::ArrowUp)
-    || keys.just_pressed(KeyCode::ArrowDown)
-    || keys.just_pressed(KeyCode::ArrowLeft)
-    || keys.just_pressed(KeyCode::ArrowRight)
-}
 
 fn resolve_move(
   level: &level::Level,
@@ -2229,21 +2219,18 @@ fn player_input(
     let turn_based_block = clock.mode == TimeMode::TurnBased
       && (clock.move_cooldown_frames > 0 || tb.pending_enemy_phase);
 
-    if !turn_based_block
-      && keys.just_pressed(KeyCode::Period)
+    let wait_pressed = (keys.just_pressed(KeyCode::Period)
       && !keys.pressed(KeyCode::ShiftLeft)
-      && !keys.pressed(KeyCode::ShiftRight)
-    {
+      && !keys.pressed(KeyCode::ShiftRight))
+      || (clock.mode == TimeMode::TurnBased && keys.pressed(KeyCode::Space));
+    if !turn_based_block && wait_pressed {
       if clock.mode == TimeMode::TurnBased {
         clock.advance(PlayerAction::Wait.time_cost());
+        clock.move_cooldown_frames = RENDER_FRAMES_PER_SIM_STEP;
       }
       note_player_turn_moved_world(&*clock, &mut *tb);
     } else if !turn_based_block
-      && (if clock.mode == TimeMode::TurnBased {
-        any_direction_just_pressed(&keys)
-      } else {
-        any_direction_pressed(&keys)
-      })
+      && any_direction_pressed(&keys)
       && clock.move_cooldown_frames == 0
     {
       let level = current.0.level(pos.z);
