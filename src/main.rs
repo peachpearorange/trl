@@ -1570,7 +1570,8 @@ fn gather_interactions_at_tile(
   loot_chest_q: &mut Query<(&mut LootChest, &mut Glyph, &Location)>,
   door_q: &Query<&Door>,
   named_q: &Query<&Named>,
-  flight_console_q: &Query<Entity, With<FlightConsole>>
+  flight_console_q: &Query<Entity, With<FlightConsole>>,
+  galaxy: &galaxy::Galaxy
 ) -> Vec<InteractionOption> {
   tile_entities
     .into_iter()
@@ -1628,33 +1629,16 @@ fn gather_interactions_at_tile(
           }
         }))
         .chain(flight_console_q.get(e).ok().into_iter().flat_map(|_| {
-          [
-            InteractionOption {
-              label: "Chart course — Origin planet".into(),
-              action: InteractionAction::Navigate { dest: locations::starter_planet::ID }
-            },
-            InteractionOption {
-              label: "Chart course — Space asteroid field".into(),
-              action: InteractionAction::Navigate { dest: locations::asteroid_field::ID }
-            },
-            InteractionOption {
-              label: "Chart course — Meridian Station".into(),
-              action: InteractionAction::Navigate { dest: locations::meridian_station::ID }
-            },
-            InteractionOption {
-              label: "Chart course — Lava Planet".into(),
-              action: InteractionAction::Navigate { dest: locations::lava_planet::ID }
-            },
-            InteractionOption {
-              label: "Chart course — Gamma Station".into(),
-              action: InteractionAction::Navigate { dest: locations::gamma_station::ID }
-            },
-            InteractionOption {
-              label: "Chart course — Mushroom Planet".into(),
-              action: InteractionAction::Navigate { dest: locations::mushroom_planet::ID }
-            }
-          ]
-          .into_iter()
+          let mut dests: Vec<InteractionOption> = galaxy
+            .locations
+            .iter()
+            .map(|(&id, loc)| InteractionOption {
+              label: format!("Chart course — {}", loc.name),
+              action: InteractionAction::Navigate { dest: id }
+            })
+            .collect();
+          dests.sort_by_key(|o| o.label.clone());
+          dests
         }))
     })
     .chain(
@@ -1676,6 +1660,7 @@ fn resolve_bump_interact(
   mut ui: ResMut<UiState>,
   current: Res<CurrentZone>,
   index: Res<TileEntityIndex>,
+  galaxy: Res<galaxy::Galaxy>,
   dialogue_q: Query<(&Named, &Dialogue)>,
   tree_q: Query<Entity, With<Tree>>,
   glyph_q: Query<&Glyph, Without<LootChest>>,
@@ -1700,7 +1685,8 @@ fn resolve_bump_interact(
     &mut loot_chest_q,
     &door_q,
     &named_q,
-    &flight_console_q
+    &flight_console_q,
+    &galaxy
   );
   if opts.is_empty() {
     return;
@@ -1780,6 +1766,7 @@ fn flush_pending_chest_open(
 fn handle_interact(
   keys: Res<ButtonInput<KeyCode>>,
   current: Res<CurrentZone>,
+  galaxy: Res<galaxy::Galaxy>,
   mut ui: ResMut<UiState>,
   mut flash: ResMut<BumpInteractFlash>,
   index: Res<TileEntityIndex>,
@@ -1817,7 +1804,8 @@ fn handle_interact(
           &mut loot_chest_q,
           &door_q,
           &named_q,
-          &flight_console_q
+          &flight_console_q,
+          &galaxy
         ));
       }
     }
@@ -1951,14 +1939,7 @@ fn apply_pending_navigation(
       tile_screen_pos(local_x as f32, local_y as f32, current.0.width, current.0.height)
         + Vec3::Z;
   }
-  let dest_name = match dest {
-    locations::starter_planet::ID => "origin planet",
-    locations::asteroid_field::ID => "asteroid field",
-    locations::meridian_station::ID => "Meridian Station",
-    locations::gamma_station::ID => "Gamma Station",
-    locations::mushroom_planet::ID => "Mushroom Planet",
-    _ => "destination"
-  };
+  let dest_name = galaxy.get(dest).map_or("destination", |loc| loc.name);
   log_message(&mut *log, format!("Astrogation: docked — {dest_name} sector."));
 }
 

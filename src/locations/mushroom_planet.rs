@@ -71,6 +71,7 @@ ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss
 
 pub fn generate() -> Location {
   Location::from_prefab(
+    "Mushroom Planet",
     mushroom_prefab(),
     LocationType::PlanetSurface { breathable: true },
     Tile::AlienSoil

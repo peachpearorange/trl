@@ -39,7 +39,7 @@ vvvvvvvvvvvv########################vvvvvvvvvvvv
 }
 
 pub fn generate() -> Location {
-  Location::from_prefab(station_prefab(), LocationType::SpaceStation, Tile::Vacuum)
+  Location::from_prefab("Meridian Station", station_prefab(), LocationType::SpaceStation, Tile::Vacuum)
 }
 
 pub const NPC_COORDS: &[(i32, i32)] = &[

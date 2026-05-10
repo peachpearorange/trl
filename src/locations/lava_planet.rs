@@ -64,6 +64,7 @@ aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaarrrrrrrrr
 
 pub fn generate() -> Location {
   Location::from_prefab(
+    "Lava Planet",
     lava_prefab(),
     LocationType::PlanetSurface { breathable: false },
     Tile::Ash

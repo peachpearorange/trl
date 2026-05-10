@@ -8,6 +8,7 @@ pub type LocationId = (i32, i32, i32);
 /// One variable-size zone in the galaxy.
 #[derive(Clone, Debug)]
 pub struct Location {
+  pub name: &'static str,
   pub width: usize,
   pub height: usize,
   pub depth: usize,
@@ -17,6 +18,7 @@ pub struct Location {
 
 impl Location {
   pub fn new(
+    name: &'static str,
     width: usize,
     height: usize,
     depth: usize,
@@ -24,13 +26,18 @@ impl Location {
     fill: crate::level::Tile
   ) -> Self {
     let levels = (0..depth).map(|_| Level::new(width, height, fill)).collect();
-    Location { width, height, depth, levels, location_type }
+    Location { name, width, height, depth, levels, location_type }
   }
 
   /// Build a `Location` sized to `prefab`'s layout and stamp level 0 with it.
-  pub fn from_prefab(prefab: Prefab, location_type: LocationType, fill: Tile) -> Self {
+  pub fn from_prefab(
+    name: &'static str,
+    prefab: Prefab,
+    location_type: LocationType,
+    fill: Tile
+  ) -> Self {
     let (w, h) = prefab.dimensions();
-    let mut loc = Location::new(w, h, 1, location_type, fill);
+    let mut loc = Location::new(name, w, h, 1, location_type, fill);
     prefab.stamp_level(loc.level_mut(0), 0, 0);
     loc
   }

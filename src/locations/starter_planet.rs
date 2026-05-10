@@ -69,6 +69,7 @@ gggggggggggggggggggggggggggggggggggggggggggggggg
 
 pub fn generate() -> Location {
   Location::from_prefab(
+    "Origin Planet",
     surface_prefab(),
     LocationType::PlanetSurface { breathable: true },
     Tile::AlienGrass
