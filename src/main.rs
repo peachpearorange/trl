@@ -1527,6 +1527,7 @@ fn dispatch_interactive_choice(
         );
       }
       clock.advance(1);
+      clock.move_cooldown_frames = RENDER_FRAMES_PER_SIM_STEP;
       note_player_turn_moved_world(clock, tb);
     }
     other => {

@@ -17,6 +17,11 @@ enum-assoc = "*"
 haalka = "*"
 noise = "*"
 
+# Optimize dependencies at opt-level 3 even in debug builds; game code stays
+# unoptimized so recompiles stay fast but Bevy/rendering is not a bottleneck.
+[profile.dev.package."*"]
+opt-level = 3
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "*", features = ["wasm_js"] }
 rust-embed = { version = "*", features = ["debug-embed"] }
