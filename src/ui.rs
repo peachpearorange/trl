@@ -117,9 +117,9 @@ pub struct InvDisplayData {
 // Colours & constants
 // ---------------------------------------------------------------------------
 
-const DARK_BG: Color = Color::srgb(0.10, 0.10, 0.18);
+const DARK_BG: Color = Color::srgba(0.0, 0.0, 0.0, 0.75);
 const PANEL_BG: Color = Color::srgb(0.12, 0.12, 0.20);
-const DIALOGUE_PANEL_BG: Color = Color::srgb(0.04, 0.05, 0.10);
+const DIALOGUE_PANEL_BG: Color = Color::srgba(0.0, 0.0, 0.0, 0.75);
 const BORDER: Color = Color::srgb(0.20, 0.20, 0.33);
 const LIGHT_TEXT: Color = Color::srgb(0.94, 0.94, 0.97);
 const DIM_TEXT: Color = Color::srgb(0.78, 0.80, 0.86);
