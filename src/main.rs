@@ -234,6 +234,9 @@ fn note_player_turn_moved_world(clock: &Clock, tb: &mut TurnBasedWorldState) {
 /// [`RENDER_FRAMES_PER_SIM_STEP`] frames (same ordering as the former separate systems).
 fn bump_render_frame(mut frame: ResMut<RenderFrame>, mut clock: ResMut<Clock>) {
   frame.0 = frame.0.saturating_add(1);
+  if clock.move_cooldown_frames > 0 {
+    clock.move_cooldown_frames -= 1;
+  }
   if clock.mode == TimeMode::RealTime
     && frame.0 > 0
     && frame.0 % u64::from(RENDER_FRAMES_PER_SIM_STEP) == 0
@@ -558,7 +561,8 @@ fn main() {
     .insert_resource(TileEntityIndex::default())
     .add_plugins(ui::UiPlugin)
     .add_systems(Startup, (setup, ui::spawn_haalka_root).chain())
-    .configure_sets(Update, SimStep.run_if(should_run_sim_step).before(FramePipeline::PlayerMove))
+    .configure_sets(Update, SimStep.run_if(should_run_sim_step)
+      .after(FramePipeline::BumpRender).before(FramePipeline::PlayerMove))
     .configure_sets(
       Update,
       (
@@ -2212,10 +2216,6 @@ fn player_input(
     && let Ok((mut pos, stats, mut inventory)) = player_query.single_mut()
   {
     let player_attack = stats.attack;
-    if clock.move_cooldown_frames > 0 {
-      clock.move_cooldown_frames -= 1;
-    }
-
     let turn_based_block = clock.mode == TimeMode::TurnBased
       && (clock.move_cooldown_frames > 0 || tb.world_tick_pending);
 
