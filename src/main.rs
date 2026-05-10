@@ -1487,6 +1487,7 @@ fn dispatch_interactive_choice(
     }
     InteractionAction::Navigate { dest } => {
       pending_nav.0 = Some(*dest);
+      clock.spend_turn(tb);
     }
     InteractionAction::ToggleDoor(entity) => {
       if let Ok((mut door, mut glyph, _collidable, location, mut airlock)) =
@@ -1875,8 +1876,6 @@ fn apply_pending_navigation(
   mut palette_cache: ResMut<PaletteImageCache>,
   mut images: ResMut<Assets<Image>>,
   mut log: ResMut<LogEntries>,
-  mut clock: ResMut<Clock>,
-  mut tb: ResMut<TurnBasedWorldState>,
   to_despawn: Query<
     Entity,
     (
@@ -1955,7 +1954,6 @@ fn apply_pending_navigation(
     _ => "destination"
   };
   log_message(&mut *log, format!("Astrogation: docked — {dest_name} sector."));
-  clock.spend_turn(&mut tb);
 }
 
 fn setup(
