@@ -62,11 +62,12 @@ ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss
   .assoc('C', (Tile::CrimsonPool, []))
   .assoc('A', (Tile::AmberPool, []))
   .assoc('P', (Tile::ShipDock, []))
-  .assoc('1', (Tile::AlienSoil, [shroom(0.72, 0.18, 0.62, 0.92, 0.55, 0.85, "Violet Cap")]))
-  .assoc('2', (Tile::AlienSoil, [shroom(0.18, 0.72, 0.45, 0.55, 0.95, 0.72, "Jade Fungus")]))
-  .assoc('3', (Tile::AlienSoil, [shroom(0.85, 0.35, 0.12, 0.98, 0.68, 0.35, "Ember Stalk")]))
-  .assoc('4', (Tile::AlienSoil, [shroom(0.15, 0.52, 0.88, 0.45, 0.78, 0.98, "Azure Bloom")]))
-  .assoc('5', (Tile::AlienSoil, [shroom(0.92, 0.88, 0.15, 0.98, 0.98, 0.62, "Pale Lantern")]))
+  // primary = hat, secondary = stem + spots
+  .assoc('1', (Tile::AlienSoil, [shroom(0.52, 0.06, 0.72, 0.94, 0.88, 0.98, "Violet Cap")]))   // deep purple hat, white-lavender stem/spots
+  .assoc('2', (Tile::AlienSoil, [shroom(0.08, 0.52, 0.30, 0.78, 0.96, 0.82, "Jade Fungus")])) // dark teal hat, pale mint stem/spots
+  .assoc('3', (Tile::AlienSoil, [shroom(0.82, 0.10, 0.06, 0.98, 0.84, 0.52, "Ember Stalk")])) // deep crimson hat, warm cream stem/spots
+  .assoc('4', (Tile::AlienSoil, [shroom(0.06, 0.20, 0.85, 0.70, 0.86, 0.98, "Azure Bloom")])) // cobalt hat, ice-blue stem/spots
+  .assoc('5', (Tile::AlienSoil, [shroom(0.95, 0.78, 0.04, 0.98, 0.97, 0.84, "Pale Lantern")]))
 }
 
 pub fn generate() -> Location {
