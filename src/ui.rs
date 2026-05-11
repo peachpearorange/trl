@@ -80,6 +80,10 @@ pub struct LogEntries(pub Vec<LogLine>);
 #[derive(Resource, Clone, Default, PartialEq)]
 pub struct LogDisplayData(pub Vec<LogLine>);
 
+/// Marker for the scrollable log container; used to auto-scroll to bottom on updates.
+#[derive(Component)]
+struct LogScrollNode;
+
 /// Push a plain-text line; oldest entries are dropped to keep at most 100.
 pub fn log_message(log: &mut LogEntries, line: String) {
   log_spans(log, vec![LogSpan::plain(line)]);
@@ -167,7 +171,8 @@ impl Plugin for UiPlugin {
       .init_resource::<LogDisplayData>()
       .init_resource::<InvDisplayData>()
       .init_resource::<OverlayData>()
-      .add_systems(PostUpdate, sync_ui.before(SignalProcessing));
+      .add_systems(PostUpdate, sync_ui.before(SignalProcessing))
+      .add_systems(PostUpdate, scroll_log_to_bottom.after(SignalProcessing));
   }
 }
 
@@ -497,15 +502,16 @@ fn message_log() -> impl Element {
           n.width = Val::Percent(100.0);
           n.flex_grow = 1.0;
           n.overflow = Overflow::scroll_y();
+          n.justify_content = JustifyContent::FlexEnd;
         })
+        .insert(LogScrollNode)
         .child_signal(signal::from_resource_changed::<LogDisplayData>().map_in(|d| {
           Column::<Node>::new()
             .with_node(|mut n| {
               n.width = Val::Percent(100.0);
               n.row_gap = Val::Px(1.0);
-              n.flex_direction = FlexDirection::ColumnReverse;
             })
-            .items(d.0.into_iter().rev().map(|line| {
+            .items(d.0.into_iter().map(|line| {
               Row::<Node>::new()
                 .with_node(|mut n| {
                   n.flex_wrap = FlexWrap::Wrap;
@@ -774,6 +780,16 @@ fn sync_ui(
     if log_display.0 != new_lines {
       log_display.0 = new_lines;
     }
+  }
+}
+
+/// After Haalka rebuilds the log's child column, scroll the log container to the bottom
+/// so that the newest messages are always visible.
+fn scroll_log_to_bottom(
+  mut scroll_nodes: Query<(&ComputedNode, &mut ScrollPosition), With<LogScrollNode>>,
+) {
+  for (computed, mut scroll) in &mut scroll_nodes {
+    scroll.0.y = computed.content_size().y;
   }
 }
 
