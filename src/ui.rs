@@ -17,7 +17,7 @@ use {crate::{Clock, GAME_VIEWPORT_WIDTH_FRAC, STATUS_BAR_HEIGHT, game_pane_rect,
              utils::mapv, world_to_level_cell},
      bevy::{prelude::*,
             text::FontWeight,
-            ui::{AlignItems, Display, FlexDirection, FlexWrap, JustifyContent}},
+            ui::{AlignItems, Display, FlexDirection, FlexWrap, JustifyContent, UiSystems}},
      haalka::{jonmo::SignalProcessing, prelude::*},
      jonmo::{prelude::*, signal},
      crate::entities::{Named, Stats}};
@@ -172,7 +172,7 @@ impl Plugin for UiPlugin {
       .init_resource::<InvDisplayData>()
       .init_resource::<OverlayData>()
       .add_systems(PostUpdate, sync_ui.before(SignalProcessing))
-      .add_systems(PostUpdate, scroll_log_to_bottom.after(SignalProcessing));
+      .add_systems(PostUpdate, scroll_log_to_bottom.after(UiSystems::Layout));
   }
 }
 
@@ -789,7 +789,10 @@ fn scroll_log_to_bottom(
   mut scroll_nodes: Query<(&ComputedNode, &mut ScrollPosition), With<LogScrollNode>>,
 ) {
   for (computed, mut scroll) in &mut scroll_nodes {
-    scroll.0.y = computed.content_size().y;
+    let max_y = (computed.content_size().y - computed.size().y) * computed.inverse_scale_factor();
+    if max_y > 0. {
+      scroll.0.y = max_y;
+    }
   }
 }
 
