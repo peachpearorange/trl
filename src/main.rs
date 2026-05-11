@@ -21,8 +21,8 @@ mod npcs;
 mod utils;
 
 use {bevy::prelude::*,
-     combat::{TileEntityIndex, enemy_ai, maintain_tile_index, mushroom_spore_attack,
-              npc_wander, spore_cloud_tick},
+     combat::{TileEntityIndex, damage_cloud_tick, enemy_ai, grenade_thrower_ai,
+              maintain_tile_index, mushroom_spore_attack, npc_wander},
      level::{FovGrid, Item, LocationType, Tile, ZONE_HEIGHT, ZONE_WIDTH, compute_fov},
      std::collections::{HashMap, HashSet},
      crate::entities::{AirlockDoor, BlocksSight, Collidable, Dialogue, DialogueNode,
@@ -607,7 +607,8 @@ fn main() {
         enemy_death_check.in_set(SimStep),
         enemy_ai.in_set(SimStep),
         mushroom_spore_attack.in_set(SimStep),
-        spore_cloud_tick.in_set(SimStep),
+        grenade_thrower_ai.in_set(SimStep),
+        damage_cloud_tick.in_set(SimStep),
         npc_wander.in_set(SimStep),
         update_fov.in_set(SimStep)
       )

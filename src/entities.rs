@@ -273,9 +273,10 @@ pub struct WalkAroundRandomly {
 #[derive(Component, Clone, Copy)]
 pub struct FlightConsole;
 
-/// Lingering area-of-effect cloud that damages the player on each tick while they share a tile.
+/// Lingering area-of-effect cloud that damages the player each tick while they share a tile.
+/// Used by both spore clouds and explosion clouds.
 #[derive(Component, Clone, Copy, Debug)]
-pub struct SporeCloud {
+pub struct DamageCloud {
   pub damage_per_tick: i32,
   pub ticks_remaining: u32,
   pub tick_interval: u32,
@@ -287,6 +288,14 @@ pub struct SporeCloud {
 pub struct SporeEmitter {
   pub cooldown: u32,
   pub timer: u32
+}
+
+/// Gives an enemy a ranged grenade throw when far enough from the player.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct GrenadeThrowComp {
+  pub cooldown: u32,
+  pub timer: u32,
+  pub min_range: i32
 }
 
 /// Smooth visual interpolation state for moving entities.
@@ -646,23 +655,66 @@ impl Object {
     ))
   }
 
-  /// A lingering toxic spore cloud; damages the player each tick while they share a tile.
-  pub fn spore_cloud() -> Self {
+  fn damage_cloud(
+    glyph: Glyph,
+    name: &'static str,
+    flavor: &'static str,
+    damage_per_tick: i32,
+    ticks_remaining: u32,
+    tick_interval: u32
+  ) -> Self {
     Self::new((
       Collidable(false),
-      SporeCloud {
-        damage_per_tick: 1,
-        ticks_remaining: 4,
-        tick_interval: 5,
-        tick_timer: 0
-      },
+      DamageCloud { damage_per_tick, ticks_remaining, tick_interval, tick_timer: 0 },
+      glyph,
+      Named { name, flavor }
+    ))
+  }
+
+  pub fn spore_cloud() -> Self {
+    Self::damage_cloud(
       Glyph::palette_sprite(
         "textures/space_qud/checkerboard pattern.png",
         '*',
         Color::srgb(0.30, 0.72, 0.22),
         Color::srgb(0.18, 0.48, 0.12)
       ),
-      Named { name: "Spore Cloud", flavor: "A drifting cloud of toxic fungal spores." }
+      "Spore Cloud",
+      "A drifting cloud of toxic fungal spores.",
+      1, 4, 5
+    )
+  }
+
+  pub fn explosion_cloud() -> Self {
+    Self::damage_cloud(
+      Glyph::palette_sprite(
+        "textures/space_qud/checkerboard pattern.png",
+        '*',
+        Color::srgb(0.95, 0.55, 0.10),
+        Color::srgb(0.72, 0.22, 0.06)
+      ),
+      "Explosion",
+      "Roiling flame and shrapnel.",
+      3, 2, 2
+    )
+  }
+
+  pub fn grenade_thrower() -> Self {
+    Self::enemy().add((
+      Named {
+        name: "Grenadier",
+        flavor: "A wiry soldier bristling with grenades. Keeps its distance."
+      },
+      Stats { hp: 8, max_hp: 8, attack: 2, move_speed: 2.5, attack_speed: 0.8 },
+      Wielding(None),
+      Wearing(None),
+      Glyph::palette_sprite(
+        "textures/space_qud/gunman .png",
+        'g',
+        Color::srgb(0.22, 0.48, 0.22),
+        Color::srgb(0.60, 0.78, 0.42)
+      ),
+      GrenadeThrowComp { cooldown: 25, timer: 0, min_range: 3 }
     ))
   }
 

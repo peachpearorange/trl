@@ -1,8 +1,8 @@
 use {bevy::prelude::*,
      rand::seq::SliceRandom,
      std::collections::{HashMap, HashSet},
-     crate::{entities::{Collidable, Enemy, Location, Object, SporeCloud, SporeEmitter, Stats,
-                        TimeSinceAction, WalkAroundRandomly, Wearing},
+     crate::{entities::{Collidable, DamageCloud, Enemy, GrenadeThrowComp, Location, Object,
+                        SporeEmitter, Stats, TimeSinceAction, WalkAroundRandomly, Wearing},
              tiles::Tile}};
 
 // ---------------------------------------------------------------------------
@@ -178,15 +178,35 @@ pub fn enemy_ai(
 }
 
 // ---------------------------------------------------------------------------
-// Spore attack systems
+// Area-effect cloud systems
 // ---------------------------------------------------------------------------
 
-const SPORE_ATTACK_RANGE: i32 = 3;
 const SPORE_CLOUD_OFFSETS: [(i32, i32); 9] =
   [(0, 0), (-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
 
+// Manhattan radius 2: 13 tiles (diamond shape)
+const EXPLOSION_OFFSETS: [(i32, i32); 13] = [
+  (0, 0),
+  (-1, 0), (1, 0), (0, -1), (0, 1),
+  (-2, 0), (2, 0), (0, -2), (0, 2),
+  (-1, -1), (1, -1), (-1, 1), (1, 1)
+];
+
+fn spawn_cloud_area(
+  commands: &mut Commands,
+  cx: i32,
+  cy: i32,
+  z: usize,
+  obj: Object,
+  offsets: &[(i32, i32)]
+) {
+  for &(dx, dy) in offsets {
+    obj.clone().spawn_at(commands, cx + dx, cy + dy, z);
+  }
+}
+
 /// Mushroom enemies with [`SporeEmitter`]: when the player is within range and the
-/// cooldown has elapsed, burst a ring of [`SporeCloud`] entities around the emitter.
+/// cooldown has elapsed, burst a ring of spore clouds around the emitter.
 pub fn mushroom_spore_attack(
   mut commands: Commands,
   player_q: Query<&crate::PlayerPos, With<crate::Player>>,
@@ -197,25 +217,44 @@ pub fn mushroom_spore_attack(
       emitter.timer = emitter.timer.saturating_add(1);
       if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location
         && ez == pz
+        && (px - ex).abs().max((py - ey).abs()) <= 3
+        && emitter.timer >= emitter.cooldown
       {
-        let dist = (px - ex).abs().max((py - ey).abs());
-        if dist <= SPORE_ATTACK_RANGE && emitter.timer >= emitter.cooldown {
-          emitter.timer = 0;
-          for (dx, dy) in SPORE_CLOUD_OFFSETS {
-            Object::spore_cloud().spawn_at(&mut commands, ex + dx, ey + dy, ez);
-          }
-        }
+        emitter.timer = 0;
+        spawn_cloud_area(&mut commands, ex, ey, ez, Object::spore_cloud(), &SPORE_CLOUD_OFFSETS);
       }
     }
   }
 }
 
-/// Each sim step: advance spore cloud timers, deal damage when the player shares a tile,
+/// Enemies with [`GrenadeThrowComp`]: lob a grenade at the player when beyond `min_range`.
+pub fn grenade_thrower_ai(
+  mut commands: Commands,
+  player_q: Query<&crate::PlayerPos, With<crate::Player>>,
+  mut thrower_q: Query<(&Location, &mut GrenadeThrowComp), With<Enemy>>
+) {
+  if let Ok(&crate::PlayerPos { x: px, y: py, z: pz }) = player_q.single() {
+    for (location, mut comp) in thrower_q.iter_mut() {
+      comp.timer = comp.timer.saturating_add(1);
+      if let Location::Coords { z: ez, .. } = *location
+        && ez == pz
+        && let Location::Coords { x: ex, y: ey, .. } = *location
+        && (px - ex).abs().max((py - ey).abs()) >= comp.min_range
+        && comp.timer >= comp.cooldown
+      {
+        comp.timer = 0;
+        spawn_cloud_area(&mut commands, px, py, pz, Object::explosion_cloud(), &EXPLOSION_OFFSETS);
+      }
+    }
+  }
+}
+
+/// Each sim step: advance [`DamageCloud`] timers, deal damage when the player shares a tile,
 /// and despawn clouds whose lifetimes have expired.
-pub fn spore_cloud_tick(
+pub fn damage_cloud_tick(
   mut commands: Commands,
   mut player_q: Query<(&crate::PlayerPos, &mut Stats), With<crate::Player>>,
-  mut cloud_q: Query<(Entity, &Location, &mut SporeCloud)>
+  mut cloud_q: Query<(Entity, &Location, &mut DamageCloud)>
 ) {
   if let Ok((&crate::PlayerPos { x: px, y: py, z: pz }, mut player_stats)) =
     player_q.single_mut()
