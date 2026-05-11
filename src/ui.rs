@@ -497,15 +497,15 @@ fn message_log() -> impl Element {
           n.width = Val::Percent(100.0);
           n.flex_grow = 1.0;
           n.overflow = Overflow::scroll_y();
-          n.justify_content = JustifyContent::FlexEnd;
         })
         .child_signal(signal::from_resource_changed::<LogDisplayData>().map_in(|d| {
           Column::<Node>::new()
             .with_node(|mut n| {
               n.width = Val::Percent(100.0);
               n.row_gap = Val::Px(1.0);
+              n.flex_direction = FlexDirection::ColumnReverse;
             })
-            .items(d.0.into_iter().map(|line| {
+            .items(d.0.into_iter().rev().map(|line| {
               Row::<Node>::new()
                 .with_node(|mut n| {
                   n.flex_wrap = FlexWrap::Wrap;
