@@ -78,7 +78,7 @@ pub enum Tile {
   DerelictWall,
   #[assoc(glyph = "=", color = [0.6, 0.55, 0.2], walkable = true, name = "Conduit", space_qud_sprite = ("textures/space_qud/grid.png", [0.40, 0.28, 0.14], [0.88, 0.62, 0.22]))]
   Conduit,
-  #[assoc(glyph = "#", color = [0.4, 0.35, 0.3], walkable = false, opaque = true, name = "Asteroid Rock", space_qud_sprite = ("textures/space_qud/wall hashtag.png", [0.42, 0.38, 0.36], [0.58, 0.54, 0.52]))]
+  #[assoc(glyph = "#", color = [0.4, 0.35, 0.3], walkable = false, opaque = true, name = "Asteroid Rock", space_qud_sprite = ("textures/space_qud/cobble tile.png", [0.28, 0.26, 0.24], [0.48, 0.46, 0.42]))]
   AsteroidRock,
   #[assoc(glyph = ".", color = [0.5, 0.45, 0.4], walkable = true, name = "Asteroid Floor", space_qud_sprite = ("textures/space_qud/ground.png", [0.48, 0.46, 0.44], [0.72, 0.70, 0.68]))]
   AsteroidFloor,
