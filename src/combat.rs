@@ -1,9 +1,10 @@
 use {bevy::prelude::*,
      rand::seq::SliceRandom,
      std::collections::{HashMap, HashSet},
-     crate::{entities::{Collidable, DamageCloud, Enemy, GrenadeThrowComp, Location, Object,
-                        SporeEmitter, Stats, TimeSinceAction, WalkAroundRandomly, Wearing},
-             tiles::Tile}};
+     crate::{entities::{Collidable, DamageCloud, Enemy, GrenadeThrowComp, Location, Named,
+                        Object, SporeEmitter, Stats, TimeSinceAction, WalkAroundRandomly, Wearing},
+             tiles::Tile,
+             ui::{LogEntries, log_message}}};
 
 // ---------------------------------------------------------------------------
 // Tile-entity spatial index
@@ -116,12 +117,13 @@ pub fn enemy_ai(
   current: Res<crate::CurrentZone>,
   clock: Res<crate::Clock>,
   mut tb: ResMut<crate::TurnBasedWorldState>,
+  mut log: ResMut<LogEntries>,
   mut player_q: Query<
     (&crate::PlayerPos, &mut Stats),
     (With<crate::Player>, Without<Enemy>)
   >,
   mut enemy_q: Query<
-    (&mut Location, &mut TimeSinceAction, &Stats, Option<&Wearing>),
+    (&mut Location, &mut TimeSinceAction, &Stats, Option<&Wearing>, Option<&Named>),
     (With<Enemy>, Without<crate::Player>)
   >,
   collidable_q: Query<&Collidable>
@@ -132,7 +134,7 @@ pub fn enemy_ai(
 
     let mut claimed: HashSet<(i32, i32)> = HashSet::new();
 
-    for (mut location, mut timer, enemy_stats, enemy_wearing) in enemy_q.iter_mut() {
+    for (mut location, mut timer, enemy_stats, enemy_wearing, enemy_named) in enemy_q.iter_mut() {
       timer.0 = timer.0.saturating_add(1);
 
       if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location {
@@ -143,8 +145,14 @@ pub fn enemy_ai(
         if dist == 1 && timer.0 >= atk_fr {
           let dmg = resolve_damage(enemy_stats.attack, enemy_wearing);
           player_stats.hp = (player_stats.hp - dmg).max(0);
+          let name = enemy_named.map(|n| n.name).unwrap_or("Something");
+          if dmg > 0 {
+            log_message(&mut log, format!("{name} hits you for {dmg}."));
+          } else {
+            log_message(&mut log, format!("{name} hits you but deals no damage."));
+          }
           if player_stats.hp == 0 {
-            bevy::log::info!("You died.");
+            log_message(&mut log, "You died.".into());
           }
           timer.0 = 0;
         } else if timer.0 >= mov_fr {
@@ -209,11 +217,12 @@ fn spawn_cloud_area(
 /// cooldown has elapsed, burst a ring of spore clouds around the emitter.
 pub fn mushroom_spore_attack(
   mut commands: Commands,
+  mut log: ResMut<LogEntries>,
   player_q: Query<&crate::PlayerPos, With<crate::Player>>,
-  mut emitter_q: Query<(&Location, &mut SporeEmitter), With<Enemy>>
+  mut emitter_q: Query<(&Location, &mut SporeEmitter, Option<&Named>), With<Enemy>>
 ) {
   if let Ok(&crate::PlayerPos { x: px, y: py, z: pz }) = player_q.single() {
-    for (location, mut emitter) in emitter_q.iter_mut() {
+    for (location, mut emitter, named) in emitter_q.iter_mut() {
       emitter.timer = emitter.timer.saturating_add(1);
       if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location
         && ez == pz
@@ -221,6 +230,8 @@ pub fn mushroom_spore_attack(
         && emitter.timer >= emitter.cooldown
       {
         emitter.timer = 0;
+        let name = named.map(|n| n.name).unwrap_or("Something");
+        log_message(&mut log, format!("{name} releases a cloud of spores!"));
         spawn_cloud_area(&mut commands, ex, ey, ez, Object::spore_cloud(), &SPORE_CLOUD_OFFSETS);
       }
     }
@@ -230,11 +241,12 @@ pub fn mushroom_spore_attack(
 /// Enemies with [`GrenadeThrowComp`]: lob a grenade at the player when beyond `min_range`.
 pub fn grenade_thrower_ai(
   mut commands: Commands,
+  mut log: ResMut<LogEntries>,
   player_q: Query<&crate::PlayerPos, With<crate::Player>>,
-  mut thrower_q: Query<(&Location, &mut GrenadeThrowComp), With<Enemy>>
+  mut thrower_q: Query<(&Location, &mut GrenadeThrowComp, Option<&Named>), With<Enemy>>
 ) {
   if let Ok(&crate::PlayerPos { x: px, y: py, z: pz }) = player_q.single() {
-    for (location, mut comp) in thrower_q.iter_mut() {
+    for (location, mut comp, named) in thrower_q.iter_mut() {
       comp.timer = comp.timer.saturating_add(1);
       if let Location::Coords { z: ez, .. } = *location
         && ez == pz
@@ -243,6 +255,8 @@ pub fn grenade_thrower_ai(
         && comp.timer >= comp.cooldown
       {
         comp.timer = 0;
+        let name = named.map(|n| n.name).unwrap_or("Something");
+        log_message(&mut log, format!("{name} hurls a grenade!"));
         spawn_cloud_area(&mut commands, px, py, pz, Object::explosion_cloud(), &EXPLOSION_OFFSETS);
       }
     }
@@ -253,13 +267,14 @@ pub fn grenade_thrower_ai(
 /// and despawn clouds whose lifetimes have expired.
 pub fn damage_cloud_tick(
   mut commands: Commands,
+  mut log: ResMut<LogEntries>,
   mut player_q: Query<(&crate::PlayerPos, &mut Stats), With<crate::Player>>,
-  mut cloud_q: Query<(Entity, &Location, &mut DamageCloud)>
+  mut cloud_q: Query<(Entity, &Location, &mut DamageCloud, Option<&Named>)>
 ) {
   if let Ok((&crate::PlayerPos { x: px, y: py, z: pz }, mut player_stats)) =
     player_q.single_mut()
   {
-    for (entity, location, mut cloud) in cloud_q.iter_mut() {
+    for (entity, location, mut cloud, named) in cloud_q.iter_mut() {
       cloud.tick_timer += 1;
       if cloud.tick_timer >= cloud.tick_interval {
         cloud.tick_timer = 0;
@@ -267,6 +282,8 @@ pub fn damage_cloud_tick(
           && x == px && y == py && z == pz
         {
           player_stats.hp = (player_stats.hp - cloud.damage_per_tick).max(0);
+          let source = named.map(|n| n.name).unwrap_or("Something");
+          log_message(&mut log, format!("{source} damages you for {}.", cloud.damage_per_tick));
         }
         if cloud.ticks_remaining <= 1 {
           commands.entity(entity).despawn();
