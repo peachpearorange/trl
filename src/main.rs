@@ -1885,7 +1885,9 @@ fn apply_pending_navigation(
   mut player: Query<
     (&mut PlayerPos, &mut Location, &mut Visuals, &mut Transform),
     With<Player>
-  >
+  >,
+  mut clock: ResMut<Clock>,
+  mut tb: ResMut<TurnBasedWorldState>
 ) {
   let Some(dest) = pending.0.take() else {
     return;
@@ -1945,6 +1947,7 @@ fn apply_pending_navigation(
       tile_screen_pos(local_x as f32, local_y as f32, current.0.width, current.0.height)
         + Vec3::Z;
   }
+  clock.spend_turn(&mut tb);
   let dest_name = galaxy.get(dest).map_or("destination", |loc| loc.name);
   log_message(&mut *log, format!("Astrogation: docked — {dest_name} sector."));
 }
@@ -1956,8 +1959,11 @@ fn setup(
   ship: Res<ship::Ship>,
   mut images: ResMut<Assets<Image>>,
   mut palette_cache: ResMut<PaletteImageCache>,
-  mut log: ResMut<LogEntries>
+  mut log: ResMut<LogEntries>,
+  mut clock: ResMut<Clock>,
+  mut tb: ResMut<TurnBasedWorldState>
 ) {
+  clock.spend_turn(&mut tb);
   commands.spawn((Camera2d, Msaa::Off));
 
   spawn_zone_geometry(
