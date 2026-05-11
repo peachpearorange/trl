@@ -1,8 +1,8 @@
 use {bevy::prelude::*,
      rand::seq::SliceRandom,
      std::collections::{HashMap, HashSet},
-     crate::{entities::{Collidable, Enemy, Location, Stats, TimeSinceAction, WalkAroundRandomly,
-                        Wearing},
+     crate::{entities::{Collidable, Enemy, Location, Object, SporeCloud, SporeEmitter, Stats,
+                        TimeSinceAction, WalkAroundRandomly, Wearing},
              tiles::Tile}};
 
 // ---------------------------------------------------------------------------
@@ -174,6 +174,68 @@ pub fn enemy_ai(
   }
   if clock.mode == crate::TimeMode::TurnBased {
     tb.world_tick_pending = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Spore attack systems
+// ---------------------------------------------------------------------------
+
+const SPORE_ATTACK_RANGE: i32 = 3;
+const SPORE_CLOUD_OFFSETS: [(i32, i32); 9] =
+  [(0, 0), (-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
+
+/// Mushroom enemies with [`SporeEmitter`]: when the player is within range and the
+/// cooldown has elapsed, burst a ring of [`SporeCloud`] entities around the emitter.
+pub fn mushroom_spore_attack(
+  mut commands: Commands,
+  player_q: Query<&crate::PlayerPos, With<crate::Player>>,
+  mut emitter_q: Query<(&Location, &mut SporeEmitter), With<Enemy>>
+) {
+  if let Ok(&crate::PlayerPos { x: px, y: py, z: pz }) = player_q.single() {
+    for (location, mut emitter) in emitter_q.iter_mut() {
+      emitter.timer = emitter.timer.saturating_add(1);
+      if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location
+        && ez == pz
+      {
+        let dist = (px - ex).abs().max((py - ey).abs());
+        if dist <= SPORE_ATTACK_RANGE && emitter.timer >= emitter.cooldown {
+          emitter.timer = 0;
+          for (dx, dy) in SPORE_CLOUD_OFFSETS {
+            Object::spore_cloud().spawn_at(&mut commands, ex + dx, ey + dy, ez);
+          }
+        }
+      }
+    }
+  }
+}
+
+/// Each sim step: advance spore cloud timers, deal damage when the player shares a tile,
+/// and despawn clouds whose lifetimes have expired.
+pub fn spore_cloud_tick(
+  mut commands: Commands,
+  mut player_q: Query<(&crate::PlayerPos, &mut Stats), With<crate::Player>>,
+  mut cloud_q: Query<(Entity, &Location, &mut SporeCloud)>
+) {
+  if let Ok((&crate::PlayerPos { x: px, y: py, z: pz }, mut player_stats)) =
+    player_q.single_mut()
+  {
+    for (entity, location, mut cloud) in cloud_q.iter_mut() {
+      cloud.tick_timer += 1;
+      if cloud.tick_timer >= cloud.tick_interval {
+        cloud.tick_timer = 0;
+        if let &Location::Coords { x, y, z, .. } = location
+          && x == px && y == py && z == pz
+        {
+          player_stats.hp = (player_stats.hp - cloud.damage_per_tick).max(0);
+        }
+        if cloud.ticks_remaining <= 1 {
+          commands.entity(entity).despawn();
+        } else {
+          cloud.ticks_remaining -= 1;
+        }
+      }
+    }
   }
 }
 

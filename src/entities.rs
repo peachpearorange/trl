@@ -273,6 +273,22 @@ pub struct WalkAroundRandomly {
 #[derive(Component, Clone, Copy)]
 pub struct FlightConsole;
 
+/// Lingering area-of-effect cloud that damages the player on each tick while they share a tile.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct SporeCloud {
+  pub damage_per_tick: i32,
+  pub ticks_remaining: u32,
+  pub tick_interval: u32,
+  pub tick_timer: u32
+}
+
+/// Gives a mushroom enemy a high-cooldown spore-emit attack.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct SporeEmitter {
+  pub cooldown: u32,
+  pub timer: u32
+}
+
 /// Smooth visual interpolation state for moving entities.
 /// Stores the previous position (at move start) and computes a weighted average
 /// toward the current logical Location each frame, producing fluid tile-to-tile sliding.
@@ -615,7 +631,7 @@ impl Object {
     Self::enemy().add((
       Named {
         name: "Mycelid",
-        flavor: "A ambulatory fungal mass. Moves with unsettling purpose."
+        flavor: "An ambulatory fungal mass. Moves with unsettling purpose. Its gills swell with spores."
       },
       Stats { hp: 6, max_hp: 6, attack: 2, move_speed: 2.0, attack_speed: 0.6 },
       Wielding(None),
@@ -625,7 +641,28 @@ impl Object {
         'm',
         Color::srgb(0.42, 0.28, 0.18),
         Color::srgb(0.82, 0.72, 0.55)
-      )
+      ),
+      SporeEmitter { cooldown: 40, timer: 0 }
+    ))
+  }
+
+  /// A lingering toxic spore cloud; damages the player each tick while they share a tile.
+  pub fn spore_cloud() -> Self {
+    Self::new((
+      Collidable(false),
+      SporeCloud {
+        damage_per_tick: 1,
+        ticks_remaining: 4,
+        tick_interval: 5,
+        tick_timer: 0
+      },
+      Glyph::palette_sprite(
+        "textures/space_qud/checkerboard pattern.png",
+        '*',
+        Color::srgb(0.30, 0.72, 0.22),
+        Color::srgb(0.18, 0.48, 0.12)
+      ),
+      Named { name: "Spore Cloud", flavor: "A drifting cloud of toxic fungal spores." }
     ))
   }
 
