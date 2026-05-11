@@ -17,7 +17,7 @@ use {crate::{Clock, GAME_VIEWPORT_WIDTH_FRAC, STATUS_BAR_HEIGHT, game_pane_rect,
              utils::mapv, world_to_level_cell},
      bevy::{prelude::*,
             text::FontWeight,
-            ui::{AlignItems, Display, FlexDirection, FlexWrap, JustifyContent, UiSystems}},
+            ui::{AlignItems, Display, FlexDirection, FlexWrap, JustifyContent}},
      haalka::{jonmo::SignalProcessing, prelude::*},
      jonmo::{prelude::*, signal},
      crate::entities::{Named, Stats}};
@@ -80,9 +80,6 @@ pub struct LogEntries(pub Vec<LogLine>);
 #[derive(Resource, Clone, Default, PartialEq)]
 pub struct LogDisplayData(pub Vec<LogLine>);
 
-/// Marker for the scrollable log container; used to auto-scroll to bottom on updates.
-#[derive(Component)]
-struct LogScrollNode;
 
 /// Push a plain-text line; oldest entries are dropped to keep at most 100.
 pub fn log_message(log: &mut LogEntries, line: String) {
@@ -171,8 +168,7 @@ impl Plugin for UiPlugin {
       .init_resource::<LogDisplayData>()
       .init_resource::<InvDisplayData>()
       .init_resource::<OverlayData>()
-      .add_systems(PostUpdate, sync_ui.before(SignalProcessing))
-      .add_systems(PostUpdate, scroll_log_to_bottom.after(UiSystems::Layout));
+      .add_systems(PostUpdate, sync_ui.before(SignalProcessing));
   }
 }
 
@@ -495,21 +491,21 @@ fn message_log() -> impl Element {
     .border_color(BorderColor::all(Color::NONE))
     .item(panel_label("Log"))
     .item(
-      // Scrollable area anchored to the bottom: new messages appear at the bottom,
-      // older ones scroll upward.
       El::<Node>::new()
         .with_node(|mut n| {
           n.width = Val::Percent(100.0);
           n.flex_grow = 1.0;
-          n.overflow = Overflow::scroll_y();
-          n.justify_content = JustifyContent::FlexEnd;
+          n.overflow = Overflow::clip_y();
         })
-        .insert(LogScrollNode)
         .child_signal(signal::from_resource_changed::<LogDisplayData>().map_in(|d| {
           Column::<Node>::new()
             .with_node(|mut n| {
               n.width = Val::Percent(100.0);
               n.row_gap = Val::Px(1.0);
+              n.position_type = PositionType::Absolute;
+              n.bottom = Val::Px(0.0);
+              n.left = Val::Px(0.0);
+              n.right = Val::Px(0.0);
             })
             .items(d.0.into_iter().map(|line| {
               Row::<Node>::new()
@@ -779,19 +775,6 @@ fn sync_ui(
     };
     if log_display.0 != new_lines {
       log_display.0 = new_lines;
-    }
-  }
-}
-
-/// After Haalka rebuilds the log's child column, scroll the log container to the bottom
-/// so that the newest messages are always visible.
-fn scroll_log_to_bottom(
-  mut scroll_nodes: Query<(&ComputedNode, &mut ScrollPosition), With<LogScrollNode>>,
-) {
-  for (computed, mut scroll) in &mut scroll_nodes {
-    let max_y = (computed.content_size().y - computed.size().y) * computed.inverse_scale_factor();
-    if max_y > 0. {
-      scroll.0.y = max_y;
     }
   }
 }
