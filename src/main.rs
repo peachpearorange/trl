@@ -1735,8 +1735,7 @@ fn is_equipped(action: &InteractionAction, equipped: &PlayerEquipped) -> bool {
 }
 
 /// Separate system for Space key interactions to avoid Bevy's system param limit.
-/// Flat toggle list: equipped items (click to unequip), unequipped items (click to equip).
-/// Grenades only show as equippable if a free slot exists.
+/// Items are always listed in alphabetical order; only the action (equip/unequip) changes.
 fn loadout_options(inventory: &Inventory, equipped: &PlayerEquipped) -> Vec<InteractionOption> {
   let sorted = |pred: fn(Item) -> bool| -> Vec<Item> {
     let mut v: Vec<_> = inventory.0.keys().copied().filter(|&i| pred(i)).collect();
@@ -1745,34 +1744,36 @@ fn loadout_options(inventory: &Inventory, equipped: &PlayerEquipped) -> Vec<Inte
   };
   let free_grenade_slot = equipped.grenades.iter().position(|g| g.is_none());
 
-  // Weapons: equipped first (unequip), then unequipped from inventory (equip).
-  equipped.weapon.into_iter()
-    .map(|w| InteractionOption { label: w.name().to_string(), action: InteractionAction::UnequipWeapon })
-    .chain(sorted(Item::is_weapon).into_iter()
-      .filter(|&w| equipped.weapon != Some(w))
-      .map(|item| InteractionOption { label: item.name().to_string(), action: InteractionAction::EquipWeapon(item) })
-    )
-  // Armor: same pattern.
-  .chain(equipped.armor.into_iter()
-    .map(|a| InteractionOption { label: a.name().to_string(), action: InteractionAction::UnequipArmor })
-  )
+  sorted(Item::is_weapon).into_iter()
+    .map(|item| {
+      let action = if equipped.weapon == Some(item) {
+        InteractionAction::UnequipWeapon
+      } else {
+        InteractionAction::EquipWeapon(item)
+      };
+      InteractionOption { label: item.name().to_string(), action }
+    })
   .chain(sorted(Item::is_armor).into_iter()
-    .filter(|&a| equipped.armor != Some(a))
-    .map(|item| InteractionOption { label: item.name().to_string(), action: InteractionAction::EquipArmor(item) })
-  )
-  // Grenades: each equipped slot (unequip), then unequipped types (equip into first free slot).
-  .chain(equipped.grenades.iter().enumerate()
-    .filter_map(|(slot, g)| g.map(|item| InteractionOption {
-      label: item.name().to_string(),
-      action: InteractionAction::UnequipGrenade { slot }
-    }))
+    .map(|item| {
+      let action = if equipped.armor == Some(item) {
+        InteractionAction::UnequipArmor
+      } else {
+        InteractionAction::EquipArmor(item)
+      };
+      InteractionOption { label: item.name().to_string(), action }
+    })
   )
   .chain(sorted(Item::is_grenade).into_iter()
-    .filter(|item| !equipped.grenades.contains(&Some(*item)))
-    .filter_map(|item| free_grenade_slot.map(|slot| InteractionOption {
-      label: item.name().to_string(),
-      action: InteractionAction::EquipGrenade { slot, item }
-    }))
+    .filter_map(|item| {
+      if let Some(slot) = equipped.grenades.iter().position(|g| *g == Some(item)) {
+        Some(InteractionOption { label: item.name().to_string(), action: InteractionAction::UnequipGrenade { slot } })
+      } else {
+        free_grenade_slot.map(|slot| InteractionOption {
+          label: item.name().to_string(),
+          action: InteractionAction::EquipGrenade { slot, item }
+        })
+      }
+    })
   )
   .collect()
 }
