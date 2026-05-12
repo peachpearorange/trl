@@ -165,6 +165,52 @@ impl Item {
   }
 
   pub fn can_salvage(self) -> bool { !self.scrap_yield().is_empty() }
+
+  /// Which loadout slot this item occupies, if any.
+  /// None = not directly equippable (crafting material, consumable, junk).
+  pub fn equip_slot(self) -> Option<EquipSlot> {
+    match self {
+      Item::IronSword | Item::SteelAxe | Item::CopperKnife
+      | Item::CombatSpear | Item::PipeRevolver => Some(EquipSlot::Weapon),
+      Item::LeatherVest | Item::ChainMail | Item::SteelBoots
+      | Item::SynthHelmet => Some(EquipSlot::Armor),
+      _ => None
+    }
+  }
+
+  pub fn is_weapon(self) -> bool { self.equip_slot() == Some(EquipSlot::Weapon) }
+  pub fn is_armor(self) -> bool { self.equip_slot() == Some(EquipSlot::Armor) }
+
+  /// Bonus attack power when this item is wielded.
+  pub fn attack_bonus(self) -> i32 {
+    match self {
+      Item::IronSword => 3,
+      Item::SteelAxe => 4,
+      Item::CopperKnife => 2,
+      Item::CombatSpear => 3,
+      Item::PipeRevolver => 5,
+      _ => 0
+    }
+  }
+
+  /// Damage reduction when this item is worn.
+  pub fn defense_bonus(self) -> i32 {
+    match self {
+      Item::LeatherVest => 1,
+      Item::ChainMail => 2,
+      Item::SteelBoots => 1,
+      Item::SynthHelmet => 1,
+      _ => 0
+    }
+  }
+}
+
+/// The loadout slot an equippable item occupies.
+/// Extend this as new gear categories are added (Grenade, Utility, etc.).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum EquipSlot {
+  Weapon,
+  Armor
 }
 
 

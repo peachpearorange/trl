@@ -195,7 +195,7 @@ impl Prefab {
           ##..====.#,#,,,k,,,#,#.......WW
          ##.U.====.###,,,TT,,###........W
          ##..........#,,,TT,,#......H.C.W
-         ##.G.====.###,,,TT,,###........W
+         ##.G.====.###,,,TT,,###...Q....W
           ##..====.#,m,,,,,,,X,#.......WW
            ##.d==..#,,,,,,,,,,,#......##
             ##.....######.######.....##
@@ -213,6 +213,7 @@ impl Prefab {
     .assoc('l', (Tile::DeckPlate, [Object::airlock_door()]))
     .assoc('=', (Tile::Conduit, []))
     .assoc('C', (Tile::DeckPlate, [Object::flight_console()]))
+    .assoc('Q', (Tile::DeckPlate, [Object::loadout_console()]))
     .assoc('k', (Tile::WoodTile, [Object::space_cat()]))
     .assoc('B', (Tile::WoodTile, [Object::bed()]))
     .assoc('T', (Tile::WoodTile, [Object::table()]))

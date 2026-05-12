@@ -16,6 +16,10 @@ pub const AIRLOCK_Y: i32 = 15;
 pub const CONSOLE_X: i32 = 29;
 pub const CONSOLE_Y: i32 = 7;
 
+/// The position of the loadout console within the ship.
+pub const LOADOUT_X: i32 = 25;
+pub const LOADOUT_Y: i32 = 8;
+
 /// Ship state resource.
 #[derive(Clone, Debug, Resource)]
 pub struct Ship {

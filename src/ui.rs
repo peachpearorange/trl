@@ -20,7 +20,7 @@ use {crate::{Clock, GAME_VIEWPORT_WIDTH_FRAC, STATUS_BAR_HEIGHT, game_pane_rect,
             ui::{AlignItems, Display, FlexDirection, FlexWrap, JustifyContent}},
      haalka::{jonmo::SignalProcessing, prelude::*},
      jonmo::{prelude::*, signal},
-     crate::entities::{Named, Stats}};
+     crate::entities::{Named, PlayerEquipped, Stats}};
 
 // ---------------------------------------------------------------------------
 // Data shapes — written by sync_ui, read by Haalka signals
@@ -44,7 +44,9 @@ pub struct PlayerData {
   pub speed: f32,
   pub x: i32,
   pub y: i32,
-  pub z: usize
+  pub z: usize,
+  pub equipped_weapon: Option<String>,
+  pub equipped_armor: Option<String>
 }
 
 #[derive(Resource, Clone, Default)]
@@ -263,6 +265,16 @@ fn stats_panel() -> impl Element {
     .item(stat_row(
       "SPD",
       signal::from_resource::<PlayerData>().map_in(|d| format!("{:.1}", d.speed))
+    ))
+    .item(stat_row(
+      "WPN",
+      signal::from_resource::<PlayerData>()
+        .map_in(|d| d.equipped_weapon.clone().unwrap_or_else(|| "—".into()))
+    ))
+    .item(stat_row(
+      "ARM",
+      signal::from_resource::<PlayerData>()
+        .map_in(|d| d.equipped_armor.clone().unwrap_or_else(|| "—".into()))
     ))
     .item(z_level_label())
     .item(time_mode_label())
@@ -692,7 +704,7 @@ pub struct OverlayData {
 
 fn sync_ui(
   clock: Res<Clock>,
-  player_q: Query<(&crate::PlayerPos, &Stats, &crate::Inventory), With<crate::Player>>,
+  player_q: Query<(&crate::PlayerPos, &Stats, &crate::Inventory, &PlayerEquipped), With<crate::Player>>,
   ui: Res<crate::UiState>,
   current: Res<crate::CurrentZone>,
   fov: Res<crate::Fov>,
@@ -718,15 +730,17 @@ fn sync_ui(
   };
 
   // ── Player stats ──
-  if let Ok((pos, stats, inv)) = player_q.single() {
+  if let Ok((pos, stats, inv, equipped)) = player_q.single() {
     *player_data = PlayerData {
       hp: stats.hp,
       max_hp: stats.max_hp,
-      attack: stats.attack,
+      attack: stats.attack + equipped.weapon.map(|w| w.attack_bonus()).unwrap_or(0),
       speed: stats.move_speed,
       x: pos.x,
       y: pos.y,
-      z: pos.z
+      z: pos.z,
+      equipped_weapon: equipped.weapon.map(|w| w.name().to_string()),
+      equipped_armor: equipped.armor.map(|a| a.name().to_string())
     };
 
     inv_display.formatted = if inv.0.is_empty() {
@@ -783,7 +797,7 @@ fn compute_hover_info(
   windows: &Query<&Window>,
   camera_q: &Query<(&Camera, &GlobalTransform), With<Camera2d>>,
   current: &crate::CurrentZone,
-  player_q: Query<(&crate::PlayerPos, &Stats, &crate::Inventory), With<crate::Player>>,
+  player_q: Query<(&crate::PlayerPos, &Stats, &crate::Inventory, &PlayerEquipped), With<crate::Player>>,
   fov: &crate::Fov,
   index: &crate::combat::TileEntityIndex,
   named_q: &Query<(&Named, Option<&Stats>)>
@@ -798,7 +812,7 @@ fn compute_hover_info(
 
   if let Ok(window) = windows.single()
     && let Ok((camera, cam_tf)) = camera_q.single()
-    && let Ok((pos, _, _)) = player_q.single()
+    && let Ok((pos, _, _, _)) = player_q.single()
   {
     let level = current.0.level(pos.z);
     let pick = |w: &Window,

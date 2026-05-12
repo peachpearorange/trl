@@ -273,6 +273,17 @@ pub struct WalkAroundRandomly {
 #[derive(Component, Clone, Copy)]
 pub struct FlightConsole;
 
+/// Marker for the loadout console in the player ship.
+#[derive(Component, Clone, Copy)]
+pub struct LoadoutConsole;
+
+/// Equipment the player has chosen to use (drawn from their inventory).
+#[derive(Component, Clone, Default, Debug)]
+pub struct PlayerEquipped {
+  pub weapon: Option<crate::level::Item>,
+  pub armor: Option<crate::level::Item>
+}
+
 /// Lingering area-of-effect cloud that damages the player each tick while they share a tile.
 /// Used by both spore clouds and explosion clouds.
 #[derive(Component, Clone, Copy, Debug)]
@@ -445,6 +456,22 @@ impl Object {
       FlightConsole
     ))
   }
+  pub fn loadout_console() -> Self {
+    Self::structure(true).add((
+      Glyph::palette_sprite(
+        "textures/space_qud/locker (1).png",
+        'Q',
+        Color::srgb(0.25, 0.38, 0.52),
+        Color::srgb(0.55, 0.75, 0.88)
+      ),
+      Named {
+        name: "Loadout Console",
+        flavor: "Manage your equipped weapon and armor from your collected gear."
+      },
+      LoadoutConsole
+    ))
+  }
+
   pub fn space_cat() -> Self {
     Self::structure(false).add((
       Glyph::palette_sprite(

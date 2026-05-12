@@ -2,7 +2,8 @@ use {bevy::prelude::*,
      rand::seq::SliceRandom,
      std::collections::{HashMap, HashSet},
      crate::{entities::{Collidable, DamageCloud, Enemy, GrenadeThrowComp, Location, Named,
-                        Object, SporeEmitter, Stats, TimeSinceAction, WalkAroundRandomly, Wearing},
+                        Object, PlayerEquipped, SporeEmitter, Stats, TimeSinceAction,
+                        WalkAroundRandomly, Wearing},
              tiles::Tile,
              ui::{LogEntries, log_message}}};
 
@@ -119,7 +120,7 @@ pub fn enemy_ai(
   mut tb: ResMut<crate::TurnBasedWorldState>,
   mut log: ResMut<LogEntries>,
   mut player_q: Query<
-    (&crate::PlayerPos, &mut Stats),
+    (&crate::PlayerPos, &mut Stats, &PlayerEquipped),
     (With<crate::Player>, Without<Enemy>)
   >,
   mut enemy_q: Query<
@@ -128,7 +129,7 @@ pub fn enemy_ai(
   >,
   collidable_q: Query<&Collidable>
 ) {
-  if let Ok((player_pos, mut player_stats)) = player_q.single_mut() {
+  if let Ok((player_pos, mut player_stats, player_equipped)) = player_q.single_mut() {
     let (px, py) = (player_pos.x, player_pos.y);
     let level = current.0.level(player_pos.z);
 
@@ -143,7 +144,8 @@ pub fn enemy_ai(
         let mov_fr = move_interval(enemy_stats.move_speed);
 
         if dist == 1 && timer.0 >= atk_fr {
-          let dmg = resolve_damage(enemy_stats.attack, enemy_wearing);
+          let player_dr = player_equipped.armor.map(|a| a.defense_bonus()).unwrap_or(0);
+          let dmg = (resolve_damage(enemy_stats.attack, enemy_wearing) - player_dr).max(0);
           player_stats.hp = (player_stats.hp - dmg).max(0);
           let name = enemy_named.map(|n| n.name).unwrap_or("Something");
           if dmg > 0 {
