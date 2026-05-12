@@ -13,6 +13,7 @@ pub mod prefabs;
 pub mod ship;
 pub mod sprites;
 pub mod tiles;
+mod abilities;
 mod combat;
 mod crafting;
 mod locations;
@@ -46,7 +47,7 @@ const DOOR_CLOSED_SEC: Color = Color::srgb(0.52, 0.55, 0.58);
 const DOOR_OPEN_PRI: Color = Color::srgb(0.48, 0.55, 0.58);
 const DOOR_OPEN_SEC: Color = Color::srgb(0.72, 0.78, 0.82);
 /// Primary color used for the player sprite and "You:" log labels.
-pub const PLAYER_PRIMARY: Color = Color::srgb(0.18, 0.42, 0.92);
+pub const PLAYER_PRIMARY: Color = Color::srgb(0.72, 0.72, 0.72);
 /// Simulated 60Hz display: one grid step / one input gate spans this many render updates.
 pub const RENDER_FRAMES_PER_SIM_STEP: u32 = 6;
 /// How many sim steps run per real-time second (= assumed display Hz / render frames per step).
@@ -98,6 +99,8 @@ enum InteractionAction {
   EquipArmor(Item),
   UnequipWeapon,
   UnequipArmor,
+  EquipGrenade { slot: usize, item: Item },
+  UnequipGrenade { slot: usize },
   ShowLoadoutStatus
 }
 
@@ -147,9 +150,9 @@ struct UiState {
   pause: PauseMenu,
   interact: InteractMenu,
   dialogue: DialogueState,
-  /// Set by `handle_dialogue` when ESC closes dialogue; read+cleared by `handle_menus`
-  /// so the same ESC keypress doesn't also open the pause menu.
-  escape_consumed: bool
+  /// Set by `handle_dialogue`/`handle_menus` when Space closes a menu; read+cleared by
+  /// `handle_interact` so the same keypress doesn't also open an interaction.
+  space_consumed: bool
 }
 
 impl UiState {
@@ -563,6 +566,8 @@ fn main() {
     .insert_resource(UiState::default())
     .insert_resource(Fov(fov))
     .insert_resource(TileEntityIndex::default())
+    .init_resource::<abilities::AbilityBarData>()
+    .init_resource::<abilities::TargetingState>()
     .add_plugins(ui::UiPlugin)
     .add_systems(Startup, (setup, ui::spawn_haalka_root).chain())
     .configure_sets(Update, SimStep.run_if(should_run_sim_step)
@@ -598,6 +603,9 @@ fn main() {
     .add_systems(Update, flush_pending_chest_open.in_set(FramePipeline::FlushChest))
     .add_systems(Update, handle_interact.in_set(FramePipeline::InteractKey))
     .add_systems(Update, handle_utility_menus.in_set(FramePipeline::UtilityMenus))
+    .add_systems(Update, abilities::handle_ability_keys.in_set(FramePipeline::UtilityMenus))
+    .add_systems(Update, abilities::handle_ability_click.in_set(FramePipeline::UtilityMenus))
+    .add_systems(Update, abilities::sync_ability_bar.after(FramePipeline::PlayerMove))
     .add_systems(Update, (accumulate_dir, player_input).chain().in_set(FramePipeline::PlayerMove))
     .add_systems(Update, auto_close_airlocks.after(FramePipeline::PlayerMove))
     .add_systems(
@@ -616,7 +624,8 @@ fn main() {
         grenade_thrower_ai.in_set(SimStep),
         damage_cloud_tick.in_set(SimStep),
         npc_wander.in_set(SimStep),
-        update_fov.in_set(SimStep)
+        update_fov.in_set(SimStep),
+        abilities::tick_cooldowns.in_set(SimStep)
       )
         .chain()
     )
@@ -1132,8 +1141,9 @@ fn handle_menus(
   mut exit: MessageWriter<AppExit>
 ) {
   if let InteractMenu::Open { options } = &ui.interact {
-    if keys.just_pressed(KeyCode::Escape) {
+    if keys.just_pressed(KeyCode::Space) {
       ui.interact = InteractMenu::Closed;
+      ui.space_consumed = true;
     } else if let Some(idx) = [
       KeyCode::Digit1,
       KeyCode::Digit2,
@@ -1169,10 +1179,9 @@ fn handle_menus(
       );
     }
   } else {
-    let escape_consumed = std::mem::take(&mut ui.escape_consumed);
     match ui.pause {
       PauseMenu::Closed => {
-        let open = (!escape_consumed && keys.just_pressed(KeyCode::Escape))
+        let open = keys.just_pressed(KeyCode::Tab)
           || (keys.just_pressed(KeyCode::Slash)
             && (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight)));
 
@@ -1185,7 +1194,7 @@ fn handle_menus(
         }
       }
       PauseMenu::Main => {
-        if keys.just_pressed(KeyCode::Escape) || keys.just_pressed(KeyCode::Digit1) {
+        if keys.just_pressed(KeyCode::Space) || keys.just_pressed(KeyCode::Digit1) {
           ui.pause = PauseMenu::Closed;
         } else if keys.just_pressed(KeyCode::Digit2) {
           ui.pause = PauseMenu::Controls;
@@ -1194,7 +1203,7 @@ fn handle_menus(
         }
       }
       PauseMenu::Controls => {
-        if keys.just_pressed(KeyCode::Escape) {
+        if keys.just_pressed(KeyCode::Space) {
           ui.pause = PauseMenu::Main;
         }
       }
@@ -1228,9 +1237,9 @@ fn handle_dialogue(
   if let DialogueState::Open { speaker, tree, node_name, speaker_color } = &ui.dialogue {
     let (speaker, tree, node_name, speaker_color) = (*speaker, *tree, *node_name, *speaker_color);
     let node = tree.find(node_name);
-    if keys.just_pressed(KeyCode::Escape) {
+    if keys.just_pressed(KeyCode::Space) {
       ui.dialogue = DialogueState::Closed;
-      ui.escape_consumed = true;
+      ui.space_consumed = true;
     } else if let Some(idx) = [
       KeyCode::Digit1,
       KeyCode::Digit2,
@@ -1492,6 +1501,17 @@ fn execute_interaction(
         }
         clock.spend_turn(tb);
       }
+      InteractionAction::EquipGrenade { slot, item } => {
+        equipped.grenades[*slot] = Some(*item);
+        log_message(log, format!("Equipped {} in grenade slot {}.", item.name(), slot + 1));
+        clock.spend_turn(tb);
+      }
+      InteractionAction::UnequipGrenade { slot } => {
+        if let Some(g) = equipped.grenades[*slot].take() {
+          log_message(log, format!("Unequipped {} from grenade slot {}.", g.name(), slot + 1));
+        }
+        clock.spend_turn(tb);
+      }
       InteractionAction::ShowLoadoutStatus => {
         let wpn = equipped.weapon.map(|w| w.name()).unwrap_or("none");
         let arm = equipped.armor.map(|a| a.name()).unwrap_or("none");
@@ -1635,6 +1655,21 @@ fn loadout_options(inventory: &Inventory, equipped: &PlayerEquipped) -> Vec<Inte
   .chain(sorted(Item::is_armor).into_iter().map(|item| InteractionOption {
     label: format!("  equip armor: {}", item.name()),
     action: InteractionAction::EquipArmor(item)
+  }))
+  .chain((0..3usize).flat_map(|slot| {
+    let slot_name = equipped.grenades[slot].map(|g| g.name()).unwrap_or("(empty)");
+    std::iter::once(InteractionOption {
+      label: format!("GRN {}: {slot_name}", slot + 1),
+      action: InteractionAction::ShowLoadoutStatus
+    })
+    .chain(equipped.grenades[slot].map(|g| InteractionOption {
+      label: format!("  unequip grenade {} ({})", slot + 1, g.name()),
+      action: InteractionAction::UnequipGrenade { slot }
+    }))
+    .chain(sorted(Item::is_grenade).into_iter().map(move |item| InteractionOption {
+      label: format!("  equip grenade {}: {}", slot + 1, item.name()),
+      action: InteractionAction::EquipGrenade { slot, item }
+    }))
   }))
   .collect()
 }
@@ -1878,7 +1913,8 @@ fn handle_interact(
   flight_console_q: Query<Entity, With<FlightConsole>>,
   loadout_console_q: Query<Entity, With<LoadoutConsole>>
 ) {
-  if ui.any_open() || !keys.just_pressed(KeyCode::Space) {
+  let space_consumed = std::mem::take(&mut ui.space_consumed);
+  if ui.any_open() || space_consumed || !keys.just_pressed(KeyCode::Space) {
     return;
   }
 
@@ -2100,9 +2136,9 @@ fn setup(
   commands.spawn((
     Sprite {
       image: palette_sprite_handle(
-        "textures/space_qud/mongus.png",
-        Color::srgb(0.18, 0.42, 0.92),
-        Color::srgb(0.98, 0.88, 0.22),
+        "textures/space_qud/tough guy 1.png",
+        Color::srgb(0.72, 0.72, 0.72),
+        Color::srgb(0.35, 0.55, 0.72),
         &mut palette_cache,
         &mut images
       ),

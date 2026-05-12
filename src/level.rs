@@ -184,12 +184,15 @@ impl Item {
       | Item::CombatSpear | Item::PipeRevolver => Some(EquipSlot::Weapon),
       Item::LeatherVest | Item::ChainMail | Item::SteelBoots
       | Item::SynthHelmet => Some(EquipSlot::Armor),
+      Item::FragGrenade | Item::StunGrenade => Some(EquipSlot::Grenade),
       _ => None
     }
   }
 
   pub fn is_weapon(self) -> bool { self.equip_slot() == Some(EquipSlot::Weapon) }
   pub fn is_armor(self) -> bool { self.equip_slot() == Some(EquipSlot::Armor) }
+  pub fn is_grenade(self) -> bool { self.equip_slot() == Some(EquipSlot::Grenade) }
+  pub fn is_ranged(self) -> bool { matches!(self, Item::PipeRevolver) }
 
   /// Bonus attack power when this item is wielded.
   pub fn attack_bonus(self) -> i32 {
@@ -220,7 +223,8 @@ impl Item {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum EquipSlot {
   Weapon,
-  Armor
+  Armor,
+  Grenade
 }
 
 

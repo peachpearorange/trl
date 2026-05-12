@@ -14,6 +14,7 @@
 //! - **Layer 2 — [`overlay_signal`]**: fullscreen dim when pause / interact / dialogue is open.
 
 use {crate::{Clock, GAME_VIEWPORT_WIDTH_FRAC, STATUS_BAR_HEIGHT, game_pane_rect,
+             abilities::AbilityBarData,
              utils::mapv, world_to_level_cell},
      bevy::{prelude::*,
             text::FontWeight,
@@ -212,16 +213,82 @@ fn main_layout() -> impl Element {
           n.align_items = AlignItems::Stretch;
         })
         // Game viewport (transparent — Camera2d renders behind); flex so it fills space left of sidebar.
-        .item(El::<Node>::new().with_node(|mut n| {
-          n.flex_grow = 1.0;
-          n.flex_shrink = 1.0;
-          n.min_width = Val::Px(0.0);
-        }))
+        .item(
+          Column::<Node>::new()
+            .with_node(|mut n| {
+              n.flex_grow = 1.0;
+              n.flex_shrink = 1.0;
+              n.min_width = Val::Px(0.0);
+              n.justify_content = JustifyContent::FlexEnd;
+            })
+            .item(ability_bar())
+        )
         // Sidebar column — fixed fraction of window width, flush right
         .item(sidebar_column())
     )
     // ── bottom: status bar ──
     .item(status_bar())
+}
+
+fn ability_bar() -> impl Element {
+  El::<Node>::new()
+    .with_node(|mut n| {
+      n.width = Val::Percent(100.0);
+      n.height = Val::Px(44.0);
+      n.flex_direction = FlexDirection::Row;
+      n.align_items = AlignItems::Center;
+      n.padding = UiRect::axes(Val::Px(8.), Val::Px(4.));
+      n.column_gap = Val::Px(6.);
+      n.border = UiRect::top(Val::Px(1.0));
+    })
+    .background_color(BackgroundColor(PANEL_BG))
+    .border_color(BorderColor::all(BORDER))
+    .child_signal(
+      signal::from_resource::<AbilityBarData>().map_in::<Option<Row<Node>>, Option<Row<Node>>, _>(|data| {
+        let selected = data.selected;
+        let slot_widgets: Vec<El<Node>> = data.slots.into_iter().enumerate().map(|(i, slot)| {
+          let is_sel = selected == Some(i);
+          let label = if slot.cooldown > 0 {
+            format!("[{}] {} ({})", i + 1, slot.name, slot.cooldown)
+          } else {
+            format!("[{}] {}", i + 1, slot.name)
+          };
+          let dim = slot.cooldown > 0;
+          El::<Node>::new()
+            .with_node(|mut n| {
+              n.padding = UiRect::axes(Val::Px(10.), Val::Px(6.));
+              n.border = UiRect::all(Val::Px(1.0));
+              n.border_radius = BorderRadius::all(Val::Px(4.0));
+            })
+            .background_color(BackgroundColor(if is_sel {
+              Color::srgb(0.22, 0.35, 0.55)
+            } else {
+              Color::srgb(0.10, 0.12, 0.20)
+            }))
+            .border_color(BorderColor::all(if is_sel {
+              Color::srgb(0.45, 0.65, 0.95)
+            } else {
+              BORDER
+            }))
+            .child(static_text(
+              label,
+              FONT_SIZE_SMALL,
+              if dim { DIM_TEXT } else { LIGHT_TEXT },
+              W_UI
+            ))
+        }).collect();
+        Some(
+          Row::<Node>::new()
+            .with_node(|mut n| {
+              n.width = Val::Percent(100.0);
+              n.height = Val::Percent(100.0);
+              n.align_items = AlignItems::Center;
+              n.column_gap = Val::Px(6.);
+            })
+            .items(slot_widgets)
+        )
+      })
+    )
 }
 
 fn sidebar_column() -> impl Element {
@@ -602,7 +669,7 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
         let mut lines: Vec<String> =
           options.iter().enumerate().map(|(i, t)| format!("{}) {}", i + 1, t)).collect();
         lines.push(String::new());
-        lines.push("Esc to cancel".into());
+        lines.push("Space to cancel".into());
         El::<Node>::new()
           .with_node(|mut n| {
             n.width = Val::Percent(100.);
@@ -646,21 +713,21 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
             "2) Controls".into(),
             "3) Quit Game".into(),
             String::new(),
-            "Esc to resume".into(),
+            "Space to resume".into(),
           ],
           OverlayKind::PauseControls => vec![
             "WASD / Arrows   move".into(),
             "Space           use / interact".into(),
             ".               wait".into(),
             "?               controls".into(),
-            "Esc             menu / back".into(),
+            "Tab             pause menu".into(),
           ],
           OverlayKind::Interact(opts) => opts
             .iter()
             .enumerate()
             .map(|(i, o)| format!("{}) {}", i + 1, o))
             .chain(core::iter::once(String::new()))
-            .chain(core::iter::once("Esc to cancel".into()))
+            .chain(core::iter::once("Space to cancel".into()))
             .collect()
         };
 

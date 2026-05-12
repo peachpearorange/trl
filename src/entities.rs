@@ -285,7 +285,8 @@ pub struct LoadoutConsole;
 #[derive(Component, Clone, Default, Debug)]
 pub struct PlayerEquipped {
   pub weapon: Option<crate::level::Item>,
-  pub armor: Option<crate::level::Item>
+  pub armor: Option<crate::level::Item>,
+  pub grenades: [Option<crate::level::Item>; 3]
 }
 
 /// Lingering area-of-effect cloud that damages the player each tick while they share a tile.
@@ -610,7 +611,7 @@ impl Object {
   pub fn locker() -> Self {
     Self::structure(true).add((
       Glyph::palette_sprite(
-        "textures/space_qud/locker.png",
+        "textures/space_qud/locker (1).png",
         'l',
         Color::srgb(0.32, 0.38, 0.42),
         Color::srgb(0.62, 0.68, 0.72)
