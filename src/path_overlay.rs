@@ -10,10 +10,12 @@ use crate::{
   game_pane_rect, tile_screen_pos, world_to_level_cell,
 };
 
-const LINE_NS:     &str = "textures/space_qud/lines N S.png";
-const LINE_NE:     &str = "textures/space_qud/lines N NE.png";
-const LINE_SE:     &str = "textures/space_qud/lines N SE.png";
-const LINE_CORNER: &str = "textures/space_qud/lines N E.png";
+const LINE_NS:      &str = "textures/space_qud/lines N S.png";
+const LINE_N_NE:    &str = "textures/space_qud/lines N NE.png";
+const LINE_N_SE:    &str = "textures/space_qud/lines N SE.png";
+const LINE_CORNER:  &str = "textures/space_qud/lines N E.png";
+const LINE_DIAG_NW: &str = "textures/space_qud/lines NW SE.png";
+const LINE_DIAG_NE: &str = "textures/space_qud/lines NE SW.png";
 
 /// Yellow — used as both primary AND secondary so all non-transparent pixels bake yellow.
 const PATH_COLOR: Color = Color::srgb(1.0, 0.88, 0.0);
@@ -77,32 +79,96 @@ pub fn ray_cast_target(
 // ---------------------------------------------------------------------------
 // Sprite selection
 // ---------------------------------------------------------------------------
+//
+// Grid directions (y increases downward):
+//   N=(0,-1)  NE=(1,-1)  E=(1,0)  SE=(1,1)
+//   S=(0,1)   SW=(-1,1)  W=(-1,0) NW=(-1,-1)
+//
+// Each path tile has two "arms" pointing toward its neighbors:
+//   back_arm  = prev - current  (toward previous tile)
+//   fwd_arm   = next - current  (toward next tile)
+//
+// Sprite images (20×20 black-on-transparent, palette-baked to yellow):
+//   LINE_NS      |   arms N + S
+//   LINE_CORNER  └   arms N + E
+//   LINE_N_NE    ╲   arms N + NE  (45° bend, cardinal → adjacent diagonal)
+//   LINE_N_SE    ⟋   arms N + SE  (135° bend, cardinal → far diagonal)
+//   LINE_DIAG_NW ╲   pure NW–SE diagonal
+//   LINE_DIAG_NE ╱   pure NE–SW diagonal
+//
+// Bevy rotation: Quat::from_rotation_z(θ) rotates CCW.
+//   90° CCW maps: E→N, N→W, W→S, S→E, NE→NW, NW→SW, SW→SE, SE→NE
+// Sprite flip_x mirrors the texture horizontally before the transform rotation.
 
-/// Returns (sprite_path, z_rotation_radians) for a mid-path segment arriving
-/// via `from_dir` (grid-space step dx,dy where y increases downward).
-fn segment_sprite(from_dir: (i32, i32)) -> (&'static str, f32) {
-  match from_dir {
-    (0, _) => (LINE_NS, 0.0),               // N or S — vertical
-    (_, 0) => (LINE_NS, FRAC_PI_2),          // E or W — rotate to horizontal
-    (1, -1) | (-1, 1) => (LINE_NE, 0.0),    // NE or SW diagonal
-    _ => (LINE_SE, 0.0),                     // SE or NW diagonal
+/// Returns (sprite_path, rotation_radians, flip_x) for a path segment
+/// connecting two arm directions.
+///
+/// `arm_a` and `arm_b` are grid-space direction vectors pointing from this
+/// tile toward each neighbor (previous and next).
+fn connection_sprite(arm_a: (i32, i32), arm_b: (i32, i32)) -> (&'static str, f32, bool) {
+  // Normalize to canonical order so (arm_a, arm_b) and (arm_b, arm_a) hit same branch.
+  let (a, b) = if arm_a <= arm_b { (arm_a, arm_b) } else { (arm_b, arm_a) };
+  // Tuple order: (-1,-1)<(-1,0)<(-1,1)<(0,-1)<(0,1)<(1,-1)<(1,0)<(1,1)
+  //              NW      W      SW     N      S     NE     E     SE
+  match (a, b) {
+    // --- Straight cardinal ---
+    ((0, -1), (0, 1))   => (LINE_NS, 0.0, false),          // {N,S}
+    ((-1, 0), (1, 0))   => (LINE_NS, FRAC_PI_2, false),    // {W,E}
+
+    // --- Straight diagonal ---
+    ((-1, -1), (1, 1))  => (LINE_DIAG_NW, 0.0, false),     // {NW,SE}
+    ((-1, 1), (1, -1))  => (LINE_DIAG_NE, 0.0, false),     // {NE,SW}
+
+    // --- 45° bends (N-NE family) ---
+    ((0, -1), (1, -1))  => (LINE_N_NE, 0.0, false),        // {N,NE}
+    ((-1, -1), (0, -1)) => (LINE_N_NE, 0.0, true),         // {NW,N} flip
+    ((-1, -1), (-1, 0)) => (LINE_N_NE, FRAC_PI_2, false),  // {NW,W}
+    ((-1, 0), (-1, 1))  => (LINE_N_NE, FRAC_PI_2, true),   // {W,SW} flip
+    ((-1, 1), (0, 1))   => (LINE_N_NE, PI, false),          // {SW,S}
+    ((0, 1), (1, 1))    => (LINE_N_NE, PI, true),           // {S,SE} flip
+    ((1, 0), (1, 1))    => (LINE_N_NE, -FRAC_PI_2, false),  // {E,SE}
+    ((1, -1), (1, 0))   => (LINE_N_NE, -FRAC_PI_2, true),  // {NE,E} flip
+
+    // --- 135° bends (N-SE family) ---
+    ((0, -1), (1, 1))   => (LINE_N_SE, 0.0, false),         // {N,SE}
+    ((-1, 1), (0, -1))  => (LINE_N_SE, 0.0, true),          // {N,SW} flip
+    ((-1, 0), (1, -1))  => (LINE_N_SE, FRAC_PI_2, false),   // {W,NE}
+    ((-1, 0), (1, 1))   => (LINE_N_SE, FRAC_PI_2, true),    // {W,SE} flip
+    ((-1, -1), (0, 1))  => (LINE_N_SE, PI, false),           // {NW,S}
+    ((0, 1), (1, -1))   => (LINE_N_SE, PI, true),            // {S,NE} flip
+    ((-1, 1), (1, 0))   => (LINE_N_SE, -FRAC_PI_2, false),  // {SW,E}
+    ((-1, -1), (1, 0))  => (LINE_N_SE, -FRAC_PI_2, true),   // {NW,E} flip
+
+    // Fallback (shouldn't happen in Bresenham paths)
+    _ => (LINE_NS, 0.0, false),
   }
 }
 
-/// Returns (sprite_path, z_rotation_radians) for the final tile of the path.
-///
-/// Cardinal arrivals use the L-corner sprite rotated so the incoming arm faces
-/// the direction of travel; the perpendicular arm visually caps the path.
-/// Diagonal arrivals use the matching diagonal sprite.
-fn endpoint_sprite(from_dir: (i32, i32)) -> (&'static str, f32) {
-  match from_dir {
-    // Original └: entry arm points S (down), cap arm points E (right).
-    (0, -1) => (LINE_CORNER, 0.0),        // going N: entry from S ✓
-    (1, 0)  => (LINE_CORNER, -FRAC_PI_2), // going E: rotate CW 90° → entry from W
-    (0, 1)  => (LINE_CORNER, PI),         // going S: rotate 180° → entry from N
-    (-1, 0) => (LINE_CORNER, FRAC_PI_2),  // going W: rotate CCW 90° → entry from E
-    (1, -1) | (-1, 1) => (LINE_NE, 0.0),
-    _ => (LINE_SE, 0.0),
+/// Returns (sprite_path, rotation, flip_x) for a single-arm endpoint.
+/// Uses the L-corner sprite for cardinal arms (perpendicular cap) and
+/// diagonal sprites for diagonal arms.
+fn endpoint_sprite(arm_dir: (i32, i32)) -> (&'static str, f32, bool) {
+  match arm_dir {
+    (0, -1) => (LINE_CORNER, 0.0, false),         // arm N: └ default
+    (1, 0)  => (LINE_CORNER, -FRAC_PI_2, false),  // arm E
+    (0, 1)  => (LINE_CORNER, PI, false),           // arm S
+    (-1, 0) => (LINE_CORNER, FRAC_PI_2, false),    // arm W
+    (1, -1) => (LINE_N_NE, 0.0, false),            // arm NE
+    (-1, -1) => (LINE_N_NE, 0.0, true),            // arm NW
+    (1, 1)  => (LINE_N_NE, PI, true),              // arm SE
+    (-1, 1) => (LINE_N_NE, PI, false),             // arm SW
+    _ => (LINE_NS, 0.0, false),
+  }
+}
+
+/// Returns (sprite_path, rotation, flip_x) for a single-arm start tile
+/// (on the player position). Uses a straight segment in the exit direction.
+fn start_sprite(fwd_dir: (i32, i32)) -> (&'static str, f32, bool) {
+  match fwd_dir {
+    (0, _)              => (LINE_NS, 0.0, false),
+    (_, 0)              => (LINE_NS, FRAC_PI_2, false),
+    (1, -1) | (-1, 1)  => (LINE_DIAG_NE, 0.0, false),
+    _                   => (LINE_DIAG_NW, 0.0, false),
   }
 }
 
@@ -167,6 +233,32 @@ pub fn update_ranged_path(
   }
 }
 
+fn spawn_path_tile(
+  commands: &mut Commands,
+  sprite_path: &'static str,
+  rotation: f32,
+  flip_x: bool,
+  screen_pos: Vec3,
+  palette_cache: &mut PaletteImageCache,
+  images: &mut Assets<Image>
+) {
+  let img = palette_sprite_handle(
+    sprite_path, PATH_COLOR, PATH_COLOR, palette_cache, images
+  );
+  commands.spawn((
+    PathOverlayTile,
+    Sprite {
+      image: img,
+      custom_size: Some(Vec2::splat(TILE_SIZE)),
+      flip_x,
+      color: Color::WHITE,
+      ..default()
+    },
+    Transform::from_translation(screen_pos).with_rotation(Quat::from_rotation_z(rotation)),
+    Visibility::Visible
+  ));
+}
+
 /// Spawns/despawns path overlay tile entities whenever `RangedPathOverlay` changes.
 pub fn render_ranged_path(
   overlay: Res<RangedPathOverlay>,
@@ -187,31 +279,31 @@ pub fn render_ranged_path(
   let h = current.0.height;
   let last_i = overlay.tiles.len() - 1;
 
+  // Start tile on the player position
+  let fwd_dir = (overlay.tiles[0].0 - pos.x, overlay.tiles[0].1 - pos.y);
+  let (sp, rot, flip) = start_sprite(fwd_dir);
+  let start_pos = tile_screen_pos(pos.x as f32, pos.y as f32, w, h)
+    + Vec3::new(0.0, 0.0, 0.35);
+  spawn_path_tile(
+    &mut commands, sp, rot, flip, start_pos, &mut palette_cache, &mut images
+  );
+
   for (i, &(tx, ty)) in overlay.tiles.iter().enumerate() {
     let prev = if i == 0 { (pos.x, pos.y) } else { overlay.tiles[i - 1] };
-    let from_dir = (tx - prev.0, ty - prev.1);
-    let (sprite_path, rotation) = if i == last_i {
-      endpoint_sprite(from_dir)
-    } else {
-      segment_sprite(from_dir)
-    };
-
-    let img = palette_sprite_handle(
-      sprite_path, PATH_COLOR, PATH_COLOR, &mut palette_cache, &mut images
-    );
+    let back_arm = (prev.0 - tx, prev.1 - ty);
     let screen_pos =
       tile_screen_pos(tx as f32, ty as f32, w, h) + Vec3::new(0.0, 0.0, 0.35);
 
-    commands.spawn((
-      PathOverlayTile,
-      Sprite {
-        image: img,
-        custom_size: Some(Vec2::splat(TILE_SIZE)),
-        color: Color::WHITE,
-        ..default()
-      },
-      Transform::from_translation(screen_pos).with_rotation(Quat::from_rotation_z(rotation)),
-      Visibility::Visible
-    ));
+    let (sp, rot, flip) = if i == last_i {
+      endpoint_sprite(back_arm)
+    } else {
+      let next = overlay.tiles[i + 1];
+      let fwd_arm = (next.0 - tx, next.1 - ty);
+      connection_sprite(back_arm, fwd_arm)
+    };
+
+    spawn_path_tile(
+      &mut commands, sp, rot, flip, screen_pos, &mut palette_cache, &mut images
+    );
   }
 }
