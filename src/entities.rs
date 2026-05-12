@@ -536,7 +536,7 @@ impl Object {
           name: "Rat Soldier",
           flavor: "A wiry rat-person clutching a crude spear. Smells like wet fur and old iron.",
         },
-        Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 3.0, attack_speed: 1.0 },
+        Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 2.1, attack_speed: 1.0 },
         Wielding(Some(Item::Spear)),
         Wearing(None),
         Glyph::palette_sprite(
@@ -555,7 +555,7 @@ impl Object {
           name: "Armored Rat Soldier",
           flavor: "A rat-person in battered leather armor, gripping a crude spear. The hide smells worse than the iron.",
         },
-        Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 3.0, attack_speed: 1.0 },
+        Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 1.9, attack_speed: 1.0 },
         Wielding(Some(Item::Spear)),
         Wearing(Some(Armor::Leather)),
         Glyph::palette_sprite(
@@ -618,7 +618,7 @@ impl Object {
   pub fn locker() -> Self {
     Self::structure(true).add((
       Glyph::palette_sprite(
-        "textures/space_qud/locker (1).png",
+        "textures/space_qud/locker (2).png",
         'l',
         Color::srgb(0.32, 0.38, 0.42),
         Color::srgb(0.62, 0.68, 0.72)
@@ -664,7 +664,7 @@ impl Object {
         name: "Robot",
         flavor: "A damaged security robot. Its threat-response routines are still very much active."
       },
-      Stats { hp: 15, max_hp: 15, attack: 4, move_speed: 2.5, attack_speed: 0.8 },
+      Stats { hp: 15, max_hp: 15, attack: 4, move_speed: 2.0, attack_speed: 0.8 },
       Wielding(None),
       Wearing(None),
       Glyph::palette_sprite(
@@ -682,7 +682,7 @@ impl Object {
         name: "Salvage Bot",
         flavor: "A repurposed salvage drone running corrupted directives. Approaches everything as scrap."
       },
-      Stats { hp: 8, max_hp: 8, attack: 3, move_speed: 3.5, attack_speed: 1.2 },
+      Stats { hp: 8, max_hp: 8, attack: 3, move_speed: 2.3, attack_speed: 1.2 },
       Wielding(None),
       Wearing(None),
       Glyph::palette_sprite(
@@ -763,7 +763,7 @@ impl Object {
         name: "Grenadier",
         flavor: "A wiry soldier bristling with grenades. Keeps its distance."
       },
-      Stats { hp: 8, max_hp: 8, attack: 2, move_speed: 2.5, attack_speed: 0.8 },
+      Stats { hp: 8, max_hp: 8, attack: 2, move_speed: 2.0, attack_speed: 0.8 },
       Wielding(None),
       Wearing(None),
       Glyph::palette_sprite(
