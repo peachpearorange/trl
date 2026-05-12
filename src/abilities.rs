@@ -6,6 +6,7 @@ use {std::collections::HashMap,
      crate::{CurrentZone, Inventory, Player, PlayerPos, UiState,
              entities::{Enemy, Location, Named, Object, PlayerEquipped, Stats},
              level::Item,
+             path_overlay::ray_cast_target,
              ui::{LogEntries, log_message}}};
 
 const EXPLOSION_OFFSETS: [(i32, i32); 13] = [
@@ -150,20 +151,33 @@ pub fn handle_ability_click(
   let level = current.0.level(pos.z);
   let Some(cursor) = window.cursor_position() else { return };
   let Ok(world) = camera.viewport_to_world_2d(cam_transform, cursor) else { return };
-  let (tx, ty) = crate::world_to_level_cell(world, level.width, level.height);
+  let (cursor_tx, cursor_ty) = crate::world_to_level_cell(world, level.width, level.height);
+
+  // Trace the ray from player toward cursor, stopping at walls.
+  let (tx, ty) = ray_cast_target(pos.x, pos.y, cursor_tx, cursor_ty, level);
 
   let kind = slot.kind.clone();
   let max_cd = slot.max_cooldown;
   match kind.clone() {
     AbilityKind::FireGun => {
-      let hit = enemy_q.iter_mut().find(|(loc, _, _)| {
-        matches!(loc, Location::Coords { x, y, z, .. } if *x == tx && *y == ty && *z == pos.z)
-      });
-      if let Some((_, mut stats, named)) = hit {
-        let attack = equipped.weapon.map(|w| w.attack_bonus()).unwrap_or(0) + 5;
-        stats.hp -= attack;
-        let name = named.map(|n| n.name).unwrap_or("Enemy");
-        log_message(&mut log, format!("You shoot {} for {} damage!", name, attack));
+      // Find the first enemy position along the ray path (between player and wall).
+      use crate::path_overlay::bresenham_path;
+      let path = bresenham_path(pos.x, pos.y, tx, ty);
+      let hit_pos = path.iter().skip(1).find(|&&(px, py)| {
+        enemy_q.iter().any(|(loc, _, _)| {
+          matches!(loc, Location::Coords { x, y, z, .. } if *x == px && *y == py && *z == pos.z)
+        })
+      }).copied();
+      if let Some((hx, hy)) = hit_pos {
+        let hit = enemy_q.iter_mut().find(|(loc, _, _)| {
+          matches!(loc, Location::Coords { x, y, z, .. } if *x == hx && *y == hy && *z == pos.z)
+        });
+        if let Some((_, mut stats, named)) = hit {
+          let attack = equipped.weapon.map(|w| w.attack_bonus()).unwrap_or(0) + 5;
+          stats.hp -= attack;
+          let name = named.map(|n| n.name).unwrap_or("Enemy");
+          log_message(&mut log, format!("You shoot {} for {} damage!", name, attack));
+        }
       } else {
         log_message(&mut log, "Your shot hits nothing.".into());
       }

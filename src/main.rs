@@ -15,6 +15,7 @@ pub mod sprites;
 pub mod tiles;
 mod abilities;
 mod combat;
+mod path_overlay;
 mod crafting;
 mod locations;
 mod loot;
@@ -571,6 +572,7 @@ fn main() {
     .insert_resource(TileEntityIndex::default())
     .init_resource::<abilities::AbilityBarData>()
     .init_resource::<abilities::TargetingState>()
+    .init_resource::<path_overlay::RangedPathOverlay>()
     .add_plugins(ui::UiPlugin)
     .add_systems(Startup, (setup, ui::spawn_haalka_root).chain())
     .configure_sets(Update, SimStep.run_if(should_run_sim_step)
@@ -609,6 +611,12 @@ fn main() {
     .add_systems(Update, abilities::handle_ability_keys.in_set(FramePipeline::UtilityMenus))
     .add_systems(Update, abilities::handle_ability_click.in_set(FramePipeline::UtilityMenus))
     .add_systems(Update, abilities::sync_ability_bar.after(FramePipeline::PlayerMove))
+    .add_systems(
+      Update,
+      (path_overlay::update_ranged_path, path_overlay::render_ranged_path)
+        .chain()
+        .after(FramePipeline::UtilityMenus)
+    )
     .add_systems(Update, (accumulate_dir, player_input).chain().in_set(FramePipeline::PlayerMove))
     .add_systems(Update, auto_close_airlocks.after(FramePipeline::PlayerMove))
     .add_systems(
