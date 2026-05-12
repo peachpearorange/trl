@@ -16,6 +16,8 @@ const LINE_N_SE:    &str = "textures/space_qud/lines N SE.png";
 const LINE_CORNER:  &str = "textures/space_qud/lines N E.png";
 const LINE_DIAG_NW: &str = "textures/space_qud/lines NW SE.png";
 const LINE_DIAG_NE: &str = "textures/space_qud/lines NE SW.png";
+const LINE_HALF_N:  &str = "textures/space_qud/lines N.png";
+const LINE_HALF_NE: &str = "textures/space_qud/lines NE.png";
 
 /// Yellow — used as both primary AND secondary so all non-transparent pixels bake yellow.
 const PATH_COLOR: Color = Color::srgb(1.0, 0.88, 0.0);
@@ -144,31 +146,19 @@ fn connection_sprite(arm_a: (i32, i32), arm_b: (i32, i32)) -> (&'static str, f32
   }
 }
 
-/// Returns (sprite_path, rotation, flip_x) for a single-arm endpoint.
-/// Uses the L-corner sprite for cardinal arms (perpendicular cap) and
-/// diagonal sprites for diagonal arms.
-fn endpoint_sprite(arm_dir: (i32, i32)) -> (&'static str, f32, bool) {
+/// Returns (sprite_path, rotation, flip_x) for a single-arm endpoint or start tile.
+/// Cardinal arms use `lines N` rotated; diagonal arms use `lines NE` rotated/flipped.
+fn half_sprite(arm_dir: (i32, i32)) -> (&'static str, f32, bool) {
   match arm_dir {
-    (0, -1) => (LINE_CORNER, 0.0, false),         // arm N: └ default
-    (1, 0)  => (LINE_CORNER, -FRAC_PI_2, false),  // arm E
-    (0, 1)  => (LINE_CORNER, PI, false),           // arm S
-    (-1, 0) => (LINE_CORNER, FRAC_PI_2, false),    // arm W
-    (1, -1) => (LINE_N_NE, 0.0, false),            // arm NE
-    (-1, -1) => (LINE_N_NE, 0.0, true),            // arm NW
-    (1, 1)  => (LINE_N_NE, PI, true),              // arm SE
-    (-1, 1) => (LINE_N_NE, PI, false),             // arm SW
-    _ => (LINE_NS, 0.0, false),
-  }
-}
-
-/// Returns (sprite_path, rotation, flip_x) for a single-arm start tile
-/// (on the player position). Uses a straight segment in the exit direction.
-fn start_sprite(fwd_dir: (i32, i32)) -> (&'static str, f32, bool) {
-  match fwd_dir {
-    (0, _)              => (LINE_NS, 0.0, false),
-    (_, 0)              => (LINE_NS, FRAC_PI_2, false),
-    (1, -1) | (-1, 1)  => (LINE_DIAG_NE, 0.0, false),
-    _                   => (LINE_DIAG_NW, 0.0, false),
+    (0, -1)  => (LINE_HALF_N, 0.0, false),          // N
+    (1, 0)   => (LINE_HALF_N, -FRAC_PI_2, false),   // E
+    (0, 1)   => (LINE_HALF_N, PI, false),            // S
+    (-1, 0)  => (LINE_HALF_N, FRAC_PI_2, false),    // W
+    (1, -1)  => (LINE_HALF_NE, 0.0, false),          // NE
+    (-1, -1) => (LINE_HALF_NE, 0.0, true),           // NW (flip)
+    (1, 1)   => (LINE_HALF_NE, PI, true),             // SE (flip + 180°)
+    (-1, 1)  => (LINE_HALF_NE, PI, false),            // SW (180°)
+    _ => (LINE_HALF_N, 0.0, false),
   }
 }
 
@@ -279,9 +269,9 @@ pub fn render_ranged_path(
   let h = current.0.height;
   let last_i = overlay.tiles.len() - 1;
 
-  // Start tile on the player position
+  // Start tile on the player position — half-line pointing toward first path tile
   let fwd_dir = (overlay.tiles[0].0 - pos.x, overlay.tiles[0].1 - pos.y);
-  let (sp, rot, flip) = start_sprite(fwd_dir);
+  let (sp, rot, flip) = half_sprite(fwd_dir);
   let start_pos = tile_screen_pos(pos.x as f32, pos.y as f32, w, h)
     + Vec3::new(0.0, 0.0, 0.35);
   spawn_path_tile(
@@ -295,7 +285,7 @@ pub fn render_ranged_path(
       tile_screen_pos(tx as f32, ty as f32, w, h) + Vec3::new(0.0, 0.0, 0.35);
 
     let (sp, rot, flip) = if i == last_i {
-      endpoint_sprite(back_arm)
+      half_sprite(back_arm)
     } else {
       let next = overlay.tiles[i + 1];
       let fwd_arm = (next.0 - tx, next.1 - ty);
