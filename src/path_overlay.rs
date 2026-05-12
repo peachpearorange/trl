@@ -69,13 +69,12 @@ pub fn ray_cast_target(
   to_y: i32,
   level: &crate::level::Level
 ) -> (i32, i32) {
-  let path = bresenham_path(from_x, from_y, to_x, to_y);
-  let mut last = (from_x, from_y);
-  for &(x, y) in path.iter().skip(1) {
-    if !level.walkable(x, y) { break; }
-    last = (x, y);
-  }
-  last
+  bresenham_path(from_x, from_y, to_x, to_y)
+    .into_iter()
+    .skip(1)
+    .take_while(|&(x, y)| level.walkable(x, y))
+    .last()
+    .unwrap_or((from_x, from_y))
 }
 
 // ---------------------------------------------------------------------------
@@ -167,6 +166,7 @@ fn half_sprite(arm_dir: (i32, i32)) -> (&'static str, f32, bool) {
 // ---------------------------------------------------------------------------
 
 /// Recomputes `RangedPathOverlay` each frame based on targeting state + cursor position.
+/// Returns `None` when system queries fail (overlay unchanged); `Some(x)` to write `x`.
 pub fn update_ranged_path(
   windows: Query<&Window>,
   camera_q: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
@@ -175,51 +175,45 @@ pub fn update_ranged_path(
   player_q: Query<&PlayerPos, With<Player>>,
   mut overlay: ResMut<RangedPathOverlay>
 ) {
-  if targeting.selected.is_none() {
-    if !overlay.tiles.is_empty() || overlay.blocked {
-      *overlay = RangedPathOverlay::default();
-    }
-    return;
-  }
-
-  let Ok(window) = windows.single() else { return };
-  let Ok((camera, cam_transform)) = camera_q.single() else { return };
-  let Ok(pos) = player_q.single() else { return };
-  let level = current.0.level(pos.z);
-
-  let Some(cursor) = window.cursor_position() else {
-    if !overlay.tiles.is_empty() { *overlay = RangedPathOverlay::default(); }
-    return;
-  };
-  if !game_pane_rect(window).contains(cursor) {
-    if !overlay.tiles.is_empty() { *overlay = RangedPathOverlay::default(); }
-    return;
-  }
-  let Ok(world) = camera.viewport_to_world_2d(cam_transform, cursor) else { return };
-  let (tx, ty) = world_to_level_cell(world, level.width, level.height);
-
-  let all_tiles = bresenham_path(pos.x, pos.y, tx, ty);
-  let path_tiles = &all_tiles[1..];
-
-  let mut blocked = false;
-  let mut end_idx = path_tiles.len();
-  for (i, &(x, y)) in path_tiles.iter().enumerate() {
-    if x < 0
-      || y < 0
-      || (x as usize) >= level.width
-      || (y as usize) >= level.height
-      || !level.walkable(x, y)
+  // None = leave as-is (query failures); Some(x) = write x.
+  let new = if targeting.selected.is_none() {
+    Some(RangedPathOverlay::default())
+  } else if let Ok(window) = windows.single()
+    && let Ok((camera, cam_transform)) = camera_q.single()
+    && let Ok(pos) = player_q.single()
+  {
+    let level = current.0.level(pos.z);
+    // No cursor or outside game pane → clear; failed projection → leave as-is.
+    let inner = if let Some(cursor) = window.cursor_position()
+      && game_pane_rect(window).contains(cursor)
+      && let Ok(world) = camera.viewport_to_world_2d(cam_transform, cursor)
     {
-      end_idx = i;
-      blocked = true;
-      break;
-    }
-  }
+      let (tx, ty) = world_to_level_cell(world, level.width, level.height);
+      let all_tiles = bresenham_path(pos.x, pos.y, tx, ty);
+      let path_tiles = &all_tiles[1..];
+      let block_idx = path_tiles.iter().position(|&(x, y)| {
+        x < 0
+          || y < 0
+          || (x as usize) >= level.width
+          || (y as usize) >= level.height
+          || !level.walkable(x, y)
+      });
+      RangedPathOverlay {
+        tiles: path_tiles[..block_idx.unwrap_or(path_tiles.len())].to_vec(),
+        blocked: block_idx.is_some(),
+      }
+    } else {
+      RangedPathOverlay::default()
+    };
+    Some(inner)
+  } else {
+    None
+  };
 
-  let tiles: Vec<(i32, i32)> = path_tiles[..end_idx].to_vec();
-  if overlay.tiles != tiles || overlay.blocked != blocked {
-    overlay.tiles = tiles;
-    overlay.blocked = blocked;
+  if let Some(new) = new
+    && (overlay.tiles != new.tiles || overlay.blocked != new.blocked)
+  {
+    *overlay = new;
   }
 }
 
@@ -259,7 +253,7 @@ pub fn render_ranged_path(
   mut palette_cache: ResMut<PaletteImageCache>,
   mut images: ResMut<Assets<Image>>
 ) {
-  for entity in existing.iter() {
+  for entity in &existing {
     commands.entity(entity).despawn();
   }
   if overlay.tiles.is_empty() { return; }
