@@ -2,21 +2,21 @@
 //! hovered tile when a ranged ability is selected, stopping at walls.
 
 use bevy::prelude::*;
-use std::f32::consts::FRAC_PI_2;
+use std::f32::consts::{FRAC_PI_2, PI};
 use crate::{
-  CurrentZone, Fov, Player, PlayerPos, TILE_SIZE,
+  CurrentZone, Player, PlayerPos, TILE_SIZE,
   abilities::TargetingState,
   sprites::{PaletteImageCache, palette_sprite_handle},
   game_pane_rect, tile_screen_pos, world_to_level_cell,
 };
 
-const LINE_NS:  &str = "textures/space_qud/lines N S.png";
-const LINE_NE:  &str = "textures/space_qud/lines N NE.png";
-const LINE_SE:  &str = "textures/space_qud/lines N SE.png";
-// LINE_CORNER ("lines N E.png") reserved for future corner/endpoint rendering
+const LINE_NS:     &str = "textures/space_qud/lines N S.png";
+const LINE_NE:     &str = "textures/space_qud/lines N NE.png";
+const LINE_SE:     &str = "textures/space_qud/lines N SE.png";
+const LINE_CORNER: &str = "textures/space_qud/lines N E.png";
 
-const PATH_PRIMARY:   Color = Color::srgb(1.0, 0.88, 0.0);
-const PATH_SECONDARY: Color = Color::srgba(0.0, 0.0, 0.0, 0.0);
+/// Yellow — used as both primary AND secondary so all non-transparent pixels bake yellow.
+const PATH_COLOR: Color = Color::srgb(1.0, 0.88, 0.0);
 
 /// Marks entities that are part of the path overlay so they can be batch-despawned.
 #[derive(Component)]
@@ -78,17 +78,30 @@ pub fn ray_cast_target(
 // Sprite selection
 // ---------------------------------------------------------------------------
 
-/// Returns (sprite_asset_path, z_rotation_radians) for a path segment arriving
-/// from `from_dir` (grid-space step: dx, dy where y increases downward).
+/// Returns (sprite_path, z_rotation_radians) for a mid-path segment arriving
+/// via `from_dir` (grid-space step dx,dy where y increases downward).
 fn segment_sprite(from_dir: (i32, i32)) -> (&'static str, f32) {
   match from_dir {
-    // Cardinal N/S — vertical
-    (0, _) => (LINE_NS, 0.0),
-    // Cardinal E/W — rotate vertical sprite 90° to make it horizontal
-    (_, 0) => (LINE_NS, FRAC_PI_2),
-    // NE or SW diagonal
+    (0, _) => (LINE_NS, 0.0),               // N or S — vertical
+    (_, 0) => (LINE_NS, FRAC_PI_2),          // E or W — rotate to horizontal
+    (1, -1) | (-1, 1) => (LINE_NE, 0.0),    // NE or SW diagonal
+    _ => (LINE_SE, 0.0),                     // SE or NW diagonal
+  }
+}
+
+/// Returns (sprite_path, z_rotation_radians) for the final tile of the path.
+///
+/// Cardinal arrivals use the L-corner sprite rotated so the incoming arm faces
+/// the direction of travel; the perpendicular arm visually caps the path.
+/// Diagonal arrivals use the matching diagonal sprite.
+fn endpoint_sprite(from_dir: (i32, i32)) -> (&'static str, f32) {
+  match from_dir {
+    // Original └: entry arm points S (down), cap arm points E (right).
+    (0, -1) => (LINE_CORNER, 0.0),        // going N: entry from S ✓
+    (1, 0)  => (LINE_CORNER, -FRAC_PI_2), // going E: rotate CW 90° → entry from W
+    (0, 1)  => (LINE_CORNER, PI),         // going S: rotate 180° → entry from N
+    (-1, 0) => (LINE_CORNER, FRAC_PI_2),  // going W: rotate CCW 90° → entry from E
     (1, -1) | (-1, 1) => (LINE_NE, 0.0),
-    // SE or NW diagonal
     _ => (LINE_SE, 0.0),
   }
 }
@@ -103,11 +116,9 @@ pub fn update_ranged_path(
   camera_q: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
   targeting: Res<TargetingState>,
   current: Res<CurrentZone>,
-  fov: Res<Fov>,
   player_q: Query<&PlayerPos, With<Player>>,
   mut overlay: ResMut<RangedPathOverlay>
 ) {
-  // Clear overlay when not targeting
   if targeting.selected.is_none() {
     if !overlay.tiles.is_empty() || overlay.blocked {
       *overlay = RangedPathOverlay::default();
@@ -131,34 +142,23 @@ pub fn update_ranged_path(
   let Ok(world) = camera.viewport_to_world_2d(cam_transform, cursor) else { return };
   let (tx, ty) = world_to_level_cell(world, level.width, level.height);
 
-  // Build full path, skip player start tile
   let all_tiles = bresenham_path(pos.x, pos.y, tx, ty);
   let path_tiles = &all_tiles[1..];
 
-  // Stop at first wall
   let mut blocked = false;
   let mut end_idx = path_tiles.len();
   for (i, &(x, y)) in path_tiles.iter().enumerate() {
-    if !level.walkable(x, y) {
+    if x < 0
+      || y < 0
+      || (x as usize) >= level.width
+      || (y as usize) >= level.height
+      || !level.walkable(x, y)
+    {
       end_idx = i;
       blocked = true;
       break;
     }
   }
-
-  // Skip tiles outside FOV (stop at edge of visibility too)
-  let fov_end = path_tiles[..end_idx]
-    .iter()
-    .position(|&(x, y)| {
-      (x as usize) >= level.width
-        || (y as usize) >= level.height
-        || x < 0
-        || y < 0
-        || (!fov.0.is_visible(x as usize, y as usize)
-          && !fov.0.is_revealed(x as usize, y as usize))
-    })
-    .unwrap_or(end_idx);
-  let end_idx = end_idx.min(fov_end);
 
   let tiles: Vec<(i32, i32)> = path_tiles[..end_idx].to_vec();
   if overlay.tiles != tiles || overlay.blocked != blocked {
@@ -177,30 +177,27 @@ pub fn render_ranged_path(
   mut palette_cache: ResMut<PaletteImageCache>,
   mut images: ResMut<Assets<Image>>
 ) {
-  if !overlay.is_changed() { return; }
-
-  // Despawn old overlay entities
   for entity in existing.iter() {
     commands.entity(entity).despawn();
   }
-
   if overlay.tiles.is_empty() { return; }
 
   let Ok(pos) = player_q.single() else { return };
   let w = current.0.width;
   let h = current.0.height;
+  let last_i = overlay.tiles.len() - 1;
 
   for (i, &(tx, ty)) in overlay.tiles.iter().enumerate() {
     let prev = if i == 0 { (pos.x, pos.y) } else { overlay.tiles[i - 1] };
     let from_dir = (tx - prev.0, ty - prev.1);
-    let (sprite_path, rotation) = segment_sprite(from_dir);
+    let (sprite_path, rotation) = if i == last_i {
+      endpoint_sprite(from_dir)
+    } else {
+      segment_sprite(from_dir)
+    };
 
     let img = palette_sprite_handle(
-      sprite_path,
-      PATH_PRIMARY,
-      PATH_SECONDARY,
-      &mut palette_cache,
-      &mut images
+      sprite_path, PATH_COLOR, PATH_COLOR, &mut palette_cache, &mut images
     );
     let screen_pos =
       tile_screen_pos(tx as f32, ty as f32, w, h) + Vec3::new(0.0, 0.0, 0.35);
@@ -210,9 +207,11 @@ pub fn render_ranged_path(
       Sprite {
         image: img,
         custom_size: Some(Vec2::splat(TILE_SIZE)),
+        color: Color::WHITE,
         ..default()
       },
-      Transform::from_translation(screen_pos).with_rotation(Quat::from_rotation_z(rotation))
+      Transform::from_translation(screen_pos).with_rotation(Quat::from_rotation_z(rotation)),
+      Visibility::Visible
     ));
   }
 }

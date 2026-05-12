@@ -196,7 +196,10 @@ pub fn handle_ability_click(
         equipped.grenades[grenade_slot] = None;
       }
       for &(dx, dy) in &EXPLOSION_OFFSETS {
-        Object::explosion_cloud().spawn_at(&mut commands, tx + dx, ty + dy, pos.z);
+        let (ex, ey) = (tx + dx, ty + dy);
+        if level.walkable(ex, ey) {
+          Object::explosion_cloud().spawn_at(&mut commands, ex, ey, pos.z);
+        }
       }
       log_message(&mut log, format!("You throw a {}!", item.name()));
     }
