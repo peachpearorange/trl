@@ -244,7 +244,7 @@ fn ability_bar() -> impl Element {
     .background_color(BackgroundColor(PANEL_BG))
     .border_color(BorderColor::all(BORDER))
     .child_signal(
-      signal::from_resource::<AbilityBarData>().map_in::<Option<Row<Node>>, Option<Row<Node>>, _>(|data| {
+      signal::from_resource_changed::<AbilityBarData>().map_in::<Option<Row<Node>>, Option<Row<Node>>, _>(|data| {
         let selected = data.selected;
         let slot_widgets: Vec<El<Node>> = data.slots.into_iter().enumerate().map(|(i, slot)| {
           let is_sel = selected == Some(i);

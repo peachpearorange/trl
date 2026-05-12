@@ -22,7 +22,7 @@ pub enum AbilityKind {
 }
 
 /// One slot in the player's ability bar.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct AbilitySlot {
   pub kind: AbilityKind,
   pub name: String,
@@ -88,8 +88,11 @@ pub fn sync_ability_bar(
     }
   }
 
-  bar.slots = new_slots;
-  bar.selected = targeting.selected;
+  let new_selected = targeting.selected;
+  if bar.slots != new_slots || bar.selected != new_selected {
+    bar.slots = new_slots;
+    bar.selected = new_selected;
+  }
 }
 
 /// Number keys 1-9 select an ability slot (or toggle it off if already selected).
