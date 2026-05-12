@@ -1,7 +1,8 @@
 //! Player ability bar: Fire Gun, Throw Grenade, etc.
 //! Each sim turn, cooldowns decrement. Number keys select an ability; left-click fires it.
 
-use {bevy::prelude::*,
+use {std::collections::HashMap,
+     bevy::prelude::*,
      crate::{CurrentZone, Inventory, Player, PlayerPos, UiState,
              entities::{Enemy, Location, Named, Object, PlayerEquipped, Stats},
              level::Item,
@@ -15,7 +16,7 @@ const EXPLOSION_OFFSETS: [(i32, i32); 13] = [
 ];
 
 /// What each ability slot does.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum AbilityKind {
   FireGun,
   ThrowGrenade { slot: usize, item: Item }
@@ -31,18 +32,20 @@ pub struct AbilitySlot {
 }
 
 /// The player's current ability bar state plus which slot is selected for targeting.
-/// Written by [`sync_ability_bar`], read by the UI via `from_resource`.
+/// Written by [`sync_ability_bar`], read by the UI via `from_resource_changed`.
 #[derive(Resource, Clone, Default)]
 pub struct AbilityBarData {
   pub slots: Vec<AbilitySlot>,
   pub selected: Option<usize>
 }
 
-/// Internal targeting state — which ability slot is awaiting a click.
-/// Kept separate so ability logic can mutate it without going through the UI resource.
+/// Internal targeting + cooldown state — not observed by UI signals.
+/// Cooldowns live here so [`tick_cooldowns`] never touches [`AbilityBarData`].
 #[derive(Resource, Default)]
 pub struct TargetingState {
-  pub selected: Option<usize>
+  pub selected: Option<usize>,
+  /// Remaining cooldown turns, keyed by ability kind.
+  pub cooldowns: HashMap<AbilityKind, u32>
 }
 
 // ---------------------------------------------------------------------------
@@ -50,6 +53,7 @@ pub struct TargetingState {
 // ---------------------------------------------------------------------------
 
 /// Rebuild the ability bar from equipped items each frame, preserving existing cooldowns.
+/// Only writes to [`AbilityBarData`] when the displayed data actually changes.
 pub fn sync_ability_bar(
   player_q: Query<&PlayerEquipped, With<Player>>,
   targeting: Res<TargetingState>,
@@ -59,11 +63,8 @@ pub fn sync_ability_bar(
 
   let mut new_slots: Vec<AbilitySlot> = Vec::new();
 
-  if equipped.weapon.map(|w| w.is_ranged()).unwrap_or(false) {
-    let cd = bar.slots.iter()
-      .find(|s| s.kind == AbilityKind::FireGun)
-      .map(|s| s.cooldown)
-      .unwrap_or(0);
+  if equipped.weapon.is_some_and(|w| w.is_ranged()) {
+    let cd = targeting.cooldowns.get(&AbilityKind::FireGun).copied().unwrap_or(0);
     new_slots.push(AbilitySlot {
       kind: AbilityKind::FireGun,
       name: "Fire Gun".into(),
@@ -75,13 +76,10 @@ pub fn sync_ability_bar(
   for slot in 0..3usize {
     if let Some(item) = equipped.grenades[slot] {
       let kind = AbilityKind::ThrowGrenade { slot, item };
-      let cd = bar.slots.iter()
-        .find(|s| s.kind == kind)
-        .map(|s| s.cooldown)
-        .unwrap_or(0);
+      let cd = targeting.cooldowns.get(&kind).copied().unwrap_or(0);
       new_slots.push(AbilitySlot {
         kind,
-        name: format!("Throw {} (slot {})", item.name(), slot + 1),
+        name: format!("Throw {}", item.name()),
         cooldown: cd,
         max_cooldown: 5
       });
@@ -124,7 +122,7 @@ pub fn handle_ability_click(
   camera_q: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
   current: Res<CurrentZone>,
   mut targeting: ResMut<TargetingState>,
-  mut bar: ResMut<AbilityBarData>,
+  bar: Res<AbilityBarData>,
   mut player_q: Query<(&PlayerPos, &mut Inventory, &mut PlayerEquipped), With<Player>>,
   mut enemy_q: Query<(&Location, &mut Stats, Option<&Named>), With<Enemy>>,
   mut commands: Commands,
@@ -137,24 +135,26 @@ pub fn handle_ability_click(
   let Ok((camera, cam_transform)) = camera_q.single() else { return };
   let Ok((pos, mut inventory, mut equipped)) = player_q.single_mut() else { return };
 
-  let level = current.0.level(pos.z);
-  let cursor = window.cursor_position();
-  let Some(cursor) = cursor else { return };
-  let world = camera.viewport_to_world_2d(cam_transform, cursor);
-  let Ok(world) = world else { return };
-  let (tx, ty) = crate::world_to_level_cell(world, level.width, level.height);
-
-  let Some(slot) = bar.slots.get_mut(slot_idx) else {
+  let Some(slot) = bar.slots.get(slot_idx) else {
     targeting.selected = None;
     return;
   };
-  if slot.cooldown > 0 {
-    log_message(&mut log, format!("{} is on cooldown ({} turns).", slot.name, slot.cooldown));
+
+  let cd = targeting.cooldowns.get(&slot.kind).copied().unwrap_or(0);
+  if cd > 0 {
+    log_message(&mut log, format!("{} is on cooldown ({} turns).", slot.name, cd));
     targeting.selected = None;
     return;
   }
 
-  match slot.kind.clone() {
+  let level = current.0.level(pos.z);
+  let Some(cursor) = window.cursor_position() else { return };
+  let Ok(world) = camera.viewport_to_world_2d(cam_transform, cursor) else { return };
+  let (tx, ty) = crate::world_to_level_cell(world, level.width, level.height);
+
+  let kind = slot.kind.clone();
+  let max_cd = slot.max_cooldown;
+  match kind.clone() {
     AbilityKind::FireGun => {
       let hit = enemy_q.iter_mut().find(|(loc, _, _)| {
         matches!(loc, Location::Coords { x, y, z, .. } if *x == tx && *y == ty && *z == pos.z)
@@ -167,39 +167,35 @@ pub fn handle_ability_click(
       } else {
         log_message(&mut log, "Your shot hits nothing.".into());
       }
-      slot.cooldown = slot.max_cooldown;
     }
     AbilityKind::ThrowGrenade { slot: grenade_slot, item } => {
-      let count = inventory.0.get(&item).copied().unwrap_or(0);
-      if count == 0 {
+      if inventory.0.get(&item).copied().unwrap_or(0) == 0 {
         log_message(&mut log, format!("No {} in inventory.", item.name()));
         targeting.selected = None;
         return;
       }
-      // Consume one from inventory.
       let entry = inventory.0.entry(item).or_insert(0);
       *entry = entry.saturating_sub(1);
-      if *entry == 0 { inventory.0.remove(&item); }
-
-      // If no more grenades of this type, clear the equipped slot too.
-      if inventory.0.get(&item).copied().unwrap_or(0) == 0 {
+      let remaining = *entry;
+      if remaining == 0 {
+        inventory.0.remove(&item);
         equipped.grenades[grenade_slot] = None;
       }
-
       for &(dx, dy) in &EXPLOSION_OFFSETS {
         Object::explosion_cloud().spawn_at(&mut commands, tx + dx, ty + dy, pos.z);
       }
       log_message(&mut log, format!("You throw a {}!", item.name()));
-      slot.cooldown = slot.max_cooldown;
     }
   }
 
+  targeting.cooldowns.insert(kind, max_cd);
   targeting.selected = None;
 }
 
-/// Each sim step, decrement cooldowns on all ability slots.
-pub fn tick_cooldowns(mut bar: ResMut<AbilityBarData>) {
-  for slot in &mut bar.slots {
-    slot.cooldown = slot.cooldown.saturating_sub(1);
-  }
+/// Each sim step, decrement cooldowns. Only touches [`TargetingState`], never [`AbilityBarData`].
+pub fn tick_cooldowns(mut targeting: ResMut<TargetingState>) {
+  targeting.cooldowns.retain(|_, cd| {
+    *cd = cd.saturating_sub(1);
+    *cd > 0
+  });
 }

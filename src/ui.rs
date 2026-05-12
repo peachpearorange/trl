@@ -124,7 +124,7 @@ pub struct InvDisplayData {
 const DARK_BG: Color = Color::srgba(0.0, 0.0, 0.0, 0.75);
 const PANEL_BG: Color = Color::srgb(0.12, 0.12, 0.20);
 const DIALOGUE_PANEL_BG: Color = Color::srgba(0.0, 0.0, 0.0, 0.75);
-const BORDER: Color = Color::srgb(0.20, 0.20, 0.33);
+const BORDER: Color = Color::srgb(0.62, 0.55, 0.12);
 const LIGHT_TEXT: Color = Color::srgb(0.94, 0.94, 0.97);
 const DIM_TEXT: Color = Color::srgb(0.78, 0.80, 0.86);
 const ACCENT: Color = Color::srgb(0.55, 0.88, 0.65);
@@ -231,64 +231,35 @@ fn main_layout() -> impl Element {
 }
 
 fn ability_bar() -> impl Element {
-  El::<Node>::new()
+  Row::<Node>::new()
     .with_node(|mut n| {
       n.width = Val::Percent(100.0);
-      n.height = Val::Px(44.0);
-      n.flex_direction = FlexDirection::Row;
+      n.height = Val::Px(36.0);
       n.align_items = AlignItems::Center;
-      n.padding = UiRect::axes(Val::Px(8.), Val::Px(4.));
-      n.column_gap = Val::Px(6.);
+      n.padding = UiRect::axes(Val::Px(10.), Val::Px(0.));
       n.border = UiRect::top(Val::Px(1.0));
     })
     .background_color(BackgroundColor(PANEL_BG))
     .border_color(BorderColor::all(BORDER))
-    .child_signal(
-      signal::from_resource_changed::<AbilityBarData>().map_in::<Option<Row<Node>>, Option<Row<Node>>, _>(|data| {
-        let selected = data.selected;
-        let slot_widgets: Vec<El<Node>> = data.slots.into_iter().enumerate().map(|(i, slot)| {
-          let is_sel = selected == Some(i);
-          let label = if slot.cooldown > 0 {
-            format!("[{}] {} ({})", i + 1, slot.name, slot.cooldown)
+    .item(reactive_text(
+      signal::from_resource_changed::<AbilityBarData>().map_in(|data| {
+        if data.slots.is_empty() {
+          return "Abilities: —".into();
+        }
+        let parts: Vec<String> = data.slots.iter().enumerate().map(|(i, slot)| {
+          let (l, r) = if data.selected == Some(i) { (">", "<") } else { ("[", "]") };
+          if slot.cooldown > 0 {
+            format!("{}{}{} {} ({})", l, i + 1, r, slot.name, slot.cooldown)
           } else {
-            format!("[{}] {}", i + 1, slot.name)
-          };
-          let dim = slot.cooldown > 0;
-          El::<Node>::new()
-            .with_node(|mut n| {
-              n.padding = UiRect::axes(Val::Px(10.), Val::Px(6.));
-              n.border = UiRect::all(Val::Px(1.0));
-              n.border_radius = BorderRadius::all(Val::Px(4.0));
-            })
-            .background_color(BackgroundColor(if is_sel {
-              Color::srgb(0.22, 0.35, 0.55)
-            } else {
-              Color::srgb(0.10, 0.12, 0.20)
-            }))
-            .border_color(BorderColor::all(if is_sel {
-              Color::srgb(0.45, 0.65, 0.95)
-            } else {
-              BORDER
-            }))
-            .child(static_text(
-              label,
-              FONT_SIZE_SMALL,
-              if dim { DIM_TEXT } else { LIGHT_TEXT },
-              W_UI
-            ))
+            format!("{}{}{} {}", l, i + 1, r, slot.name)
+          }
         }).collect();
-        Some(
-          Row::<Node>::new()
-            .with_node(|mut n| {
-              n.width = Val::Percent(100.0);
-              n.height = Val::Percent(100.0);
-              n.align_items = AlignItems::Center;
-              n.column_gap = Val::Px(6.);
-            })
-            .items(slot_widgets)
-        )
-      })
-    )
+        format!("Abilities:  {}", parts.join("   "))
+      }),
+      FONT_SIZE_SMALL,
+      LIGHT_TEXT,
+      W_UI
+    ))
 }
 
 fn sidebar_column() -> impl Element {
