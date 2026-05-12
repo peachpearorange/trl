@@ -1196,6 +1196,7 @@ fn handle_menus(
       PauseMenu::Main => {
         if keys.just_pressed(KeyCode::Space) || keys.just_pressed(KeyCode::Digit1) {
           ui.pause = PauseMenu::Closed;
+          ui.space_consumed = true;
         } else if keys.just_pressed(KeyCode::Digit2) {
           ui.pause = PauseMenu::Controls;
         } else if keys.just_pressed(KeyCode::Digit3) {
@@ -1205,6 +1206,7 @@ fn handle_menus(
       PauseMenu::Controls => {
         if keys.just_pressed(KeyCode::Space) {
           ui.pause = PauseMenu::Main;
+          ui.space_consumed = true;
         }
       }
     }
