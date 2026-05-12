@@ -46,6 +46,9 @@ const DOOR_CLOSED_PRI: Color = Color::srgb(0.34, 0.37, 0.41);
 const DOOR_CLOSED_SEC: Color = Color::srgb(0.52, 0.55, 0.58);
 const DOOR_OPEN_PRI: Color = Color::srgb(0.48, 0.55, 0.58);
 const DOOR_OPEN_SEC: Color = Color::srgb(0.72, 0.78, 0.82);
+/// Palette-mask airlocks (`airlock closed.png` / `airlock open.png`).
+pub(crate) const AIRLOCK_PRI: Color = Color::srgb(0.52, 0.55, 0.58);
+pub(crate) const AIRLOCK_SEC: Color = Color::srgb(0.74, 0.78, 0.82);
 /// Primary color used for the player sprite and "You:" log labels.
 pub const PLAYER_PRIMARY: Color = Color::srgb(0.72, 0.72, 0.72);
 /// Simulated 60Hz display: one grid step / one input gate spans this many render updates.
@@ -1024,8 +1027,24 @@ fn resolve_move(
 // Pause / Esc menu
 // ---------------------------------------------------------------------------
 
-fn door_glyph(open: bool) -> Glyph {
-  if open {
+fn door_glyph(open: bool, is_airlock: bool) -> Glyph {
+  if is_airlock {
+    if open {
+      Glyph::palette_sprite(
+        "textures/space_qud/airlock open.png",
+        '/',
+        AIRLOCK_PRI,
+        AIRLOCK_SEC
+      )
+    } else {
+      Glyph::palette_sprite(
+        "textures/space_qud/airlock closed.png",
+        '+',
+        AIRLOCK_PRI,
+        AIRLOCK_SEC
+      )
+    }
+  } else if open {
     Glyph::palette_sprite(
       "textures/space_qud/door open (2).png",
       '/',
@@ -1062,10 +1081,11 @@ fn set_door_open_state(
   } else {
     commands.entity(entity).insert((Collidable(true), BlocksSight));
   }
+  let is_airlock = airlock.is_some();
   if let Some(airlock) = airlock {
     airlock.opened_at_sim_time = open.then_some(clock_time);
   }
-  *glyph = door_glyph(open);
+  *glyph = door_glyph(open, is_airlock);
   if let Location::Coords { x, y, .. } = *location {
     let lx = x as f32;
     let ly = y as f32;

@@ -345,9 +345,9 @@ const DOOR_CLOSED_SEC: Color = Color::srgb(0.52, 0.55, 0.58);
 #[derive(Clone)]
 pub struct Object(Arc<dyn Fn(&mut EntityCommands) + Send + Sync + 'static>);
 
-/// Space Qud–style NPC silhouette mask (`person (1).png`).
+/// Space Qud–style NPC silhouette mask (`person (2).png`).
 pub fn npc_person_glyph(ch: char, primary: Color, secondary: Color) -> Glyph {
-  Glyph::palette_sprite("textures/space_qud/person (1).png", ch, primary, secondary)
+  Glyph::palette_sprite("textures/space_qud/person (2).png", ch, primary, secondary)
 }
 
 /// Space Qud–style robot silhouette mask (`robo (1).png`).
@@ -517,7 +517,14 @@ impl Object {
   }
 
   pub fn airlock_door() -> Self {
-    Self::door().add(AirlockDoor { opened_at_sim_time: None })
+    Self::door()
+      .add(AirlockDoor { opened_at_sim_time: None })
+      .add(Glyph::palette_sprite(
+        "textures/space_qud/airlock closed.png",
+        '+',
+        crate::AIRLOCK_PRI,
+        crate::AIRLOCK_SEC
+      ))
   }
   pub fn ground_item(item: Item) -> Self { Self::new(GroundItem(item)) }
   pub fn torch(radius: u32) -> Self { Self::new(LightSource { radius }) }
@@ -599,10 +606,10 @@ impl Object {
   pub fn chair() -> Self {
     Self::structure(false).add((
       Glyph::palette_sprite(
-        "textures/space_qud/chair.png",
+        "textures/space_qud/chair (1).png",
         'h',
-        Color::srgb(0.38, 0.26, 0.14),
-        Color::srgb(0.68, 0.52, 0.32)
+        Color::srgb(0.60, 0.62, 0.65),
+        Color::srgb(0.72, 0.18, 0.14)
       ),
       Named { name: "Chair", flavor: "A chair. Something to sit on." }
     ))
