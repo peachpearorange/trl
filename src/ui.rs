@@ -98,14 +98,18 @@ pub fn log_spans(log: &mut LogEntries, line: LogLine) {
   log.0.push(line);
 }
 
+/// Selected row in the Interact overlay — written by `sync_ui`, read by per-row signals.
+/// Split out of [`OverlayKind::Interact`] so W/S navigation never recreates overlay entities.
+#[derive(Resource, Clone, Default, PartialEq)]
+pub struct InteractSelected(pub usize);
+
 #[derive(Resource, Clone, Debug, PartialEq)]
 pub enum OverlayKind {
   PauseMain,
   PauseControls,
-  /// Clickable option list with a scrollable cursor (W/S) and highlighted equipped items.
+  /// Clickable option list with highlighted equipped items; cursor managed via [`InteractSelected`].
   Interact {
     options: Vec<String>,
-    selected: usize,
     highlighted: Vec<bool>
   },
   /// While talking: show numbered replies (1) text …) over the playfield.
@@ -180,8 +184,9 @@ impl Plugin for UiPlugin {
       .init_resource::<LogDisplayData>()
       .init_resource::<InvDisplayData>()
       .init_resource::<OverlayData>()
+      .init_resource::<InteractSelected>()
       .init_resource::<MenuClickPending>()
-      .add_systems(PostUpdate, sync_ui.before(SignalProcessing));
+      .add_systems(PostUpdate, (sync_interact_selected, sync_ui).before(SignalProcessing));
   }
 }
 
@@ -681,7 +686,7 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
               )
           )
       }
-      OverlayKind::Interact { options, selected, highlighted } => {
+      OverlayKind::Interact { options, highlighted } => {
         El::<Node>::new()
           .with_node(|mut n| {
             n.width = Val::Percent(100.);
@@ -702,21 +707,34 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
               .border_color(BorderColor::all(BORDER))
               .item(static_text("Use what?", FONT_SIZE_TITLE, LIGHT_TEXT, W_STRONG))
               .items(options.into_iter().enumerate().map(move |(i, opt)| {
-                let is_sel = selected == i;
                 let is_hi = highlighted.get(i).copied().unwrap_or(false);
-                let color =
-                  if is_hi { EQUIP_HIGHLIGHT } else if is_sel { LIGHT_TEXT } else { DIM_TEXT };
-                let prefix = if is_sel { ">" } else { " " };
-                let text = format!("{prefix} {opt}");
                 Row::<Node>::new()
                   .with_node(|mut n| {
                     n.width = Val::Percent(100.0);
                     n.padding = UiRect::vertical(Val::Px(1.0));
                   })
-                  .item(static_text(text, FONT_SIZE_BODY, color, W_OVERLAY))
-                  .on_click(move |_: In<_>, mut pending: ResMut<MenuClickPending>| {
-                    pending.0 = Some(i);
-                  })
+                  .item(
+                    El::<Text>::new()
+                      .text_font(TextFont { font_size: FONT_SIZE_BODY, weight: W_OVERLAY, ..default() })
+                      .text_color(TextColor(DIM_TEXT))
+                      .with_builder(move |b| {
+                        b.component_signal::<Text>(
+                          signal::from_resource::<InteractSelected>()
+                            .map_in(move |sel: InteractSelected| {
+                              let prefix = if sel.0 == i { ">" } else { " " };
+                              Some(Text::new(format!("{prefix} {opt}")))
+                            })
+                        )
+                        .component_signal::<TextColor>(
+                          signal::from_resource::<InteractSelected>()
+                            .map_in(move |sel: InteractSelected| {
+                              Some(TextColor(if is_hi { EQUIP_HIGHLIGHT } else if sel.0 == i { LIGHT_TEXT } else { DIM_TEXT }))
+                            })
+                        )
+                      })
+                  )
+                  .insert(Button)
+                  .insert(crate::MenuOptionIndex(i))
               }))
               .item(static_text("", FONT_SIZE_BODY, DIM_TEXT, W_OVERLAY))
               .item(static_text(
@@ -789,6 +807,14 @@ pub struct OverlayData {
 // sync_ui — reads Bevy world, writes signal resources
 // ---------------------------------------------------------------------------
 
+fn sync_interact_selected(ui: Res<crate::UiState>, mut interact_sel: ResMut<InteractSelected>) {
+  if let crate::InteractMenu::Open { selected, .. } = &ui.interact
+    && interact_sel.0 != *selected
+  {
+    interact_sel.0 = *selected;
+  }
+}
+
 fn sync_ui(
   clock: Res<Clock>,
   player_q: Query<(&crate::PlayerPos, &Stats, &crate::Inventory, &PlayerEquipped), With<crate::Player>>,
@@ -848,10 +874,9 @@ fn sync_ui(
     crate::PauseMenu::Controls => Some(OverlayKind::PauseControls)
   }
   .or_else(|| match &ui.interact {
-    crate::InteractMenu::Open { options, selected, highlighted } => {
+    crate::InteractMenu::Open { options, highlighted, .. } => {
       Some(OverlayKind::Interact {
         options: mapv(|o| o.label.clone(), options),
-        selected: *selected,
         highlighted: highlighted.clone()
       })
     }

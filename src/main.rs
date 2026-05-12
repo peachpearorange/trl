@@ -108,6 +108,10 @@ enum InteractionAction {
   ShowLoadoutStatus
 }
 
+/// Tracks which menu row index a [`Button`] entity belongs to; queried by [`detect_menu_option_clicks`].
+#[derive(Component)]
+pub struct MenuOptionIndex(pub usize);
+
 #[derive(Default)]
 pub enum InteractMenu {
   #[default]
@@ -606,7 +610,7 @@ fn main() {
     .add_systems(Update, setup_glyph_visuals.in_set(FramePipeline::GlyphSetup))
     .add_systems(Update, update_time_mode.in_set(FramePipeline::TimeMode))
     .add_systems(Update, handle_dialogue.in_set(FramePipeline::DialogueKey))
-    .add_systems(Update, handle_menus.in_set(FramePipeline::Menus))
+    .add_systems(Update, (detect_menu_option_clicks, handle_menus).chain().in_set(FramePipeline::Menus))
     .add_systems(Update, flush_pending_chest_open.in_set(FramePipeline::FlushChest))
     .add_systems(Update, handle_interact.in_set(FramePipeline::InteractKey))
     .add_systems(Update, handle_utility_menus.in_set(FramePipeline::UtilityMenus))
@@ -1147,6 +1151,24 @@ fn set_door_open_state(
   }
 }
 
+fn detect_menu_option_clicks(
+  button_q: Query<(&Interaction, &MenuOptionIndex), Changed<Interaction>>,
+  mut pending: ResMut<MenuClickPending>,
+  mut ui: ResMut<UiState>
+) {
+  for (interaction, idx) in &button_q {
+    match *interaction {
+      Interaction::Pressed => { pending.0 = Some(idx.0); }
+      Interaction::Hovered => {
+        if let InteractMenu::Open { ref mut selected, .. } = ui.interact {
+          *selected = idx.0;
+        }
+      }
+      Interaction::None => {}
+    }
+  }
+}
+
 fn handle_menus(
   keys: Res<ButtonInput<KeyCode>>,
   mut ui: ResMut<UiState>,
@@ -1219,6 +1241,11 @@ fn handle_menus(
         && let InteractMenu::Open { ref options, .. } = ui.interact
         && let Some(option) = options.get(idx).cloned()
       {
+        let is_loadout = matches!(option.action,
+          InteractionAction::EquipWeapon(_) | InteractionAction::UnequipWeapon |
+          InteractionAction::EquipArmor(_) | InteractionAction::UnequipArmor |
+          InteractionAction::EquipGrenade { .. } | InteractionAction::UnequipGrenade { .. }
+        );
         ui.interact = InteractMenu::Closed;
         dispatch_interactive_choice(
           option,
@@ -1236,6 +1263,16 @@ fn handle_menus(
           &mut palette_cache,
           &mut images
         );
+        if is_loadout
+          && let Ok((_, inventory, equipped)) = player_query.single()
+        {
+          let opts = loadout_options(&inventory, &equipped);
+          let highlighted = opts.iter().map(|o| is_equipped(&o.action, &equipped)).collect();
+          let new_sel = cur_sel.min(opts.len().saturating_sub(1));
+          if !opts.is_empty() {
+            ui.interact = InteractMenu::Open { options: opts, selected: new_sel, highlighted };
+          }
+        }
       }
     }
   } else {
@@ -1698,58 +1735,45 @@ fn is_equipped(action: &InteractionAction, equipped: &PlayerEquipped) -> bool {
 }
 
 /// Separate system for Space key interactions to avoid Bevy's system param limit.
+/// Flat toggle list: equipped items (click to unequip), unequipped items (click to equip).
+/// Grenades only show as equippable if a free slot exists.
 fn loadout_options(inventory: &Inventory, equipped: &PlayerEquipped) -> Vec<InteractionOption> {
-  let weapon_name = equipped.weapon.map(|w| w.name()).unwrap_or("(empty)");
-  let armor_name = equipped.armor.map(|a| a.name()).unwrap_or("(empty)");
-
-  // Sort equippable items by name for stable menu ordering.
   let sorted = |pred: fn(Item) -> bool| -> Vec<Item> {
     let mut v: Vec<_> = inventory.0.keys().copied().filter(|&i| pred(i)).collect();
     v.sort_by_key(|i| i.name());
     v
   };
+  let free_grenade_slot = equipped.grenades.iter().position(|g| g.is_none());
 
-  // Each slot row is always present (guarantees ≥2 options so the menu popup always opens).
-  // Slot row → ShowLoadoutStatus when selected (acts as a read-only header).
-  std::iter::once(InteractionOption {
-    label: format!("WPN: {weapon_name}"),
-    action: InteractionAction::ShowLoadoutStatus
-  })
-  .chain(equipped.weapon.map(|_| InteractionOption {
-    label: format!("  unequip weapon ({weapon_name})"),
-    action: InteractionAction::UnequipWeapon
-  }))
-  .chain(sorted(Item::is_weapon).into_iter().map(|item| InteractionOption {
-    label: format!("  equip weapon: {}", item.name()),
-    action: InteractionAction::EquipWeapon(item)
-  }))
-  .chain(std::iter::once(InteractionOption {
-    label: format!("ARM: {armor_name}"),
-    action: InteractionAction::ShowLoadoutStatus
-  }))
-  .chain(equipped.armor.map(|_| InteractionOption {
-    label: format!("  unequip armor ({armor_name})"),
-    action: InteractionAction::UnequipArmor
-  }))
-  .chain(sorted(Item::is_armor).into_iter().map(|item| InteractionOption {
-    label: format!("  equip armor: {}", item.name()),
-    action: InteractionAction::EquipArmor(item)
-  }))
-  .chain((0..3usize).flat_map(|slot| {
-    let slot_name = equipped.grenades[slot].map(|g| g.name()).unwrap_or("(empty)");
-    std::iter::once(InteractionOption {
-      label: format!("GRN {}: {slot_name}", slot + 1),
-      action: InteractionAction::ShowLoadoutStatus
-    })
-    .chain(equipped.grenades[slot].map(|g| InteractionOption {
-      label: format!("  unequip grenade {} ({})", slot + 1, g.name()),
+  // Weapons: equipped first (unequip), then unequipped from inventory (equip).
+  equipped.weapon.into_iter()
+    .map(|w| InteractionOption { label: w.name().to_string(), action: InteractionAction::UnequipWeapon })
+    .chain(sorted(Item::is_weapon).into_iter()
+      .filter(|&w| equipped.weapon != Some(w))
+      .map(|item| InteractionOption { label: item.name().to_string(), action: InteractionAction::EquipWeapon(item) })
+    )
+  // Armor: same pattern.
+  .chain(equipped.armor.into_iter()
+    .map(|a| InteractionOption { label: a.name().to_string(), action: InteractionAction::UnequipArmor })
+  )
+  .chain(sorted(Item::is_armor).into_iter()
+    .filter(|&a| equipped.armor != Some(a))
+    .map(|item| InteractionOption { label: item.name().to_string(), action: InteractionAction::EquipArmor(item) })
+  )
+  // Grenades: each equipped slot (unequip), then unequipped types (equip into first free slot).
+  .chain(equipped.grenades.iter().enumerate()
+    .filter_map(|(slot, g)| g.map(|item| InteractionOption {
+      label: item.name().to_string(),
       action: InteractionAction::UnequipGrenade { slot }
     }))
-    .chain(sorted(Item::is_grenade).into_iter().map(move |item| InteractionOption {
-      label: format!("  equip grenade {}: {}", slot + 1, item.name()),
+  )
+  .chain(sorted(Item::is_grenade).into_iter()
+    .filter(|item| !equipped.grenades.contains(&Some(*item)))
+    .filter_map(|item| free_grenade_slot.map(|slot| InteractionOption {
+      label: item.name().to_string(),
       action: InteractionAction::EquipGrenade { slot, item }
     }))
-  }))
+  )
   .collect()
 }
 
@@ -2000,33 +2024,20 @@ fn handle_interact(
 
   if let Ok((pos, inventory, equipped)) = player_q.single() {
     let level = current.0.level(pos.z);
-    let mut options = Vec::new();
-    for dy in -1i32..=1 {
-      for dx in -1i32..=1 {
-        let wx = pos.x + dx;
-        let wy = pos.y + dy;
-        let dir =
-          if dx == 0 && dy == 0 { "here".to_string() } else { direction_name(dx, dy) };
-        options.extend(gather_interactions_at_tile(
-          wx,
-          wy,
-          &dir,
-          level,
+    let options: Vec<_> = (-1i32..=1)
+      .flat_map(|dy| (-1i32..=1).map(move |dx| (dx, dy)))
+      .flat_map(|(dx, dy)| {
+        let (wx, wy) = (pos.x + dx, pos.y + dy);
+        let dir = if dx == 0 && dy == 0 { "here".to_string() } else { direction_name(dx, dy) };
+        gather_interactions_at_tile(
+          wx, wy, &dir, level,
           index.0.get(&(wx, wy, pos.z)),
-          &tree_q,
-          &dialogue_q,
-          &glyph_q,
-          &mut loot_chest_q,
-          &door_q,
-          &named_q,
-          &flight_console_q,
-          &loadout_console_q,
-          &galaxy,
-          inventory,
-          equipped
-        ));
-      }
-    }
+          &tree_q, &dialogue_q, &glyph_q, &mut loot_chest_q,
+          &door_q, &named_q, &flight_console_q, &loadout_console_q,
+          &galaxy, inventory, equipped
+        )
+      })
+      .collect();
 
     let highlighted = options.iter().map(|o| is_equipped(&o.action, equipped)).collect();
     match options.len() {
