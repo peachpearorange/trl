@@ -102,14 +102,22 @@ pub fn log_spans(log: &mut LogEntries, line: LogLine) {
 pub enum OverlayKind {
   PauseMain,
   PauseControls,
-  /// Numbered option labels, same format as `Interact` (1) text …).
-  Interact(Vec<String>),
+  /// Clickable option list with a scrollable cursor (W/S) and highlighted equipped items.
+  Interact {
+    options: Vec<String>,
+    selected: usize,
+    highlighted: Vec<bool>
+  },
   /// While talking: show numbered replies (1) text …) over the playfield.
   Dialogue {
     title: String,
     options: Vec<String>
   }
 }
+
+/// Written by the Haalka click handler; read + cleared by `handle_menus` each frame.
+#[derive(Resource, Default)]
+pub struct MenuClickPending(pub Option<usize>);
 
 /// Formatted inventory string, updated by sync_ui.
 #[derive(Resource, Clone, Default)]
@@ -137,6 +145,7 @@ const HP_YELLOW: Color = Color::srgb(0.85, 0.75, 0.25);
 const HP_RED: Color = Color::srgb(0.85, 0.30, 0.30);
 const OVERLAY_DIM: Color = Color::srgba(0.0, 0.0, 0.0, 0.50);
 const DIALOGUE_OVERLAY_DIM: Color = Color::srgba(0.0, 0.0, 0.0, 0.68);
+const EQUIP_HIGHLIGHT: Color = Color::srgb(1.0, 0.85, 0.15);
 
 const FONT_SIZE_LABEL: f32 = 15.0;
 const FONT_SIZE_BODY: f32 = 17.0;
@@ -171,6 +180,7 @@ impl Plugin for UiPlugin {
       .init_resource::<LogDisplayData>()
       .init_resource::<InvDisplayData>()
       .init_resource::<OverlayData>()
+      .init_resource::<MenuClickPending>()
       .add_systems(PostUpdate, sync_ui.before(SignalProcessing));
   }
 }
@@ -634,9 +644,9 @@ fn status_bar() -> impl Element {
 // ---------------------------------------------------------------------------
 
 fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
-  signal::from_resource::<OverlayData>().map_in(|data| {
-    data.kind.as_ref().map(|kind| {
-      if let OverlayKind::Dialogue { title, options } = kind {
+  signal::from_resource_changed::<OverlayData>().map_in(|data| {
+    data.kind.map(|kind| match kind {
+      OverlayKind::Dialogue { title, options } => {
         let mut lines: Vec<String> =
           options.iter().enumerate().map(|(i, t)| format!("{}) {}", i + 1, t)).collect();
         lines.push(String::new());
@@ -663,45 +673,84 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
               })
               .background_color(BackgroundColor(DIALOGUE_PANEL_BG))
               .border_color(BorderColor::all(BORDER))
-              .item(static_text(title.as_str(), FONT_SIZE_TITLE, LIGHT_TEXT, W_STRONG))
+              .item(static_text(title, FONT_SIZE_TITLE, LIGHT_TEXT, W_STRONG))
               .items(
                 lines
                   .into_iter()
                   .map(|l| static_text(l, FONT_SIZE_BODY, LIGHT_TEXT, W_OVERLAY))
               )
           )
-      } else {
-        let label = match kind {
-          OverlayKind::PauseMain => "Paused",
-          OverlayKind::PauseControls => "Controls",
-          OverlayKind::Interact(_) => "Use what?",
-          OverlayKind::Dialogue { .. } => "?"
+      }
+      OverlayKind::Interact { options, selected, highlighted } => {
+        El::<Node>::new()
+          .with_node(|mut n| {
+            n.width = Val::Percent(100.);
+            n.height = Val::Percent(100.0);
+          })
+          .background_color(BackgroundColor(OVERLAY_DIM))
+          .align(Align::center())
+          .align_content(Align::center())
+          .child(
+            Column::<Node>::new()
+              .with_node(|mut n| {
+                n.border_radius = BorderRadius::all(Val::Px(6.0));
+                n.padding = UiRect::all(Val::Px(16.));
+                n.row_gap = Val::Px(2.0);
+                n.min_width = Val::Px(300.0);
+              })
+              .background_color(BackgroundColor(DARK_BG))
+              .border_color(BorderColor::all(BORDER))
+              .item(static_text("Use what?", FONT_SIZE_TITLE, LIGHT_TEXT, W_STRONG))
+              .items(options.into_iter().enumerate().map(move |(i, opt)| {
+                let is_sel = selected == i;
+                let is_hi = highlighted.get(i).copied().unwrap_or(false);
+                let color =
+                  if is_hi { EQUIP_HIGHLIGHT } else if is_sel { LIGHT_TEXT } else { DIM_TEXT };
+                let prefix = if is_sel { ">" } else { " " };
+                let text = format!("{prefix} {opt}");
+                Row::<Node>::new()
+                  .with_node(|mut n| {
+                    n.width = Val::Percent(100.0);
+                    n.padding = UiRect::vertical(Val::Px(1.0));
+                  })
+                  .item(static_text(text, FONT_SIZE_BODY, color, W_OVERLAY))
+                  .on_click(move |_: In<_>, mut pending: ResMut<MenuClickPending>| {
+                    pending.0 = Some(i);
+                  })
+              }))
+              .item(static_text("", FONT_SIZE_BODY, DIM_TEXT, W_OVERLAY))
+              .item(static_text(
+                "W/S navigate  A/D/Enter confirm  Space cancel",
+                FONT_SIZE_SMALL,
+                DIM_TEXT,
+                W_OVERLAY
+              ))
+          )
+      }
+      kind => {
+        let (label, lines) = match &kind {
+          OverlayKind::PauseMain => (
+            "Paused",
+            vec![
+              "1) Resume".into(),
+              "2) Controls".into(),
+              "3) Quit Game".into(),
+              String::new(),
+              "Space to resume".into(),
+            ]
+          ),
+          OverlayKind::PauseControls => (
+            "Controls",
+            vec![
+              "WASD / Arrows   move".into(),
+              "Space           use / interact".into(),
+              ".               wait".into(),
+              "?               controls".into(),
+              "Tab             pause menu".into(),
+            ]
+          ),
+          _ => ("", vec![])
         };
-        let lines: Vec<String> = match kind {
-          OverlayKind::Dialogue { .. } => vec![],
-          OverlayKind::PauseMain => vec![
-            "1) Resume".into(),
-            "2) Controls".into(),
-            "3) Quit Game".into(),
-            String::new(),
-            "Space to resume".into(),
-          ],
-          OverlayKind::PauseControls => vec![
-            "WASD / Arrows   move".into(),
-            "Space           use / interact".into(),
-            ".               wait".into(),
-            "?               controls".into(),
-            "Tab             pause menu".into(),
-          ],
-          OverlayKind::Interact(opts) => opts
-            .iter()
-            .enumerate()
-            .map(|(i, o)| format!("{}) {}", i + 1, o))
-            .chain(core::iter::once(String::new()))
-            .chain(core::iter::once("Space to cancel".into()))
-            .collect()
-        };
-
         El::<Node>::new()
           .with_node(|mut n| {
             n.width = Val::Percent(100.);
@@ -731,7 +780,7 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
   })
 }
 
-#[derive(Resource, Clone, Default)]
+#[derive(Resource, Clone, Default, PartialEq)]
 pub struct OverlayData {
   pub kind: Option<OverlayKind>
 }
@@ -792,15 +841,19 @@ fn sync_ui(
   *hover_info =
     compute_hover_info(&windows, &camera_q, &current, player_q, &fov, &index, &named_q);
 
-  // ── Overlay state ──
-  overlay.kind = match ui.pause {
+  // ── Overlay state — only write when the value actually changes ──
+  let new_overlay_kind = match ui.pause {
     crate::PauseMenu::Closed => None,
     crate::PauseMenu::Main => Some(OverlayKind::PauseMain),
     crate::PauseMenu::Controls => Some(OverlayKind::PauseControls)
   }
   .or_else(|| match &ui.interact {
-    crate::InteractMenu::Open { options } => {
-      Some(OverlayKind::Interact(mapv(|o| o.label.clone(), options)))
+    crate::InteractMenu::Open { options, selected, highlighted } => {
+      Some(OverlayKind::Interact {
+        options: mapv(|o| o.label.clone(), options),
+        selected: *selected,
+        highlighted: highlighted.clone()
+      })
     }
     crate::InteractMenu::Closed => None
   })
@@ -815,6 +868,9 @@ fn sync_ui(
     }
     crate::DialogueState::Closed => None
   });
+  if overlay.kind != new_overlay_kind {
+    overlay.kind = new_overlay_kind;
+  }
 
   // ── Log: oldest at top, newest at bottom; keep last 50 lines ──
   {

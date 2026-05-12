@@ -173,7 +173,11 @@ pub fn handle_ability_click(
               let name = named.map(|n| n.name).unwrap_or("Enemy");
               log_message(&mut log, format!("You shoot {} for {} damage!", name, attack));
             } else {
-              log_message(&mut log, "Your shot hits nothing.".into());
+              log_message(&mut log, if (tx, ty) != (cursor_tx, cursor_ty) {
+                "Your shot hit the wall."
+              } else {
+                "Your shot hits nothing."
+              }.into());
             }
             true
           }

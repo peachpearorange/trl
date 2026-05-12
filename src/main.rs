@@ -31,7 +31,7 @@ use {bevy::prelude::*,
                        DialogueTree, Door, Enemy, FixedChestLoot, FlightConsole, Glyph,
                        LoadoutConsole, Location, LootChest, Named, PlayerEquipped, Stats,
                        Tree, Visuals},
-     ui::{LogEntries, LogSpan, log_message, log_spans}};
+     ui::{LogEntries, LogSpan, MenuClickPending, log_message, log_spans}};
 
 use {active_zone::ActiveZone,
      sprites::{PaletteImageCache, palette_sprite_handle}};
@@ -113,7 +113,9 @@ pub enum InteractMenu {
   #[default]
   Closed,
   Open {
-    options: Vec<InteractionOption>
+    options: Vec<InteractionOption>,
+    selected: usize,
+    highlighted: Vec<bool>
   }
 }
 
@@ -1166,47 +1168,78 @@ fn handle_menus(
   )>,
   mut pending_chest: ResMut<ChestOpenPending>,
   mut pending_nav: ResMut<PendingNavigation>,
-  mut exit: MessageWriter<AppExit>
+  mut exit: MessageWriter<AppExit>,
+  mut menu_click: ResMut<MenuClickPending>
 ) {
-  if let InteractMenu::Open { options } = &ui.interact {
+  // Extract what we need before any mutation so the borrow checker is happy.
+  let n_opts =
+    if let InteractMenu::Open { ref options, .. } = ui.interact { options.len() } else { 0 };
+  let cur_sel =
+    if let InteractMenu::Open { selected, .. } = ui.interact { selected } else { 0 };
+
+  if matches!(ui.interact, InteractMenu::Open { .. }) {
     if keys.just_pressed(KeyCode::Space) {
       ui.interact = InteractMenu::Closed;
       ui.space_consumed = true;
-    } else if let Some(idx) = [
-      KeyCode::Digit1,
-      KeyCode::Digit2,
-      KeyCode::Digit3,
-      KeyCode::Digit4,
-      KeyCode::Digit5,
-      KeyCode::Digit6,
-      KeyCode::Digit7,
-      KeyCode::Digit8,
-      KeyCode::Digit9
-    ]
-    .iter()
-    .position(|k| keys.just_pressed(*k))
-      && idx < options.len()
-    {
-      let option = options[idx].clone();
-      ui.interact = InteractMenu::Closed;
-      dispatch_interactive_choice(
-        option,
-        &mut commands,
-        &mut gw.0,
-        &mut clock,
-        &mut tb,
-        &mut ui,
-        &mut log,
-        &mut player_query,
-        &mut pending_chest,
-        &mut pending_nav,
-        &mut door_q,
-        &asset_server,
-        &mut palette_cache,
-        &mut images
-      );
+    } else if keys.just_pressed(KeyCode::KeyW) || keys.just_pressed(KeyCode::ArrowUp) {
+      if let InteractMenu::Open { ref mut selected, .. } = ui.interact {
+        *selected = cur_sel.saturating_sub(1);
+      }
+    } else if keys.just_pressed(KeyCode::KeyS) || keys.just_pressed(KeyCode::ArrowDown) {
+      if let InteractMenu::Open { ref mut selected, .. } = ui.interact {
+        *selected = (cur_sel + 1).min(n_opts.saturating_sub(1));
+      }
+    } else {
+      let exec_idx: Option<usize> = if keys.just_pressed(KeyCode::KeyA)
+        || keys.just_pressed(KeyCode::KeyD)
+        || keys.just_pressed(KeyCode::Enter)
+      {
+        Some(cur_sel)
+      } else if let Some(idx) = [
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit3,
+        KeyCode::Digit4,
+        KeyCode::Digit5,
+        KeyCode::Digit6,
+        KeyCode::Digit7,
+        KeyCode::Digit8,
+        KeyCode::Digit9
+      ]
+      .iter()
+      .position(|k| keys.just_pressed(*k))
+        && idx < n_opts
+      {
+        Some(idx)
+      } else {
+        menu_click.0.take().filter(|&i| i < n_opts)
+      };
+
+      if let Some(idx) = exec_idx
+        && let InteractMenu::Open { ref options, .. } = ui.interact
+        && let Some(option) = options.get(idx).cloned()
+      {
+        ui.interact = InteractMenu::Closed;
+        dispatch_interactive_choice(
+          option,
+          &mut commands,
+          &mut gw.0,
+          &mut clock,
+          &mut tb,
+          &mut ui,
+          &mut log,
+          &mut player_query,
+          &mut pending_chest,
+          &mut pending_nav,
+          &mut door_q,
+          &asset_server,
+          &mut palette_cache,
+          &mut images
+        );
+      }
     }
   } else {
+    menu_click.0 = None; // discard stale clicks when no menu is open
     match ui.pause {
       PauseMenu::Closed => {
         let open = keys.just_pressed(KeyCode::Tab)
@@ -1430,14 +1463,18 @@ fn handle_utility_menus(
           "Nothing to salvage (gear, consumables, some junk).".into()
         );
       } else {
-        ui.interact = InteractMenu::Open { options: opts };
+        let n = opts.len();
+        ui.interact =
+          InteractMenu::Open { options: opts, selected: 0, highlighted: vec![false; n] };
       }
     } else if keys.just_pressed(KeyCode::KeyC) {
       let opts = build_craft_options(&inv.0);
       if opts.is_empty() {
         log_message(&mut *log, "No recipes available — gather base components.".into());
       } else {
-        ui.interact = InteractMenu::Open { options: opts };
+        let n = opts.len();
+        ui.interact =
+          InteractMenu::Open { options: opts, selected: 0, highlighted: vec![false; n] };
       }
     }
   }
@@ -1648,6 +1685,18 @@ fn auto_close_airlocks(
 /// If so and the adjacent zone exists and target tile is walkable, perform the transition.
 /// Returns true if a transition happened (or was blocked at world boundary) — caller skips normal move.
 
+fn is_equipped(action: &InteractionAction, equipped: &PlayerEquipped) -> bool {
+  match action {
+    InteractionAction::UnequipWeapon => equipped.weapon.is_some(),
+    InteractionAction::UnequipArmor => equipped.armor.is_some(),
+    InteractionAction::UnequipGrenade { slot } => equipped.grenades[*slot].is_some(),
+    InteractionAction::EquipWeapon(item) => equipped.weapon == Some(*item),
+    InteractionAction::EquipArmor(item) => equipped.armor == Some(*item),
+    InteractionAction::EquipGrenade { slot, item } => equipped.grenades[*slot] == Some(*item),
+    _ => false
+  }
+}
+
 /// Separate system for Space key interactions to avoid Bevy's system param limit.
 fn loadout_options(inventory: &Inventory, equipped: &PlayerEquipped) -> Vec<InteractionOption> {
   let weapon_name = equipped.weapon.map(|w| w.name()).unwrap_or("(empty)");
@@ -1851,10 +1900,11 @@ fn resolve_bump_interact(
       inventory,
       equipped
     );
+    let highlighted = opts.iter().map(|o| is_equipped(&o.action, equipped)).collect();
     match opts.len() {
       0 => {}
       1 => flash.0 = opts.into_iter().next(),
-      _ => ui.interact = InteractMenu::Open { options: opts }
+      _ => ui.interact = InteractMenu::Open { options: opts, selected: 0, highlighted }
     }
   }
 }
@@ -1978,10 +2028,11 @@ fn handle_interact(
       }
     }
 
+    let highlighted = options.iter().map(|o| is_equipped(&o.action, equipped)).collect();
     match options.len() {
       0 => {}
       1 => flash.0 = options.into_iter().next(),
-      _ => ui.interact = InteractMenu::Open { options }
+      _ => ui.interact = InteractMenu::Open { options, selected: 0, highlighted }
     }
   }
 }
