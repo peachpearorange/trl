@@ -39,7 +39,9 @@ pub enum Item {
   SynthHelmet,
   StimPack,
   CannedGoods,
-  FilterWater
+  FilterWater,
+  FragGrenade,
+  StunGrenade
 }
 
 impl Item {
@@ -69,7 +71,9 @@ impl Item {
       Item::SynthHelmet => "Synth Helmet",
       Item::StimPack => "Stim Pack",
       Item::CannedGoods => "Canned Goods",
-      Item::FilterWater => "Filtered Water"
+      Item::FilterWater => "Filtered Water",
+      Item::FragGrenade => "Frag Grenade",
+      Item::StunGrenade => "Stun Grenade"
     }
   }
 
@@ -99,7 +103,9 @@ impl Item {
       Item::SynthHelmet => "^",
       Item::StimPack => "+",
       Item::CannedGoods => "o",
-      Item::FilterWater => "u"
+      Item::FilterWater => "u",
+      Item::FragGrenade => "g",
+      Item::StunGrenade => "g"
     }
   }
 
@@ -129,7 +135,9 @@ impl Item {
       Item::SynthHelmet => [0.55, 0.72, 0.62],
       Item::StimPack => [0.95, 0.35, 0.45],
       Item::CannedGoods => [0.85, 0.35, 0.12],
-      Item::FilterWater => [0.35, 0.65, 0.95]
+      Item::FilterWater => [0.35, 0.65, 0.95],
+      Item::FragGrenade => [0.55, 0.78, 0.35],
+      Item::StunGrenade => [0.35, 0.72, 0.92]
     }
   }
 
@@ -157,6 +165,8 @@ impl Item {
       }
       Item::CannedGoods => &[(Item::Steel, 1), (Item::OrganicMaterial, 2)],
       Item::FilterWater => &[(Item::Glass, 2), (Item::OrganicMaterial, 1)],
+      Item::FragGrenade => &[(Item::Steel, 1), (Item::Copper, 1), (Item::Screws, 2)],
+      Item::StunGrenade => &[(Item::Crystal, 1), (Item::Copper, 1), (Item::Screws, 2)],
       Item::Torch => &[(Item::Wood, 1), (Item::OrganicMaterial, 1)],
       Item::Rock => &[(Item::Crystal, 1)],
       Item::Mushroom => &[(Item::OrganicMaterial, 2)],

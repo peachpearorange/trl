@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use {crate::{entities::{Glyph, Named, Object, Stats},
-             level::{Level, Tile},
+             level::{Item, Level, Tile},
              npcs},
      bevy::prelude::{Color, Commands}};
 
@@ -218,7 +218,11 @@ impl Prefab {
     .assoc('B', (Tile::WoodTile, [Object::bed()]))
     .assoc('T', (Tile::WoodTile, [Object::table()]))
     .assoc('L', (Tile::WoodTile, [Object::locker()]))
-    .assoc('X', (Tile::WoodTile, [Object::crate_obj()]))
+    .assoc('X', (Tile::WoodTile, [Object::supply_cache(&[
+      (Item::PipeRevolver, 1),
+      (Item::FragGrenade, 2),
+      (Item::StunGrenade, 1)
+    ])]))
     .assoc('m', (Tile::WoodTile, [npcs::mira::mira()]))
     .assoc('H', (Tile::DeckPlate, [npcs::chronos::chronos()]))
     .assoc('U', (Tile::DeckPlate, [npcs::unit7::unit7()]))

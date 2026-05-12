@@ -26,8 +26,9 @@ use {bevy::prelude::*,
      level::{FovGrid, Item, LocationType, Tile, ZONE_HEIGHT, ZONE_WIDTH, compute_fov},
      std::collections::{HashMap, HashSet},
      crate::entities::{AirlockDoor, BlocksSight, Collidable, Dialogue, DialogueNode,
-                       DialogueTree, Door, Enemy, FlightConsole, Glyph, LoadoutConsole,
-                       Location, LootChest, Named, PlayerEquipped, Stats, Tree, Visuals},
+                       DialogueTree, Door, Enemy, FixedChestLoot, FlightConsole, Glyph,
+                       LoadoutConsole, Location, LootChest, Named, PlayerEquipped, Stats,
+                       Tree, Visuals},
      ui::{LogEntries, LogSpan, log_message, log_spans}};
 
 use {active_zone::ActiveZone,
@@ -1286,6 +1287,7 @@ fn apply_open_chest(
   entity: Entity,
   player_query: &mut Query<(&mut PlayerPos, &mut Inventory, &mut PlayerEquipped), With<Player>>,
   loot_chest_q: &mut Query<(&mut LootChest, &mut Glyph, &Location)>,
+  fixed_q: &Query<&FixedChestLoot>,
   log: &mut LogEntries,
   clock: &mut Clock,
   tb: &mut TurnBasedWorldState
@@ -1295,7 +1297,10 @@ fn apply_open_chest(
     && let Ok((_, mut inventory, _)) = player_query.single_mut()
     && let &Location::Coords { x: cx, y: cy, z: cz, .. } = loc
   {
-    let bundles = loot::roll_chest_loot(42u64, cx, cy, cz);
+    let bundles: Vec<(Item, u32)> = fixed_q
+      .get(entity)
+      .map(|f| f.0.to_vec())
+      .unwrap_or_else(|_| loot::roll_chest_loot(42u64, cx, cy, cz));
     let kinds = bundles.len();
     for (item, qty) in bundles {
       *inventory.0.entry(item).or_insert(0) += qty;
@@ -1837,6 +1842,7 @@ fn flush_pending_chest_open(
   mut commands: Commands,
   mut player_q: Query<(&mut PlayerPos, &mut Inventory, &mut PlayerEquipped), With<Player>>,
   mut loot_chest_q: Query<(&mut LootChest, &mut Glyph, &Location)>,
+  fixed_q: Query<&FixedChestLoot>,
   mut log: ResMut<LogEntries>,
   mut clock: ResMut<Clock>,
   mut tb: ResMut<TurnBasedWorldState>
@@ -1847,6 +1853,7 @@ fn flush_pending_chest_open(
       ent,
       &mut player_q,
       &mut loot_chest_q,
+      &fixed_q,
       &mut *log,
       &mut *clock,
       &mut *tb

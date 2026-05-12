@@ -189,6 +189,10 @@ pub struct LootChest {
   pub opened: bool
 }
 
+/// Optional override for a [`LootChest`]: gives exactly these items instead of proc-gen loot.
+#[derive(Component, Clone, Debug)]
+pub struct FixedChestLoot(pub &'static [(crate::level::Item, u32)]);
+
 /// Entity occupies its tile for line-of-sight (like an opaque tile) but need not block movement.
 #[derive(Component, Clone, Copy)]
 pub struct BlocksSight;
@@ -624,6 +628,25 @@ impl Object {
         Color::srgb(0.72, 0.60, 0.38)
       ),
       Named { name: "Crate", flavor: "A battered storage crate. Probably empty." }
+    ))
+  }
+
+  /// A ship-side supply cache — loot chest with fixed starter gear.
+  pub fn supply_cache(contents: &'static [(crate::level::Item, u32)]) -> Self {
+    Self::new((
+      Collidable(true),
+      LootChest { opened: false },
+      FixedChestLoot(contents),
+      Glyph::palette_sprite(
+        "textures/space_qud/crate.png",
+        'S',
+        Color::srgb(0.28, 0.42, 0.52),
+        Color::srgb(0.52, 0.75, 0.88)
+      ),
+      Named {
+        name: "Supply Cache",
+        flavor: "A sealed cache. Whoever left this behind had plans they didn't finish."
+      }
     ))
   }
 
