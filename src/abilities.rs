@@ -215,7 +215,9 @@ pub fn handle_ability_click(
           targeting.cooldowns.insert(slot.kind.clone(), max_cd);
           clock.spend_turn(&mut tb);
         }
-        targeting.selected = None;
+        if !fired {
+          targeting.selected = None;
+        }
       }
     }
   }
