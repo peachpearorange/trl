@@ -6,6 +6,7 @@ use {std::collections::HashMap,
      crate::{Clock, CurrentZone, Inventory, Player, PlayerPos, TurnBasedWorldState, UiState,
              entities::{Enemy, Location, Named, Object, PlayerEquipped, Stats},
              level::Item,
+             particles::{ParticleEffects, spawn_bullet_spark, spawn_explosion_burst},
              path_overlay::ray_cast_target,
              ui::{LogEntries, log_message}}};
 
@@ -129,7 +130,8 @@ pub fn handle_ability_click(
   mut commands: Commands,
   mut log: ResMut<LogEntries>,
   mut clock: ResMut<Clock>,
-  mut tb: ResMut<TurnBasedWorldState>
+  mut tb: ResMut<TurnBasedWorldState>,
+  effects: Res<ParticleEffects>
 ) {
   if let Some(slot_idx) = targeting.selected
     && mouse.just_pressed(MouseButton::Left)
@@ -163,6 +165,8 @@ pub fn handle_ability_click(
                 matches!(loc, Location::Coords { x, y, z, .. } if *x == px && *y == py && *z == pos.z)
               })
             }).copied();
+            let spark_pos = hit_pos.unwrap_or((tx, ty));
+            spawn_bullet_spark(&mut commands, &effects, spark_pos);
             if let Some((hx, hy)) = hit_pos
               && let Some((_, mut stats, named)) = enemy_q.iter_mut().find(|(loc, _, _)| {
                 matches!(loc, Location::Coords { x, y, z, .. } if *x == hx && *y == hy && *z == pos.z)
@@ -198,6 +202,7 @@ pub fn handle_ability_click(
                   Object::explosion_cloud().spawn_at(&mut commands, ex, ey, pos.z);
                 }
               }
+              spawn_explosion_burst(&mut commands, &effects, (tx, ty));
               log_message(&mut log, format!("You throw a {}!", item.name()));
               true
             }

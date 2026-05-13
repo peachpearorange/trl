@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 bevy = { version = "0.18.1" }
+bevy_hanabi = "0.18"
 rand = "*"
 serde = { version = "*", features = ["derive"] }
 image = "*"

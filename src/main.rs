@@ -15,6 +15,7 @@ pub mod sprites;
 pub mod tiles;
 mod abilities;
 mod combat;
+mod particles;
 mod path_overlay;
 mod crafting;
 mod locations;
@@ -580,6 +581,7 @@ fn main() {
     .init_resource::<abilities::TargetingState>()
     .init_resource::<path_overlay::RangedPathOverlay>()
     .add_plugins(ui::UiPlugin)
+    .add_plugins(particles::ParticlesPlugin)
     .add_systems(Startup, (setup, ui::spawn_haalka_root).chain())
     .configure_sets(Update, SimStep.run_if(should_run_sim_step)
       .after(FramePipeline::BumpRender).before(FramePipeline::PlayerMove))

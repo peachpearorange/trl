@@ -4,6 +4,7 @@ use {bevy::prelude::*,
      crate::{entities::{Collidable, DamageCloud, Enemy, GrenadeThrowComp, Location, Named,
                         Object, PlayerEquipped, SporeEmitter, Stats, TimeSinceAction,
                         WalkAroundRandomly, Wearing},
+             particles::{ParticleEffects, spawn_explosion_burst},
              tiles::Tile,
              ui::{LogEntries, log_message}}};
 
@@ -245,7 +246,8 @@ pub fn grenade_thrower_ai(
   mut commands: Commands,
   mut log: ResMut<LogEntries>,
   player_q: Query<&crate::PlayerPos, With<crate::Player>>,
-  mut thrower_q: Query<(&Location, &mut GrenadeThrowComp, Option<&Named>), With<Enemy>>
+  mut thrower_q: Query<(&Location, &mut GrenadeThrowComp, Option<&Named>), With<Enemy>>,
+  effects: Res<ParticleEffects>
 ) {
   if let Ok(&crate::PlayerPos { x: px, y: py, z: pz }) = player_q.single() {
     for (location, mut comp, named) in thrower_q.iter_mut() {
@@ -260,32 +262,41 @@ pub fn grenade_thrower_ai(
         let name = named.map(|n| n.name).unwrap_or("Something");
         log_message(&mut log, format!("{name} hurls a grenade!"));
         spawn_cloud_area(&mut commands, px, py, pz, Object::explosion_cloud(), &EXPLOSION_OFFSETS);
+        spawn_explosion_burst(&mut commands, &effects, (px, py));
       }
     }
   }
 }
 
-/// Each sim step: advance [`DamageCloud`] timers, deal damage when the player shares a tile,
-/// and despawn clouds whose lifetimes have expired.
+/// Each sim step: advance [`DamageCloud`] timers, deal damage to any entity (player or enemy)
+/// sharing a tile with the cloud, and despawn clouds whose lifetimes have expired.
 pub fn damage_cloud_tick(
   mut commands: Commands,
   mut log: ResMut<LogEntries>,
   mut player_q: Query<(&crate::PlayerPos, &mut Stats), With<crate::Player>>,
+  mut enemy_q: Query<(&Location, &mut Stats, Option<&Named>), (With<Enemy>, Without<crate::Player>)>,
   mut cloud_q: Query<(Entity, &Location, &mut DamageCloud, Option<&Named>)>
 ) {
   if let Ok((&crate::PlayerPos { x: px, y: py, z: pz }, mut player_stats)) =
     player_q.single_mut()
   {
-    for (entity, location, mut cloud, named) in cloud_q.iter_mut() {
+    for (entity, location, mut cloud, source_name) in cloud_q.iter_mut() {
       cloud.tick_timer += 1;
       if cloud.tick_timer >= cloud.tick_interval {
         cloud.tick_timer = 0;
-        if let &Location::Coords { x, y, z, .. } = location
-          && x == px && y == py && z == pz
-        {
-          player_stats.hp = (player_stats.hp - cloud.damage_per_tick).max(0);
-          let source = named.map(|n| n.name).unwrap_or("Something");
-          log_message(&mut log, format!("{source} damages you for {}.", cloud.damage_per_tick));
+        if let &Location::Coords { x: cx, y: cy, z: cz, .. } = location {
+          if cx == px && cy == py && cz == pz {
+            player_stats.hp = (player_stats.hp - cloud.damage_per_tick).max(0);
+            let source = source_name.map(|n| n.name).unwrap_or("Something");
+            log_message(&mut log, format!("{source} damages you for {}.", cloud.damage_per_tick));
+          }
+          for (eloc, mut estats, _) in enemy_q.iter_mut() {
+            if let &Location::Coords { x: ex, y: ey, z: ez, .. } = eloc
+              && ex == cx && ey == cy && ez == cz
+            {
+              estats.hp -= cloud.damage_per_tick;
+            }
+          }
         }
         if cloud.ticks_remaining <= 1 {
           commands.entity(entity).despawn();
