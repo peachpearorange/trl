@@ -168,7 +168,7 @@ pub fn handle_ability_click(
             // Trail ends at the hit enemy tile or the ray endpoint.
             let trail_end = hit_pos.unwrap_or((tx, ty));
             let trail_path = bresenham_path(pos.x, pos.y, trail_end.0, trail_end.1);
-            spawn_bullet_trail(&mut commands, &effects, &trail_path);
+            spawn_bullet_trail(&mut commands, &effects, &trail_path, level.width, level.height);
             if let Some((hx, hy)) = hit_pos
               && let Some((_, mut stats, named)) = enemy_q.iter_mut().find(|(loc, _, _)| {
                 matches!(loc, Location::Coords { x, y, z, .. } if *x == hx && *y == hy && *z == pos.z)
@@ -204,7 +204,7 @@ pub fn handle_ability_click(
                   Object::explosion_cloud().spawn_at(&mut commands, ex, ey, pos.z);
                 }
               }
-              spawn_explosion_burst(&mut commands, &effects, (tx, ty));
+              spawn_explosion_burst(&mut commands, &effects, (tx, ty), level.width, level.height);
               log_message(&mut log, format!("You throw a {}!", item.name()));
               true
             }

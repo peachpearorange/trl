@@ -245,11 +245,13 @@ pub fn mushroom_spore_attack(
 pub fn grenade_thrower_ai(
   mut commands: Commands,
   mut log: ResMut<LogEntries>,
+  current: Res<crate::CurrentZone>,
   player_q: Query<&crate::PlayerPos, With<crate::Player>>,
   mut thrower_q: Query<(&Location, &mut GrenadeThrowComp, Option<&Named>), With<Enemy>>,
   effects: Res<ParticleEffects>
 ) {
   if let Ok(&crate::PlayerPos { x: px, y: py, z: pz }) = player_q.single() {
+    let level = current.0.level(pz);
     for (location, mut comp, named) in thrower_q.iter_mut() {
       comp.timer = comp.timer.saturating_add(1);
       if let Location::Coords { z: ez, .. } = *location
@@ -262,7 +264,7 @@ pub fn grenade_thrower_ai(
         let name = named.map(|n| n.name).unwrap_or("Something");
         log_message(&mut log, format!("{name} hurls a grenade!"));
         spawn_cloud_area(&mut commands, px, py, pz, Object::explosion_cloud(), &EXPLOSION_OFFSETS);
-        spawn_explosion_burst(&mut commands, &effects, (px, py));
+        spawn_explosion_burst(&mut commands, &effects, (px, py), level.width, level.height);
       }
     }
   }

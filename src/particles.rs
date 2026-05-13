@@ -42,11 +42,13 @@ impl Plugin for ParticlesPlugin {
 // Coordinate helper
 // ---------------------------------------------------------------------------
 
-/// Convert a grid cell to world-space Vec3, above all sprites (sprites sit at z ≈ 2).
-pub fn grid_world(x: i32, y: i32) -> Vec3 {
+/// Convert a grid cell to world-space Vec3 using the *actual* level dimensions.
+/// Mirrors `tile_screen_pos` — must use the same `w`/`h` that the renderer uses,
+/// not the hardcoded `ZONE_WIDTH`/`ZONE_HEIGHT` constants (which differ per location).
+pub fn grid_world(x: i32, y: i32, w: usize, h: usize) -> Vec3 {
   Vec3::new(
-    (x as f32 - ZONE_WIDTH as f32 / 2.0) * TILE_SIZE,
-    (ZONE_HEIGHT as f32 / 2.0 - y as f32) * TILE_SIZE,
+    (x as f32 - w as f32 / 2.0) * TILE_SIZE,
+    (h as f32 / 2.0 - y as f32) * TILE_SIZE,
     5.0,
   )
 }
@@ -162,38 +164,42 @@ fn setup_particle_effects(mut commands: Commands, mut effects: ResMut<Assets<Eff
 
 /// Spawn a visible bullet trail along the bresenham path (skipping the shooter tile)
 /// plus an impact spark at the end.
+/// `level_w`/`level_h` must be the actual dimensions of the current level.
 pub fn spawn_bullet_trail(
   commands: &mut Commands,
   effects: &ParticleEffects,
-  path: &[(i32, i32)]
+  path: &[(i32, i32)],
+  level_w: usize,
+  level_h: usize
 ) {
-  // One tracer dot per tile on the path (skip tile 0 = shooter position).
   for &(x, y) in path.iter().skip(1) {
     commands.spawn((
       ParticleEffect::new(effects.bullet_tracer.clone()),
-      Transform::from_translation(grid_world(x, y)),
+      Transform::from_translation(grid_world(x, y, level_w, level_h)),
       EffectLifetime(Timer::from_seconds(0.3, TimerMode::Once)),
     ));
   }
-  // Larger spark at the final tile (hit/wall/miss endpoint).
   if let Some(&(x, y)) = path.last() {
     commands.spawn((
       ParticleEffect::new(effects.bullet_spark.clone()),
-      Transform::from_translation(grid_world(x, y)),
+      Transform::from_translation(grid_world(x, y, level_w, level_h)),
       EffectLifetime(Timer::from_seconds(0.6, TimerMode::Once)),
     ));
   }
 }
 
 /// Spawn a large explosion burst centered on the given grid tile.
+/// `level_w`/`level_h` must be the actual dimensions of the current level.
 pub fn spawn_explosion_burst(
   commands: &mut Commands,
   effects: &ParticleEffects,
-  at: (i32, i32)
+  at: (i32, i32),
+  level_w: usize,
+  level_h: usize
 ) {
   commands.spawn((
     ParticleEffect::new(effects.explosion.clone()),
-    Transform::from_translation(grid_world(at.0, at.1)),
+    Transform::from_translation(grid_world(at.0, at.1, level_w, level_h)),
     EffectLifetime(Timer::from_seconds(2.0, TimerMode::Once)),
   ));
 }
