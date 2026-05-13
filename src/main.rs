@@ -534,6 +534,9 @@ fn main() {
   galaxy.insert(locations::lava_planet::ID, locations::lava_planet::generate());
   galaxy.insert(locations::mushroom_planet::ID, locations::mushroom_planet::generate());
   galaxy.insert(locations::gamma_station::ID, locations::gamma_station::generate());
+  for (id, loc) in locations::planet_gen::all() {
+    galaxy.insert(id, loc);
+  }
 
   // Ship starts docked at the starter planet
   let active = active_zone::ActiveZone::docked(&ship_location, &starter_planet)

@@ -10,9 +10,49 @@ use bevy_ghx_proc_gen::proc_gen::{
 };
 
 use crate::{
-    galaxy::Location,
+    galaxy::{Location, LocationId},
     level::{LocationType, Tile},
 };
+
+pub const ID_ALIEN_JUNGLE: LocationId  = (4, 0, 0);
+pub const ID_CRYSTAL_CAVES: LocationId = (5, 0, 0);
+pub const ID_ARCTIC_WASTE: LocationId  = (6, 0, 0);
+pub const ID_DESERT_WORLD: LocationId  = (1, 1, 0);
+
+/// Generate all proc-gen planets and return (id, location) pairs ready for
+/// `galaxy.insert`.
+pub fn all() -> Vec<(LocationId, Location)> {
+    vec![
+        (
+            ID_ALIEN_JUNGLE,
+            generate(&PlanetParams::alien("Xel-Nara IV")
+                .with_water(0.35)
+                .with_vegetation(0.6)
+                .with_seed(0xDEAD_BEEF)),
+        ),
+        (
+            ID_CRYSTAL_CAVES,
+            generate(&PlanetParams::crystal("Keth Caverns")
+                .with_rocks(0.4)
+                .with_vegetation(0.4)
+                .with_seed(0x1337_C0DE)),
+        ),
+        (
+            ID_ARCTIC_WASTE,
+            generate(&PlanetParams::arctic("Boreas Prime")
+                .with_water(0.25)
+                .with_rocks(0.3)
+                .with_seed(0xFEED_FACE)),
+        ),
+        (
+            ID_DESERT_WORLD,
+            generate(&PlanetParams::desert("Khamsin Reach")
+                .with_water(0.08)
+                .with_rocks(0.35)
+                .with_seed(0xCAFE_BABE)),
+        ),
+    ]
+}
 
 pub const PLANET_SIZE: usize = 100;
 
