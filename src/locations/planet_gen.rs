@@ -1,0 +1,280 @@
+use bevy_ghx_proc_gen::proc_gen::{
+    generator::{
+        builder::GeneratorBuilder,
+        model::ModelCollection,
+        rules::RulesBuilder,
+        socket::{SocketCollection, SocketsCartesian2D},
+        RngMode,
+    },
+    ghx_grid::cartesian::{coordinates::Cartesian2D, grid::CartesianGrid},
+};
+
+use crate::{
+    galaxy::Location,
+    level::{LocationType, Tile},
+};
+
+pub const PLANET_SIZE: usize = 100;
+
+#[derive(Clone, Copy, Debug)]
+pub enum PlanetBiome {
+    Grassland,
+    Desert,
+    Crystal,
+    Alien,
+    Arctic,
+    Lava,
+}
+
+pub struct PlanetParams {
+    pub name: &'static str,
+    pub biome: PlanetBiome,
+    pub breathable: bool,
+    /// 0–1: fraction of surface covered by fluid
+    pub water_coverage: f32,
+    /// 0–1: density of vegetation / flora tiles
+    pub vegetation_density: f32,
+    /// 0–1: frequency of rock / wall tiles
+    pub rock_frequency: f32,
+    pub seed: Option<u64>,
+}
+
+impl PlanetParams {
+    pub fn grassland(name: &'static str) -> Self {
+        Self {
+            name,
+            biome: PlanetBiome::Grassland,
+            breathable: true,
+            water_coverage: 0.3,
+            vegetation_density: 0.5,
+            rock_frequency: 0.1,
+            seed: None,
+        }
+    }
+
+    pub fn alien(name: &'static str) -> Self {
+        Self {
+            name,
+            biome: PlanetBiome::Alien,
+            breathable: false,
+            water_coverage: 0.25,
+            vegetation_density: 0.4,
+            rock_frequency: 0.15,
+            seed: None,
+        }
+    }
+
+    pub fn lava(name: &'static str) -> Self {
+        Self {
+            name,
+            biome: PlanetBiome::Lava,
+            breathable: false,
+            water_coverage: 0.35,
+            vegetation_density: 0.0,
+            rock_frequency: 0.4,
+            seed: None,
+        }
+    }
+
+    pub fn crystal(name: &'static str) -> Self {
+        Self {
+            name,
+            biome: PlanetBiome::Crystal,
+            breathable: false,
+            water_coverage: 0.1,
+            vegetation_density: 0.3,
+            rock_frequency: 0.3,
+            seed: None,
+        }
+    }
+
+    pub fn arctic(name: &'static str) -> Self {
+        Self {
+            name,
+            biome: PlanetBiome::Arctic,
+            breathable: false,
+            water_coverage: 0.2,
+            vegetation_density: 0.0,
+            rock_frequency: 0.25,
+            seed: None,
+        }
+    }
+
+    pub fn desert(name: &'static str) -> Self {
+        Self {
+            name,
+            biome: PlanetBiome::Desert,
+            breathable: false,
+            water_coverage: 0.1,
+            vegetation_density: 0.0,
+            rock_frequency: 0.3,
+            seed: None,
+        }
+    }
+
+    pub fn with_seed(mut self, seed: u64) -> Self { self.seed = Some(seed); self }
+    pub fn with_water(mut self, v: f32) -> Self { self.water_coverage = v; self }
+    pub fn with_vegetation(mut self, v: f32) -> Self { self.vegetation_density = v; self }
+    pub fn with_rocks(mut self, v: f32) -> Self { self.rock_frequency = v; self }
+}
+
+fn is_solid_ground(tile: Tile) -> bool {
+    matches!(
+        tile,
+        Tile::Grass
+            | Tile::TallGrass
+            | Tile::Ash
+            | Tile::CaveFloor
+            | Tile::IceFloor
+            | Tile::AlienSoil
+            | Tile::AlienGrass
+    )
+}
+
+/// Scale `param` by `scale`; WFC requires weight > 0 so floor at 0.05.
+fn scaled(param: f32, scale: f32) -> f32 { (param * scale).max(0.05) }
+
+pub fn generate(params: &PlanetParams) -> Location {
+    let mut sockets = SocketCollection::new();
+    let ground  = sockets.create();
+    let shallow = sockets.create();
+    let deep    = sockets.create();
+    let rock    = sockets.create();
+
+    // ground borders itself, shallow water, and rock outcroppings.
+    // shallow borders itself, deep (only reachable through shallow), and ground.
+    // deep is enclosed by shallow.
+    // rock borders itself and ground.
+    sockets.add_connections([
+        (ground,  vec![ground, shallow, rock]),
+        (shallow, vec![shallow, deep, ground]),
+        (deep,    vec![deep, shallow]),
+        (rock,    vec![rock, ground]),
+    ]);
+
+    let mut models = ModelCollection::<Cartesian2D>::new();
+    let mut tile_map: Vec<Tile> = Vec::new();
+
+    // Adds a model with the given socket + weight and registers its Tile.
+    // Model indices are assigned in insertion order, matching tile_map indices.
+    macro_rules! tile {
+        ($sock:expr, $weight:expr, $t:expr) => {{
+            models.create(SocketsCartesian2D::Mono($sock)).with_weight($weight);
+            tile_map.push($t);
+        }};
+    }
+
+    let (wc, vd, rf) = (params.water_coverage, params.vegetation_density, params.rock_frequency);
+
+    match params.biome {
+        PlanetBiome::Grassland => {
+            tile!(ground,  10.0,             Tile::Grass);
+            tile!(ground,  scaled(vd, 5.0),  Tile::TallGrass);
+            tile!(ground,  scaled(vd, 3.0),  Tile::Bush);
+            tile!(shallow, scaled(wc, 8.0),  Tile::ShallowWater);
+            tile!(deep,    scaled(wc, 4.0),  Tile::DeepWater);
+            tile!(rock,    scaled(rf, 6.0),  Tile::Wall);
+        }
+        PlanetBiome::Desert => {
+            tile!(ground,  10.0,             Tile::Ash);
+            tile!(ground,  scaled(rf, 4.0),  Tile::CaveFloor);
+            tile!(rock,    scaled(rf, 8.0),  Tile::CaveWall);
+            tile!(shallow, scaled(wc, 4.0),  Tile::AlienFluid);
+            tile!(deep,    scaled(wc, 2.0),  Tile::AcidPool);
+        }
+        PlanetBiome::Crystal => {
+            tile!(ground,  8.0,              Tile::CaveFloor);
+            tile!(rock,    scaled(rf, 8.0),  Tile::CaveWall);
+            tile!(rock,    scaled(vd, 5.0),  Tile::CrystalFormation);
+            tile!(ground,  scaled(vd, 4.0),  Tile::Ash);
+            tile!(shallow, scaled(wc, 3.0),  Tile::BioluminescentPool);
+            tile!(deep,    scaled(wc, 2.0),  Tile::AcidPool);
+        }
+        PlanetBiome::Alien => {
+            tile!(ground,  8.0,              Tile::AlienSoil);
+            tile!(ground,  scaled(vd, 6.0),  Tile::AlienGrass);
+            tile!(shallow, scaled(wc, 5.0),  Tile::AlienFluid);
+            tile!(deep,    scaled(wc, 3.0),  Tile::BioluminescentPool);
+            tile!(rock,    scaled(rf, 5.0),  Tile::CaveWall);
+        }
+        PlanetBiome::Arctic => {
+            tile!(ground,  10.0,             Tile::IceFloor);
+            tile!(rock,    scaled(rf, 8.0),  Tile::IceWall);
+            tile!(shallow, scaled(wc, 6.0),  Tile::ShallowWater);
+            tile!(deep,    scaled(wc, 3.0),  Tile::DeepWater);
+        }
+        PlanetBiome::Lava => {
+            tile!(ground,  8.0,              Tile::Ash);
+            tile!(rock,    scaled(rf, 10.0), Tile::CaveWall);
+            tile!(shallow, 8.0,              Tile::Lava);
+            tile!(deep,    scaled(wc, 6.0),  Tile::CrimsonPool);
+        }
+    }
+
+    let rules = RulesBuilder::new_cartesian_2d(models, sockets)
+        .build()
+        .expect("planet_gen: rules build failed");
+    let grid = CartesianGrid::new_cartesian_2d(
+        PLANET_SIZE as u32, PLANET_SIZE as u32, false, false,
+    );
+    let rng = params.seed.map(RngMode::Seeded).unwrap_or(RngMode::RandomSeed);
+
+    let mut generator = GeneratorBuilder::new()
+        .with_rules(rules)
+        .with_grid(grid)
+        .with_rng(rng)
+        .with_max_retry_count(100)
+        .build()
+        .expect("planet_gen: generator build failed");
+
+    let (_info, grid_data) = generator.generate_grid().expect("planet_gen: generation failed");
+
+    let fill = tile_map[0];
+    let mut loc = Location::new(
+        params.name,
+        PLANET_SIZE,
+        PLANET_SIZE,
+        1,
+        LocationType::PlanetSurface { breathable: params.breathable },
+        fill,
+    );
+    let level = loc.level_mut(0);
+
+    for y in 0..PLANET_SIZE as u32 {
+        for x in 0..PLANET_SIZE as u32 {
+            level.set(x as i32, y as i32, tile_map[grid_data.get_2d(x, y).model_index]);
+        }
+    }
+
+    place_ship_dock(level, fill);
+
+    loc
+}
+
+/// Spiral outward from center to find solid walkable ground, clear a 3×3
+/// landing pad, and stamp a ShipDock tile.
+fn place_ship_dock(level: &mut crate::level::Level, fill: Tile) {
+    let (cx, cy) = (PLANET_SIZE as i32 / 2, PLANET_SIZE as i32 / 2);
+    let max = PLANET_SIZE as i32 - 1;
+
+    'dock: for r in 0..50_i32 {
+        for dy in -r..=r {
+            for dx in -r..=r {
+                if dx.abs().max(dy.abs()) == r {
+                    let (sx, sy) = (cx + dx, cy + dy);
+                    if level.walkable(sx, sy) && level.get(sx, sy).is_some_and(is_solid_ground) {
+                        for py in (sy - 1).max(0)..=(sy + 1).min(max) {
+                            for px in (sx - 1).max(0)..=(sx + 1).min(max) {
+                                if !level.walkable(px, py) {
+                                    level.set(px, py, fill);
+                                }
+                            }
+                        }
+                        level.set(sx, sy, Tile::ShipDock);
+                        break 'dock;
+                    }
+                }
+            }
+        }
+    }
+}

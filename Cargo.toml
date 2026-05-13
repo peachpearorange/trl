@@ -17,6 +17,7 @@ image = "*"
 enum-assoc = "*"
 haalka = "*"
 noise = "*"
+bevy_ghx_proc_gen = "0.8.0"
 
 # Optimize dependencies at opt-level 3 even in debug builds; game code stays
 # unoptimized so recompiles stay fast but Bevy/rendering is not a bottleneck.
