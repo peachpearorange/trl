@@ -6,7 +6,7 @@ use {std::collections::HashMap,
      crate::{Clock, CurrentZone, Inventory, Player, PlayerPos, TurnBasedWorldState, UiState,
              entities::{Enemy, Location, Named, Object, PlayerEquipped, Stats},
              level::Item,
-             particles::{ParticleEffects, spawn_bullet_spark, spawn_explosion_burst},
+             particles::{ParticleEffects, spawn_bullet_trail, spawn_explosion_burst},
              path_overlay::ray_cast_target,
              ui::{LogEntries, log_message}}};
 
@@ -165,8 +165,10 @@ pub fn handle_ability_click(
                 matches!(loc, Location::Coords { x, y, z, .. } if *x == px && *y == py && *z == pos.z)
               })
             }).copied();
-            let spark_pos = hit_pos.unwrap_or((tx, ty));
-            spawn_bullet_spark(&mut commands, &effects, spark_pos);
+            // Trail ends at the hit enemy tile or the ray endpoint.
+            let trail_end = hit_pos.unwrap_or((tx, ty));
+            let trail_path = bresenham_path(pos.x, pos.y, trail_end.0, trail_end.1);
+            spawn_bullet_trail(&mut commands, &effects, &trail_path);
             if let Some((hx, hy)) = hit_pos
               && let Some((_, mut stats, named)) = enemy_q.iter_mut().find(|(loc, _, _)| {
                 matches!(loc, Location::Coords { x, y, z, .. } if *x == hx && *y == hy && *z == pos.z)
