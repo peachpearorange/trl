@@ -246,7 +246,7 @@ fn spawn_path_tile(
 /// Spawns/despawns path overlay tile entities whenever `RangedPathOverlay` changes.
 pub fn render_ranged_path(
   overlay: Res<RangedPathOverlay>,
-  player_q: Query<&PlayerPos, With<Player>>,
+  pos: Single<&PlayerPos, With<Player>>,
   current: Res<CurrentZone>,
   existing: Query<Entity, With<PathOverlayTile>>,
   mut commands: Commands,
@@ -258,7 +258,6 @@ pub fn render_ranged_path(
   }
   if overlay.tiles.is_empty() { return; }
 
-  let Ok(pos) = player_q.single() else { return };
   let w = current.0.width;
   let h = current.0.height;
   let last_i = overlay.tiles.len() - 1;

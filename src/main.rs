@@ -520,10 +520,9 @@ fn sync_entity_positions(
   }
 }
 
-fn sync_player_location(mut player_q: Query<(&PlayerPos, &mut Location), With<Player>>) {
-  if let Ok((pos, mut location)) = player_q.single_mut() {
-    *location = Location::xyz(pos.x, pos.y, pos.z);
-  }
+fn sync_player_location(player: Single<(&PlayerPos, &mut Location), With<Player>>) {
+  let (pos, mut location) = player.into_inner();
+  *location = Location::xyz(pos.x, pos.y, pos.z);
 }
 
 // ---------------------------------------------------------------------------
@@ -754,14 +753,13 @@ fn update_tile_hover_highlight(
   camera_q: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
   current: Res<CurrentZone>,
   fov: Res<Fov>,
-  player_q: Query<&PlayerPos, With<Player>>,
+  player_pos: Single<&PlayerPos, With<Player>>,
   mut q: Query<(&mut Transform, &mut Visibility), With<TileHoverHighlight>>
 ) {
   if let Ok((mut transform, mut vis)) = q.single_mut() {
     *vis = Visibility::Hidden;
     if let Ok(window) = windows.single()
       && let Ok((camera, cam_transform)) = camera_q.single()
-      && let Ok(player_pos) = player_q.single()
     {
       let level = current.0.level(player_pos.z);
       let pick = |w: &Window,
@@ -801,7 +799,7 @@ fn update_fov_visuals(
   current: Res<CurrentZone>,
   frame: Res<RenderFrame>,
   index: Res<TileEntityIndex>,
-  mut player_q: Query<(Entity, &PlayerPos, &mut Visibility), With<Player>>,
+  player: Single<(Entity, &PlayerPos, &mut Visibility), With<Player>>,
   mut glyph_tiles: Query<
     (&TileGlyph, &mut TextColor),
     (Without<TilePng>, Without<ItemGlyph>)
@@ -816,8 +814,8 @@ fn update_fov_visuals(
     (With<GlyphVisual>, Without<Player>)
   >
 ) {
-  if let Ok((player_ent, pos, mut player_vis)) = player_q.single_mut() {
-    let level = current.0.level(pos.z);
+  let (player_ent, pos, mut player_vis) = player.into_inner();
+  let level = current.0.level(pos.z);
     let z = pos.z;
     let t = frame.0 as f32 * 0.052;
     let tau = std::f32::consts::TAU;
@@ -957,7 +955,6 @@ fn update_fov_visuals(
         if player_ent == winner { Visibility::Visible } else { Visibility::Hidden }
       }
     });
-  }
 }
 
 
@@ -1560,35 +1557,34 @@ fn build_craft_options(inv: &HashMap<Item, u32>) -> Vec<InteractionOption> {
 
 fn handle_utility_menus(
   keys: Res<ButtonInput<KeyCode>>,
-  player_q: Query<(&PlayerPos, &Inventory), With<Player>>,
+  player: Single<(&PlayerPos, &Inventory), With<Player>>,
   mut ui: ResMut<UiState>,
   mut log: ResMut<LogEntries>
 ) {
   if ui.any_open() {
     return;
   }
-  if let Ok((_, inv)) = player_q.single() {
-    if keys.just_pressed(KeyCode::KeyG) {
-      let opts = build_salvage_options(&inv.0);
-      if opts.is_empty() {
-        log_message(
-          &mut *log,
-          "Nothing to salvage (gear, consumables, some junk).".into()
-        );
-      } else {
-        let n = opts.len();
-        ui.interact =
-          InteractMenu::Open { options: opts, selected: 0, highlighted: vec![false; n] };
-      }
-    } else if keys.just_pressed(KeyCode::KeyC) {
-      let opts = build_craft_options(&inv.0);
-      if opts.is_empty() {
-        log_message(&mut *log, "No recipes available — gather base components.".into());
-      } else {
-        let n = opts.len();
-        ui.interact =
-          InteractMenu::Open { options: opts, selected: 0, highlighted: vec![false; n] };
-      }
+  let (_, inv) = *player;
+  if keys.just_pressed(KeyCode::KeyG) {
+    let opts = build_salvage_options(&inv.0);
+    if opts.is_empty() {
+      log_message(
+        &mut *log,
+        "Nothing to salvage (gear, consumables, some junk).".into()
+      );
+    } else {
+      let n = opts.len();
+      ui.interact =
+        InteractMenu::Open { options: opts, selected: 0, highlighted: vec![false; n] };
+    }
+  } else if keys.just_pressed(KeyCode::KeyC) {
+    let opts = build_craft_options(&inv.0);
+    if opts.is_empty() {
+      log_message(&mut *log, "No recipes available — gather base components.".into());
+    } else {
+      let n = opts.len();
+      ui.interact =
+        InteractMenu::Open { options: opts, selected: 0, highlighted: vec![false; n] };
     }
   }
 }
@@ -2028,38 +2024,37 @@ fn resolve_bump_interact(
   named_q: Query<&Named>,
   console_q: Query<(Option<&FlightConsole>, Option<&LoadoutConsole>)>,
   follower_q: Query<&FollowerState>,
-  player_q: Query<(&Inventory, &PlayerEquipped), With<Player>>
+  player: Single<(&Inventory, &PlayerEquipped), With<Player>>
 ) {
   let Some((tx, ty, tz)) = pending.0.take() else {
     return;
   };
-  if let Ok((inventory, equipped)) = player_q.single() {
-    let level = current.0.level(tz);
-    let opts = gather_interactions_at_tile(
-      tx,
-      ty,
-      "ahead",
-      level,
-      index.0.get(&(tx, ty, tz)),
-      &tree_q,
-      &dialogue_q,
-      &glyph_q,
-      &mut loot_chest_q,
-      &door_q,
-      &elevator_q,
-      &named_q,
-      &console_q,
-      &follower_q,
-      &galaxy,
-      inventory,
-      equipped
-    );
-    let highlighted = opts.iter().map(|o| is_equipped(&o.action, equipped)).collect();
-    match opts.len() {
-      0 => {}
-      1 => flash.0 = opts.into_iter().next(),
-      _ => ui.interact = InteractMenu::Open { options: opts, selected: 0, highlighted }
-    }
+  let (inventory, equipped) = *player;
+  let level = current.0.level(tz);
+  let opts = gather_interactions_at_tile(
+    tx,
+    ty,
+    "ahead",
+    level,
+    index.0.get(&(tx, ty, tz)),
+    &tree_q,
+    &dialogue_q,
+    &glyph_q,
+    &mut loot_chest_q,
+    &door_q,
+    &elevator_q,
+    &named_q,
+    &console_q,
+    &follower_q,
+    &galaxy,
+    inventory,
+    equipped
+  );
+  let highlighted = opts.iter().map(|o| is_equipped(&o.action, equipped)).collect();
+  match opts.len() {
+    0 => {}
+    1 => flash.0 = opts.into_iter().next(),
+    _ => ui.interact = InteractMenu::Open { options: opts, selected: 0, highlighted }
   }
 }
 
@@ -2137,7 +2132,7 @@ fn handle_interact(
   mut ui: ResMut<UiState>,
   mut flash: ResMut<BumpInteractFlash>,
   index: Res<TileEntityIndex>,
-  player_q: Query<(&PlayerPos, &Inventory, &PlayerEquipped), With<Player>>,
+  player: Single<(&PlayerPos, &Inventory, &PlayerEquipped), With<Player>>,
   dialogue_q: Query<(&Named, &Dialogue)>,
   tree_q: Query<Entity, With<Tree>>,
   glyph_q: Query<&Glyph, Without<LootChest>>,
@@ -2153,29 +2148,28 @@ fn handle_interact(
     return;
   }
 
-  if let Ok((pos, inventory, equipped)) = player_q.single() {
-    let level = current.0.level(pos.z);
-    let options: Vec<_> = (-1i32..=1)
-      .flat_map(|dy| (-1i32..=1).map(move |dx| (dx, dy)))
-      .flat_map(|(dx, dy)| {
-        let (wx, wy) = (pos.x + dx, pos.y + dy);
-        let dir = if dx == 0 && dy == 0 { "here".to_string() } else { direction_name(dx, dy) };
-        gather_interactions_at_tile(
-          wx, wy, &dir, level,
-          index.0.get(&(wx, wy, pos.z)),
-          &tree_q, &dialogue_q, &glyph_q, &mut loot_chest_q,
-          &door_q, &elevator_q, &named_q, &console_q, &follower_q,
-          &galaxy, inventory, equipped
-        )
-      })
-      .collect();
+  let (pos, inventory, equipped) = *player;
+  let level = current.0.level(pos.z);
+  let options: Vec<_> = (-1i32..=1)
+    .flat_map(|dy| (-1i32..=1).map(move |dx| (dx, dy)))
+    .flat_map(|(dx, dy)| {
+      let (wx, wy) = (pos.x + dx, pos.y + dy);
+      let dir = if dx == 0 && dy == 0 { "here".to_string() } else { direction_name(dx, dy) };
+      gather_interactions_at_tile(
+        wx, wy, &dir, level,
+        index.0.get(&(wx, wy, pos.z)),
+        &tree_q, &dialogue_q, &glyph_q, &mut loot_chest_q,
+        &door_q, &elevator_q, &named_q, &console_q, &follower_q,
+        &galaxy, inventory, equipped
+      )
+    })
+    .collect();
 
-    let highlighted = options.iter().map(|o| is_equipped(&o.action, equipped)).collect();
-    match options.len() {
-      0 => {}
-      1 => flash.0 = options.into_iter().next(),
-      _ => ui.interact = InteractMenu::Open { options, selected: 0, highlighted }
-    }
+  let highlighted = options.iter().map(|o| is_equipped(&o.action, equipped)).collect();
+  match options.len() {
+    0 => {}
+    1 => flash.0 = options.into_iter().next(),
+    _ => ui.interact = InteractMenu::Open { options, selected: 0, highlighted }
   }
 }
 
@@ -2431,26 +2425,25 @@ fn setup(
 fn update_fov(
   mut fov: ResMut<Fov>,
   current: Res<CurrentZone>,
-  player_q: Query<&PlayerPos, With<Player>>,
+  player_pos: Single<&PlayerPos, With<Player>>,
   sight_q: Query<&Location, With<BlocksSight>>
 ) {
-  if let Ok(&PlayerPos { x, y, z }) = player_q.single() {
-    let blockers: HashSet<(i32, i32)> = sight_q
-      .iter()
-      .filter_map(|loc| {
-        if let Location::Coords { x: lx, y: ly, z: lz, .. } = *loc
-          && lz == z
-        {
-          Some((lx, ly))
-        } else {
-          None
-        }
-      })
-      .collect();
-    compute_fov(&mut fov.0, current.0.level(z), x, y, FOV_RADIUS, |tx, ty| {
-      blockers.contains(&(tx, ty))
-    });
-  }
+  let &PlayerPos { x, y, z } = *player_pos;
+  let blockers: HashSet<(i32, i32)> = sight_q
+    .iter()
+    .filter_map(|loc| {
+      if let Location::Coords { x: lx, y: ly, z: lz, .. } = *loc
+        && lz == z
+      {
+        Some((lx, ly))
+      } else {
+        None
+      }
+    })
+    .collect();
+  compute_fov(&mut fov.0, current.0.level(z), x, y, FOV_RADIUS, |tx, ty| {
+    blockers.contains(&(tx, ty))
+  });
 }
 
 fn spawn_level_tiles(
@@ -2564,13 +2557,12 @@ fn spawn_level_tiles(
 }
 
 fn camera_follow(
-  player_q: Query<&Visuals, With<Player>>,
+  vis: Single<&Visuals, With<Player>>,
   current: Res<CurrentZone>,
   mut cam_q: Query<&mut Transform, With<Camera2d>>,
   windows: Query<&Window>
 ) {
-  if let Ok(vis) = player_q.single()
-    && let Ok(mut cam_tf) = cam_q.single_mut()
+  if let Ok(mut cam_tf) = cam_q.single_mut()
     && let Ok(win) = windows.single()
   {
     let w = win.resolution.width();
@@ -2601,7 +2593,7 @@ fn player_input(
   mut time_mode_auto: ResMut<TimeModeAuto>,
   index: Res<TileEntityIndex>,
   mut pending_bump: ResMut<PendingBumpInteract>,
-  mut player_query: Query<(&mut PlayerPos, &Stats, &mut Inventory, &PlayerEquipped), With<Player>>,
+  player: Single<(&mut PlayerPos, &Stats, &mut Inventory, &PlayerEquipped), With<Player>>,
   mut enemy_query: Query<&mut Stats, (With<Enemy>, Without<Player>)>,
   collidable_q: Query<&Collidable>
 ) {
@@ -2622,8 +2614,8 @@ fn player_input(
 
   if !ui.any_open()
     && !ui.dir_consumed
-    && let Ok((mut pos, stats, mut inventory, equipped)) = player_query.single_mut()
   {
+    let (mut pos, stats, mut inventory, equipped) = player.into_inner();
     let player_attack = stats.attack + equipped.weapon.map(|w| w.attack_bonus()).unwrap_or(0);
     let turn_based_block = clock.mode == TimeMode::TurnBased
       && (clock.move_cooldown_frames > 0 || tb.world_tick_pending);

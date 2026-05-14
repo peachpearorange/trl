@@ -57,41 +57,39 @@ pub struct TargetingState {
 /// Rebuild the ability bar from equipped items each frame, preserving existing cooldowns.
 /// Only writes to [`AbilityBarData`] when the displayed data actually changes.
 pub fn sync_ability_bar(
-  player_q: Query<&PlayerEquipped, With<Player>>,
+  equipped: Single<&PlayerEquipped, With<Player>>,
   targeting: Res<TargetingState>,
   mut bar: ResMut<AbilityBarData>
 ) {
-  if let Ok(equipped) = player_q.single() {
-    let mut new_slots = Vec::new();
+  let mut new_slots = Vec::new();
 
-    if equipped.weapon.is_some_and(|w| w.is_ranged()) {
-      let cd = targeting.cooldowns.get(&AbilityKind::FireGun).copied().unwrap_or(0);
+  if equipped.weapon.is_some_and(|w| w.is_ranged()) {
+    let cd = targeting.cooldowns.get(&AbilityKind::FireGun).copied().unwrap_or(0);
+    new_slots.push(AbilitySlot {
+      kind: AbilityKind::FireGun,
+      name: "Fire Gun".into(),
+      cooldown: cd,
+      max_cooldown: 3
+    });
+  }
+
+  for slot in 0..3usize {
+    if let Some(item) = equipped.grenades[slot] {
+      let kind = AbilityKind::ThrowGrenade { slot, item };
+      let cd = targeting.cooldowns.get(&kind).copied().unwrap_or(0);
       new_slots.push(AbilitySlot {
-        kind: AbilityKind::FireGun,
-        name: "Fire Gun".into(),
+        kind,
+        name: format!("Throw {}", item.name()),
         cooldown: cd,
-        max_cooldown: 3
+        max_cooldown: 5
       });
     }
+  }
 
-    for slot in 0..3usize {
-      if let Some(item) = equipped.grenades[slot] {
-        let kind = AbilityKind::ThrowGrenade { slot, item };
-        let cd = targeting.cooldowns.get(&kind).copied().unwrap_or(0);
-        new_slots.push(AbilitySlot {
-          kind,
-          name: format!("Throw {}", item.name()),
-          cooldown: cd,
-          max_cooldown: 5
-        });
-      }
-    }
-
-    let new_selected = targeting.selected;
-    if bar.slots != new_slots || bar.selected != new_selected {
-      bar.slots = new_slots;
-      bar.selected = new_selected;
-    }
+  let new_selected = targeting.selected;
+  if bar.slots != new_slots || bar.selected != new_selected {
+    bar.slots = new_slots;
+    bar.selected = new_selected;
   }
 }
 
@@ -125,7 +123,7 @@ pub fn handle_ability_click(
   current: Res<CurrentZone>,
   mut targeting: ResMut<TargetingState>,
   bar: Res<AbilityBarData>,
-  mut player_q: Query<(&PlayerPos, &mut Inventory, &mut PlayerEquipped), With<Player>>,
+  player: Single<(&PlayerPos, &mut Inventory, &mut PlayerEquipped), With<Player>>,
   mut enemy_q: Query<(&Location, &mut Stats, Option<&Named>), With<Enemy>>,
   mut commands: Commands,
   mut log: ResMut<LogEntries>,
@@ -133,11 +131,11 @@ pub fn handle_ability_click(
   mut tb: ResMut<TurnBasedWorldState>,
   effects: Res<ParticleEffects>
 ) {
+  let (pos, ref mut inventory, ref mut equipped) = player.into_inner();
   if let Some(slot_idx) = targeting.selected
     && mouse.just_pressed(MouseButton::Left)
     && let Ok(window) = windows.single()
     && let Ok((camera, cam_transform)) = camera_q.single()
-    && let Ok((pos, mut inventory, mut equipped)) = player_q.single_mut()
   {
     if bar.slots.get(slot_idx).is_none() {
       targeting.selected = None;
