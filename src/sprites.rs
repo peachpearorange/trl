@@ -1,31 +1,4 @@
 use std::collections::HashMap;
-
-/// Defines a sprite path constant and verifies the asset exists at compile time.
-///
-/// Usage: `checked_sprite!(CONST_NAME, "textures/space_qud/foo.png")`
-///
-/// Fails to compile if the file is missing from `assets/`.
-macro_rules! checked_sprite {
-    ($name:ident, $path:literal) => {
-        pub const $name: &str = $path;
-        #[allow(dead_code)]
-        const _: &[u8] = include_bytes!(concat!("../assets/", $path));
-    };
-}
-
-checked_sprite!(SP_FLOOR2,       "textures/space_qud/floor2.png");
-checked_sprite!(SP_FLOOR3,       "textures/space_qud/floor3.png");
-checked_sprite!(SP_FLOOR4,       "textures/space_qud/floor4.png");
-checked_sprite!(SP_TILES1,       "textures/space_qud/tiles1.png");
-checked_sprite!(SP_GRASS,        "textures/space_qud/grass.png");
-checked_sprite!(SP_WAVY,         "textures/space_qud/wavy.png");
-checked_sprite!(SP_LIQUID,       "textures/space_qud/liquid tile.png");
-checked_sprite!(SP_GROUND,       "textures/space_qud/ground.png");
-checked_sprite!(SP_COBBLE,       "textures/space_qud/cobble tile.png");
-checked_sprite!(SP_WALL_HASHTAG, "textures/space_qud/wall hashtag.png");
-checked_sprite!(SP_WINDOW,       "textures/space_qud/window (1).png");
-checked_sprite!(SP_GRID,         "textures/space_qud/grid.png");
-checked_sprite!(SP_SPACE_BG,     "textures/space_qud/space background.png");
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 
@@ -53,7 +26,10 @@ fn load_asset_bytes(relative_path: &str) -> Vec<u8> {
 use {bevy::{asset::RenderAssetUsages,
             color::LinearRgba,
             prelude::*,
-            render::render_resource::{Extent3d, TextureDimension, TextureFormat}},
+            render::render_resource::{
+              Extent3d, TextureAspect, TextureDimension, TextureFormat, TextureViewDescriptor,
+              TextureViewDimension
+            }},
      image::RgbaImage};
 
 /// Cache key for baked palette sprites (path + instance colors).
@@ -163,6 +139,57 @@ pub fn palette_sprite_handle(
     cache.0.insert(key, handle.clone());
     handle
   }
+}
+
+/// Build a 2D array image with one layer per tile in `ALL_TILES`.
+/// Tiles with a space_qud_sprite get palette-baked; others get solid color; Air/Blank transparent.
+pub fn build_tileset(images: &mut Assets<Image>) -> Handle<Image> {
+  use crate::level::Tile;
+  use crate::tiles::ALL_TILES;
+  let s = crate::SPRITE_TEXELS as u32;
+  let pixels = (s * s * 4) as usize;
+  let n = ALL_TILES.len() as u32;
+  let mut data: Vec<u8> = Vec::with_capacity(pixels * n as usize);
+  for &tile in ALL_TILES {
+    if tile == Tile::Air || tile == Tile::Blank {
+      data.extend_from_slice(&vec![0u8; pixels]);
+    } else if let Some((path, pri, sec)) = tile.space_qud_sprite() {
+      let bytes = load_asset_bytes(path);
+      let dyn_img = image::load_from_memory(&bytes)
+        .unwrap_or_else(|e| panic!("build_tileset: failed to decode {path}: {e}"));
+      let rgba = dyn_img.to_rgba8();
+      data.extend_from_slice(&bake_palette_png(
+        &rgba,
+        Color::srgb(pri[0], pri[1], pri[2]),
+        Color::srgb(sec[0], sec[1], sec[2])
+      ));
+    } else {
+      let [r, g, b] = tile.color();
+      let pixel = [(r * 255.0).round() as u8, (g * 255.0).round() as u8, (b * 255.0).round() as u8, 255u8];
+      for _ in 0..(s * s) {
+        data.extend_from_slice(&pixel);
+      }
+    }
+  }
+  let mut img = Image::new(
+    Extent3d { width: s, height: s, depth_or_array_layers: n },
+    TextureDimension::D2,
+    data,
+    TextureFormat::Rgba8UnormSrgb,
+    RenderAssetUsages::RENDER_WORLD
+  );
+  img.texture_view_descriptor = Some(TextureViewDescriptor {
+    label: None,
+    format: None,
+    dimension: Some(TextureViewDimension::D2Array),
+    usage: None,
+    aspect: TextureAspect::All,
+    base_mip_level: 0,
+    mip_level_count: None,
+    base_array_layer: 0,
+    array_layer_count: Some(n),
+  });
+  images.add(img)
 }
 
 pub struct SpriteDef {

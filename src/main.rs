@@ -38,6 +38,8 @@ use {bevy::prelude::*,
 use {active_zone::ActiveZone,
      sprites::{PaletteImageCache, palette_sprite_handle}};
 
+use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TilemapChunkTileData, TileData};
+
 /// Tile art is authored at this resolution (e.g. space_qud masks).
 pub const SPRITE_TEXELS: f32 = 20.0;
 /// Each source pixel is drawn as this many screen pixels (integer scale).
@@ -313,10 +315,7 @@ struct SimStep;
 pub struct CurrentZone(pub active_zone::ActiveZone);
 
 #[derive(Resource)]
-pub struct Fov {
-  pub grid: FovGrid,
-  pub dirty: bool
-}
+pub struct Fov(pub FovGrid);
 
 #[derive(Component)]
 pub struct Player;
@@ -328,16 +327,13 @@ pub struct PlayerPos {
   pub z: usize
 }
 
+/// Marks which z-level a tilemap chunk belongs to.
 #[derive(Component)]
-struct TileGlyph {
-  x: usize,
-  y: usize,
-  z: usize,
-}
+struct TilemapLayer(usize);
 
-/// Marks a tile entity that uses a PNG sprite instead of a text glyph.
-#[derive(Component)]
-struct TilePng;
+/// Stores the baked tileset image handle for tilemap chunks.
+#[derive(Resource)]
+struct Tileset(Handle<Image>);
 
 #[derive(Component)]
 struct ItemGlyph {
@@ -595,7 +591,7 @@ fn main() {
     .init_resource::<PaletteImageCache>()
     .init_resource::<AccumulatedDir>()
     .insert_resource(UiState::default())
-    .insert_resource(Fov { grid: fov, dirty: true })
+    .insert_resource(Fov(fov))
     .insert_resource(TileEntityIndex::default())
     .init_resource::<abilities::AbilityBarData>()
     .init_resource::<abilities::TargetingState>()
@@ -784,8 +780,8 @@ fn update_tile_hover_highlight(
       if let Some((tx, ty)) =
         pick(window, camera, cam_transform, level.width, level.height)
       {
-        let visible = fov.grid.is_visible(tx as usize, ty as usize);
-        let revealed = fov.grid.is_revealed(tx as usize, ty as usize);
+        let visible = fov.0.is_visible(tx as usize, ty as usize);
+        let revealed = fov.0.is_revealed(tx as usize, ty as usize);
         if visible || revealed {
           *vis = Visibility::Visible;
           transform.translation =
@@ -798,16 +794,12 @@ fn update_tile_hover_highlight(
 }
 
 fn update_fov_visuals(
-  mut fov: ResMut<Fov>,
+  fov: Res<Fov>,
   current: Res<CurrentZone>,
   frame: Res<RenderFrame>,
   index: Res<TileEntityIndex>,
   player: Single<(Entity, &PlayerPos, &mut Visibility), With<Player>>,
-  mut glyph_tiles: Query<
-    (&TileGlyph, &mut TextColor),
-    (Without<TilePng>, Without<ItemGlyph>)
-  >,
-  mut sprite_tiles: Query<(&TileGlyph, &mut Sprite), With<TilePng>>,
+  mut chunk_q: Query<(&TilemapLayer, &mut TilemapChunkTileData, &mut Visibility)>,
   mut item_q: Query<
     (Entity, &ItemGlyph, &mut TextColor, &mut Visibility),
     (Without<Player>, Without<GlyphVisual>)
@@ -818,8 +810,36 @@ fn update_fov_visuals(
   >
 ) {
   let (player_ent, pos, mut player_vis) = player.into_inner();
-  let level = current.0.level(pos.z);
-    let z = pos.z;
+  let z = pos.z;
+  let level = current.0.level(z);
+  let width = current.0.width;
+  let height = current.0.height;
+
+  for (layer, mut tile_data, mut vis) in chunk_q.iter_mut() {
+    *vis = if layer.0 == z { Visibility::Visible } else { Visibility::Hidden };
+    if layer.0 == z && fov.is_changed() {
+      for y in 0..height {
+        for x in 0..width {
+          let chunk_idx = (height - 1 - y) * width + x;
+          let tile = level.get(x as i32, y as i32).unwrap_or(Tile::Air);
+          tile_data.0[chunk_idx] = if tile == Tile::Air || tile == Tile::Blank {
+            None
+          } else if fov.0.is_visible(x, y) {
+            Some(TileData { tileset_index: tile.tileset_index(), color: Color::WHITE, visible: true })
+          } else if fov.0.is_revealed(x, y) {
+            Some(TileData {
+              tileset_index: tile.tileset_index(),
+              color: Color::srgb(DIM_FACTOR, DIM_FACTOR, DIM_FACTOR),
+              visible: true
+            })
+          } else {
+            None
+          };
+        }
+      }
+    }
+  }
+
     let t = frame.0 as f32 * 0.052;
     let tau = std::f32::consts::TAU;
     let mut stacks: HashMap<(i32, i32), Vec<Entity>> = HashMap::new();
@@ -839,53 +859,21 @@ fn update_fov_visuals(
       ents.sort_by_key(|e| e.index());
     }
 
-    if fov.dirty {
-      fov.bypass_change_detection().dirty = false;
-      for (tg, mut color) in glyph_tiles.iter_mut() {
-        if tg.z != z {
-          color.set_if_neq(TextColor(Color::srgba(0.0, 0.0, 0.0, 0.0)));
-          continue;
-        }
-        let tile = level.tiles[tg.y][tg.x];
-        let [r, g, b] = tile.color();
-        color.set_if_neq(if fov.grid.is_visible(tg.x, tg.y) {
-          TextColor(Color::srgb(r, g, b))
-        } else if fov.grid.is_revealed(tg.x, tg.y) {
-          TextColor(Color::srgb(r * DIM_FACTOR, g * DIM_FACTOR, b * DIM_FACTOR))
-        } else {
-          TextColor(Color::srgba(0.0, 0.0, 0.0, 0.0))
-        });
-      }
-      for (tg, mut sprite) in sprite_tiles.iter_mut() {
-        let new_color = if tg.z != z {
-          Color::srgba(0.0, 0.0, 0.0, 0.0)
-        } else if fov.grid.is_visible(tg.x, tg.y) {
-          Color::WHITE
-        } else if fov.grid.is_revealed(tg.x, tg.y) {
-          Color::srgb(DIM_FACTOR, DIM_FACTOR, DIM_FACTOR)
-        } else {
-          Color::srgba(0.0, 0.0, 0.0, 0.0)
-        };
-        if sprite.color != new_color {
-          sprite.color = new_color;
-        }
-      }
-    }
     for (entity, location, mut vis) in entity_q.iter_mut() {
       let visible_in_fov = if let Location::Coords { x, y, z: lz, .. } = location
         && *lz == pos.z
-        && fov.grid.is_visible(*x as usize, *y as usize)
+        && fov.0.is_visible(*x as usize, *y as usize)
       {
         true
       } else {
         false
       };
       if !visible_in_fov {
-        vis.set_if_neq(Visibility::Hidden);
+        *vis = Visibility::Hidden;
         continue;
       }
       let Location::Coords { x, y, .. } = location else {
-        vis.set_if_neq(Visibility::Hidden);
+        *vis = Visibility::Hidden;
         continue;
       };
       let key = (*x, *y);
@@ -903,16 +891,16 @@ fn update_fov_visuals(
           })
           .map(|(_, &e)| e)
           .unwrap_or(entity);
-        vis.set_if_neq(if entity == winner { Visibility::Visible } else { Visibility::Hidden });
+        *vis = if entity == winner { Visibility::Visible } else { Visibility::Hidden };
       } else {
-        vis.set_if_neq(Visibility::Visible);
+        *vis = Visibility::Visible;
       }
     }
     for (entity, item, mut color, mut vis) in item_q.iter_mut() {
-      let visible_in_fov = item.z == pos.z && fov.grid.is_visible(item.x, item.y);
-      let revealed = item.z == pos.z && fov.grid.is_revealed(item.x, item.y);
+      let visible_in_fov = item.z == pos.z && fov.0.is_visible(item.x, item.y);
+      let revealed = item.z == pos.z && fov.0.is_revealed(item.x, item.y);
       let item_kind = level.items[item.y][item.x];
-      let new_color = item_kind.map_or(TextColor(Color::NONE), |item_kind| {
+      *color = item_kind.map_or(TextColor(Color::NONE), |item_kind| {
         let [r, g, b] = item_kind.color();
         if visible_in_fov {
           TextColor(Color::srgb(r, g, b))
@@ -922,9 +910,8 @@ fn update_fov_visuals(
           TextColor(Color::NONE)
         }
       });
-      color.set_if_neq(new_color);
       if !visible_in_fov {
-        vis.set_if_neq(Visibility::Hidden);
+        *vis = Visibility::Hidden;
       } else if let Some(list) = stacks.get(&(item.x as i32, item.y as i32))
         && list.len() > 1
       {
@@ -939,9 +926,9 @@ fn update_fov_visuals(
           })
           .map(|(_, &e)| e)
           .unwrap_or(entity);
-        vis.set_if_neq(if entity == winner { Visibility::Visible } else { Visibility::Hidden });
+        *vis = if entity == winner { Visibility::Visible } else { Visibility::Hidden };
       } else {
-        vis.set_if_neq(Visibility::Visible);
+        *vis = Visibility::Visible;
       }
     }
     let key = (pos.x, pos.y);
@@ -2184,16 +2171,33 @@ fn handle_interact(
   }
 }
 
+fn spawn_tilemaps(commands: &mut Commands, zone: &active_zone::ActiveZone, tileset: Handle<Image>) {
+  for z in 0..zone.depth {
+    let level = zone.level(z);
+    let tile_data = vec![None; level.width * level.height];
+    commands.spawn((
+      TilemapChunk {
+        chunk_size: UVec2::new(zone.width as u32, zone.height as u32),
+        tile_display_size: UVec2::splat(TILE_SIZE as u32),
+        tileset: tileset.clone(),
+        alpha_mode: AlphaMode2d::Blend,
+      },
+      TilemapChunkTileData(tile_data),
+      Transform::from_xyz(-TILE_SIZE / 2.0, TILE_SIZE / 2.0, 0.0),
+      TilemapLayer(z),
+      if z == 0 { Visibility::Visible } else { Visibility::Hidden },
+    ));
+  }
+}
+
 fn spawn_zone_geometry(
   commands: &mut Commands,
-  asset_server: &AssetServer,
-  palette_cache: &mut PaletteImageCache,
-  images: &mut Assets<Image>,
   zone: &active_zone::ActiveZone,
   galaxy: &galaxy::Galaxy,
-  docked_at: Option<galaxy::LocationId>
+  docked_at: Option<galaxy::LocationId>,
+  tileset: Handle<Image>
 ) {
-  spawn_level_tiles(commands, asset_server, palette_cache, images, zone);
+  spawn_tilemaps(commands, zone, tileset);
   let (sox, soy) = zone.ship_origin;
   prefabs::Prefab::starting_ship().stamp_entities(commands, sox, soy, 0);
   if docked_at == Some(locations::starter_planet::ID)
@@ -2247,6 +2251,7 @@ fn spawn_zone_geometry(
       });
     }
   }
+  spawn_item_glyphs(commands, zone);
 }
 
 fn apply_pending_navigation(
@@ -2256,14 +2261,12 @@ fn apply_pending_navigation(
   mut ship: ResMut<ship::Ship>,
   mut current: ResMut<CurrentZone>,
   mut fov: ResMut<Fov>,
-  asset_server: Res<AssetServer>,
-  mut palette_cache: ResMut<PaletteImageCache>,
-  mut images: ResMut<Assets<Image>>,
   mut log: ResMut<LogEntries>,
+  tileset: Res<Tileset>,
   to_despawn: Query<
     Entity,
     (
-      Or<(With<TileGlyph>, With<ItemGlyph>, With<GlyphVisual>, With<Location>)>,
+      Or<(With<TilemapLayer>, With<ItemGlyph>, With<GlyphVisual>, With<Location>)>,
       Without<Player>
     )
   >,
@@ -2303,16 +2306,13 @@ fn apply_pending_navigation(
   });
 
   *current = CurrentZone(new_zone);
-  fov.grid = FovGrid::new(current.0.width, current.0.height);
-  fov.dirty = true;
+  fov.0 = FovGrid::new(current.0.width, current.0.height);
   spawn_zone_geometry(
     &mut commands,
-    &asset_server,
-    &mut palette_cache,
-    &mut images,
     &current.0,
     &galaxy,
-    ship.docked_at
+    ship.docked_at,
+    tileset.0.clone()
   );
   let (sox, soy) = current.0.ship_origin;
   // Reapply offset to the new zone's ship_origin, falling back to ship center.
@@ -2349,7 +2349,6 @@ fn init_follower_homes(mut follower_q: Query<(&mut FollowerData, &Location)>) {
 
 fn setup(
   mut commands: Commands,
-  asset_server: Res<AssetServer>,
   current: Res<CurrentZone>,
   galaxy: Res<galaxy::Galaxy>,
   ship: Res<ship::Ship>,
@@ -2362,14 +2361,15 @@ fn setup(
   clock.spend_turn(&mut tb);
   commands.spawn((Camera2d, Msaa::Off));
 
+  let tileset = sprites::build_tileset(&mut images);
+  commands.insert_resource(Tileset(tileset.clone()));
+
   spawn_zone_geometry(
     &mut commands,
-    &asset_server,
-    &mut palette_cache,
-    &mut images,
     &current.0,
     &galaxy,
-    ship.docked_at
+    ship.docked_at,
+    tileset
   );
 
   let hover_img = white_pixel_image(&mut images);
@@ -2453,104 +2453,16 @@ fn update_fov(
       }
     })
     .collect();
-  compute_fov(&mut fov.grid, current.0.level(z), x, y, FOV_RADIUS, |tx, ty| {
+  compute_fov(&mut fov.0, current.0.level(z), x, y, FOV_RADIUS, |tx, ty| {
     blockers.contains(&(tx, ty))
   });
-  fov.dirty = true;
 }
 
-fn spawn_level_tiles(
-  commands: &mut Commands,
-  asset_server: &AssetServer,
-  palette_cache: &mut PaletteImageCache,
-  images: &mut Assets<Image>,
-  zone: &active_zone::ActiveZone
-) {
+fn spawn_item_glyphs(commands: &mut Commands, zone: &active_zone::ActiveZone) {
   for z in 0..zone.depth {
     let level = zone.level(z);
     for y in 0..level.height {
       for x in 0..level.width {
-        let tile = level.tiles[y][x];
-        if tile == Tile::Air || tile == Tile::Blank {
-          continue;
-        }
-        let pos = tile_screen_pos(x as f32, y as f32, zone.width, zone.height);
-
-        if tile == Tile::Vacuum {
-          {
-            let rng = rand::random::<u8>();
-            let path: &'static str = match rng % 4 {
-              0 => "textures/space_qud/stars1.png",
-              1 => "textures/space_qud/stars2.png",
-              2 => "textures/space_qud/stars3.png",
-              _ => "textures/space_qud/stars4.png",
-            };
-            let handle = palette_sprite_handle(
-              path,
-              Color::srgb(1.0, 1.0, 1.0),
-              Color::srgb(0.62, 0.72, 0.92),
-              palette_cache,
-              images
-            );
-            let angle = match (rng >> 2) % 4 {
-              0 => 0.0_f32,
-              1 => std::f32::consts::FRAC_PI_2,
-              2 => std::f32::consts::PI,
-              _ => 3.0 * std::f32::consts::FRAC_PI_2
-            };
-            commands.spawn((
-              Sprite {
-                image: handle,
-                custom_size: Some(Vec2::splat(TILE_SIZE)),
-                color: Color::srgba(0.0, 0.0, 0.0, 0.0),
-                flip_x: rng & 0x10 != 0,
-                flip_y: rng & 0x20 != 0,
-                ..default()
-              },
-              Transform::from_translation(pos).with_rotation(Quat::from_rotation_z(angle)),
-              TileGlyph { x, y, z },
-              TilePng,
-              Visibility::Visible
-            ));
-          }
-          continue;
-        }
-
-        let tex_palette = tile.space_qud_sprite().map(|(p, c1, c2)| {
-          (p, Some((Color::srgb(c1[0], c1[1], c1[2]), Color::srgb(c2[0], c2[1], c2[2]))))
-        });
-        let tex_plain = tile.texture_path().map(|p| (p, None));
-        let tex = tex_palette.or(tex_plain);
-        if let Some((path, palette_opt)) = tex {
-          let handle = if let Some((primary, secondary)) = palette_opt {
-            palette_sprite_handle(path, primary, secondary, palette_cache, images)
-          } else {
-            asset_server.load(path)
-          };
-          commands.spawn((
-            Sprite {
-              image: handle,
-              custom_size: Some(Vec2::splat(TILE_SIZE)),
-              color: Color::srgba(0.0, 0.0, 0.0, 0.0),
-              ..default()
-            },
-            Transform::from_translation(pos),
-            TileGlyph { x, y, z },
-            TilePng,
-            Visibility::Visible
-          ));
-        } else {
-          let [r, g, b] = tile.color();
-          commands.spawn((
-            Text2d::new(tile.glyph()),
-            TextFont { font_size: TILE_SIZE, ..default() },
-            TextColor(Color::srgba(r, g, b, 0.0)),
-            Transform::from_translation(pos),
-            TileGlyph { x, y, z },
-            Visibility::Visible
-          ));
-        }
-
         if let Some(item) = level.items[y][x] {
           let [r, g, b] = item.color();
           commands.spawn((
