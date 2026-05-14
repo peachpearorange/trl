@@ -29,8 +29,8 @@ use {bevy::prelude::*,
      level::{FovGrid, Item, LocationType, Tile, ZONE_HEIGHT, ZONE_WIDTH, compute_fov},
      std::collections::{HashMap, HashSet},
      crate::entities::{AirlockDoor, BlocksSight, Collidable, Dialogue, DialogueNode,
-                       DialogueTree, Door, Enemy, FixedChestLoot, FlightConsole, Glyph,
-                       LoadoutConsole, Location, LootChest, Named, PlayerEquipped, Stats,
+                       DialogueTree, Door, Elevator, Enemy, FixedChestLoot, FlightConsole,
+                       Glyph, LoadoutConsole, Location, LootChest, Named, PlayerEquipped, Stats,
                        Tree, Visuals},
      ui::{LogEntries, LogSpan, MenuClickPending, log_message, log_spans}};
 
@@ -106,7 +106,8 @@ enum InteractionAction {
   UnequipArmor,
   EquipGrenade { slot: usize, item: Item },
   UnequipGrenade { slot: usize },
-  ShowLoadoutStatus
+  ShowLoadoutStatus,
+  TakeElevator { dest_z: usize, dest_x: i32, dest_y: i32 },
 }
 
 /// Tracks which menu row index a [`Button`] entity belongs to; queried by [`detect_menu_option_clicks`].
@@ -321,7 +322,8 @@ pub struct PlayerPos {
 #[derive(Component)]
 struct TileGlyph {
   x: usize,
-  y: usize
+  y: usize,
+  z: usize,
 }
 
 /// Marks a tile entity that uses a PNG sprite instead of a text glyph.
@@ -539,6 +541,9 @@ fn main() {
   galaxy.insert(locations::mushroom_planet::ID, locations::mushroom_planet::generate());
   galaxy.insert(locations::gamma_station::ID, locations::gamma_station::generate());
   for (id, loc) in locations::planet_gen::all() {
+    galaxy.insert(id, loc);
+  }
+  for (id, loc) in locations::station_gen::all() {
     galaxy.insert(id, loc);
   }
 
@@ -826,6 +831,10 @@ fn update_fov_visuals(
     }
 
     for (tg, mut color) in glyph_tiles.iter_mut() {
+      if tg.z != z {
+        *color = TextColor(Color::srgba(0.0, 0.0, 0.0, 0.0));
+        continue;
+      }
       let tile = level.tiles[tg.y][tg.x];
       let [r, g, b] = tile.color();
       *color = if fov.0.is_visible(tg.x, tg.y) {
@@ -837,6 +846,10 @@ fn update_fov_visuals(
       };
     }
     for (tg, mut sprite) in sprite_tiles.iter_mut() {
+      if tg.z != z {
+        sprite.color = Color::srgba(0.0, 0.0, 0.0, 0.0);
+        continue;
+      }
       sprite.color = if fov.0.is_visible(tg.x, tg.y) {
         Color::WHITE
       } else if fov.0.is_revealed(tg.x, tg.y) {
@@ -1556,7 +1569,7 @@ fn execute_interaction(
       DialogueState::Open { speaker, tree, node_name: tree.nodes[0].name, speaker_color: *speaker_color };
     log_dialogue_node_block(log, speaker, *speaker_color, node);
   } else if let InteractionAction::Navigate { .. } = action {
-  } else if let Ok((pos, mut inventory, mut equipped)) = player_query.single_mut() {
+  } else if let Ok((mut pos, mut inventory, mut equipped)) = player_query.single_mut() {
     match action {
       InteractionAction::Talk { .. } => unreachable!(),
       InteractionAction::Navigate { .. } => {}
@@ -1642,6 +1655,12 @@ fn execute_interaction(
         let wpn = equipped.weapon.map(|w| w.name()).unwrap_or("none");
         let arm = equipped.armor.map(|a| a.name()).unwrap_or("none");
         log_message(log, format!("Loadout — weapon: {wpn}, armor: {arm}."));
+      }
+      InteractionAction::TakeElevator { dest_z, dest_x, dest_y } => {
+        pos.z = *dest_z;
+        pos.x = *dest_x;
+        pos.y = *dest_y;
+        clock.spend_turn(tb);
       }
     }
   }
@@ -1811,6 +1830,7 @@ fn gather_interactions_at_tile(
   glyph_q: &Query<&Glyph, Without<LootChest>>,
   loot_chest_q: &mut Query<(&mut LootChest, &mut Glyph, &Location)>,
   door_q: &Query<&Door>,
+  elevator_q: &Query<&Elevator>,
   named_q: &Query<&Named>,
   flight_console_q: &Query<Entity, With<FlightConsole>>,
   loadout_console_q: &Query<Entity, With<LoadoutConsole>>,
@@ -1873,6 +1893,17 @@ fn gather_interactions_at_tile(
             action: InteractionAction::ToggleDoor(e)
           }
         }))
+        .chain(elevator_q.get(e).ok().into_iter().map(move |elev| {
+          let label = if elev.going_down { "Descend (elevator)" } else { "Ascend (elevator)" };
+          InteractionOption {
+            label: label.to_string(),
+            action: InteractionAction::TakeElevator {
+              dest_z: elev.dest_z,
+              dest_x: elev.dest_x,
+              dest_y: elev.dest_y,
+            }
+          }
+        }))
         .chain(flight_console_q.get(e).ok().into_iter().flat_map(|_| {
           let mut dests: Vec<InteractionOption> = galaxy
             .locations
@@ -1919,6 +1950,7 @@ fn resolve_bump_interact(
   glyph_q: Query<&Glyph, Without<LootChest>>,
   mut loot_chest_q: Query<(&mut LootChest, &mut Glyph, &Location)>,
   door_q: Query<&Door>,
+  elevator_q: Query<&Elevator>,
   named_q: Query<&Named>,
   flight_console_q: Query<Entity, With<FlightConsole>>,
   loadout_console_q: Query<Entity, With<LoadoutConsole>>,
@@ -1940,6 +1972,7 @@ fn resolve_bump_interact(
       &glyph_q,
       &mut loot_chest_q,
       &door_q,
+      &elevator_q,
       &named_q,
       &flight_console_q,
       &loadout_console_q,
@@ -2036,6 +2069,7 @@ fn handle_interact(
   glyph_q: Query<&Glyph, Without<LootChest>>,
   mut loot_chest_q: Query<(&mut LootChest, &mut Glyph, &Location)>,
   door_q: Query<&Door>,
+  elevator_q: Query<&Elevator>,
   named_q: Query<&Named>,
   flight_console_q: Query<Entity, With<FlightConsole>>,
   loadout_console_q: Query<Entity, With<LoadoutConsole>>
@@ -2056,7 +2090,7 @@ fn handle_interact(
           wx, wy, &dir, level,
           index.0.get(&(wx, wy, pos.z)),
           &tree_q, &dialogue_q, &glyph_q, &mut loot_chest_q,
-          &door_q, &named_q, &flight_console_q, &loadout_console_q,
+          &door_q, &elevator_q, &named_q, &flight_console_q, &loadout_console_q,
           &galaxy, inventory, equipped
         )
       })
@@ -2077,6 +2111,7 @@ fn spawn_zone_geometry(
   palette_cache: &mut PaletteImageCache,
   images: &mut Assets<Image>,
   zone: &active_zone::ActiveZone,
+  galaxy: &galaxy::Galaxy,
   docked_at: Option<galaxy::LocationId>
 ) {
   spawn_level_tiles(commands, asset_server, palette_cache, images, zone);
@@ -2112,6 +2147,26 @@ fn spawn_zone_geometry(
         _ => continue
       };
       obj.spawn_at(commands, wx, wy, 0);
+    }
+  }
+
+  // Spawn any objects registered on the destination location (e.g. elevators).
+  if let Some(dest_id) = docked_at
+    && let Some(dest_loc) = galaxy.get(dest_id)
+    && let Some((dox, doy)) = zone.dest_origin
+  {
+    use galaxy::SpawnTemplate;
+    for (lx, ly, lz, tmpl) in &dest_loc.spawn_objects {
+      let wx = dox + lx;
+      let wy = doy + ly;
+      match tmpl {
+        SpawnTemplate::Elevator { going_down, dest_z, local_dest_x, local_dest_y } => {
+          let wdx = dox + local_dest_x;
+          let wdy = doy + local_dest_y;
+          entities::Object::elevator(*going_down, *dest_z, wdx, wdy)
+            .spawn_at(commands, wx, wy, *lz);
+        }
+      }
     }
   }
 }
@@ -2177,6 +2232,7 @@ fn apply_pending_navigation(
     &mut palette_cache,
     &mut images,
     &current.0,
+    &galaxy,
     ship.docked_at
   );
   let (sox, soy) = current.0.ship_origin;
@@ -2208,6 +2264,7 @@ fn setup(
   mut commands: Commands,
   asset_server: Res<AssetServer>,
   current: Res<CurrentZone>,
+  galaxy: Res<galaxy::Galaxy>,
   ship: Res<ship::Ship>,
   mut images: ResMut<Assets<Image>>,
   mut palette_cache: ResMut<PaletteImageCache>,
@@ -2224,6 +2281,7 @@ fn setup(
     &mut palette_cache,
     &mut images,
     &current.0,
+    &galaxy,
     ship.docked_at
   );
 
@@ -2367,7 +2425,7 @@ fn spawn_level_tiles(
                 ..default()
               },
               Transform::from_translation(pos).with_rotation(Quat::from_rotation_z(angle)),
-              TileGlyph { x, y },
+              TileGlyph { x, y, z },
               TilePng,
               Visibility::Visible
             ));
@@ -2394,7 +2452,7 @@ fn spawn_level_tiles(
               ..default()
             },
             Transform::from_translation(pos),
-            TileGlyph { x, y },
+            TileGlyph { x, y, z },
             TilePng,
             Visibility::Visible
           ));
@@ -2405,7 +2463,7 @@ fn spawn_level_tiles(
             TextFont { font_size: TILE_SIZE, ..default() },
             TextColor(Color::srgba(r, g, b, 0.0)),
             Transform::from_translation(pos),
-            TileGlyph { x, y },
+            TileGlyph { x, y, z },
             Visibility::Visible
           ));
         }
@@ -2493,10 +2551,9 @@ fn player_input(
     let turn_based_block = clock.mode == TimeMode::TurnBased
       && (clock.move_cooldown_frames > 0 || tb.world_tick_pending);
 
-    let wait_pressed = (keys.just_pressed(KeyCode::Period)
-      && !keys.pressed(KeyCode::ShiftLeft)
-      && !keys.pressed(KeyCode::ShiftRight))
+    let wait_pressed = keys.just_pressed(KeyCode::Period)
       || (clock.mode == TimeMode::TurnBased && keys.pressed(KeyCode::Space));
+
     if !turn_based_block && wait_pressed {
       clock.spend_turn(&mut tb);
     } else if !turn_based_block

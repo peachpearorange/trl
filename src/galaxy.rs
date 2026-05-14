@@ -2,6 +2,13 @@ use {crate::{level::{Level, LocationType, Tile}, prefabs::Prefab},
      bevy::prelude::*,
      std::collections::HashMap};
 
+/// Describes an entity to spawn when a Location is loaded into the active zone.
+/// Coordinates are local to the Location (offset applied during spawn).
+#[derive(Clone, Debug)]
+pub enum SpawnTemplate {
+  Elevator { going_down: bool, dest_z: usize, local_dest_x: i32, local_dest_y: i32 },
+}
+
 /// Unique identifier for a Location in the Galaxy.
 pub type LocationId = (i32, i32, i32);
 
@@ -13,7 +20,9 @@ pub struct Location {
   pub height: usize,
   pub depth: usize,
   pub levels: Vec<Level>,
-  pub location_type: LocationType
+  pub location_type: LocationType,
+  /// Objects to spawn when this location is loaded. Coordinates are location-local.
+  pub spawn_objects: Vec<(i32, i32, usize, SpawnTemplate)>,
 }
 
 impl Location {
@@ -26,7 +35,7 @@ impl Location {
     fill: crate::level::Tile
   ) -> Self {
     let levels = (0..depth).map(|_| Level::new(width, height, fill)).collect();
-    Location { name, width, height, depth, levels, location_type }
+    Location { name, width, height, depth, levels, location_type, spawn_objects: vec![] }
   }
 
   /// Build a `Location` sized to `prefab`'s layout and stamp level 0 with it.

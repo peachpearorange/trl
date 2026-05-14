@@ -183,6 +183,15 @@ pub struct Enemy;
 #[derive(Component, Clone, Copy)]
 pub struct Tree;
 
+/// An elevator that transports the player to another z-level.
+#[derive(Component, Clone, Copy)]
+pub struct Elevator {
+  pub dest_z: usize,
+  pub dest_x: i32,
+  pub dest_y: i32,
+  pub going_down: bool,
+}
+
 /// Placed loot container; blocks the tile until emptied.
 #[derive(Component, Clone, Debug)]
 pub struct LootChest {
@@ -491,6 +500,18 @@ impl Object {
       }
     ))
   }
+  pub fn elevator(going_down: bool, dest_z: usize, dest_x: i32, dest_y: i32) -> Self {
+    let (name, flavor, ch) = if going_down {
+      ("Elevator", "Lift panel — DECK BELOW. Press Space to descend.", 'v')
+    } else {
+      ("Elevator", "Lift panel — DECK ABOVE. Press Space to ascend.", '^')
+    };
+    Self::structure(true)
+      .add(Elevator { dest_z, dest_x, dest_y, going_down })
+      .add(Glyph::ascii(ch, Color::srgb(1.0, 0.85, 0.1)))
+      .add(Named { name, flavor })
+  }
+
   pub fn loot_chest() -> Self {
     Self::structure(true).add((
       LootChest { opened: false },

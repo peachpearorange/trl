@@ -1,1 +1,0 @@
-/home/user/AGENTS.md
