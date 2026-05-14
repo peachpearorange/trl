@@ -1,6 +1,7 @@
 use enum_assoc::Assoc;
+use num_enum::TryFromPrimitive;
 
-#[derive(Assoc, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Assoc, Clone, Copy, PartialEq, Eq, Debug, TryFromPrimitive)]
 #[repr(u16)]
 #[func(pub fn glyph(&self) -> &'static str)]
 #[func(pub fn color(&self) -> [f32; 3])]
@@ -113,54 +114,8 @@ pub enum Tile {
 
 impl Tile {
   pub fn tileset_index(self) -> u16 { self as u16 }
-}
 
-pub const ALL_TILES: &[Tile] = &[
-  Tile::Air,
-  Tile::DeckPlate,
-  Tile::Wall,
-  Tile::CobblestoneWall,
-  Tile::BrickWall,
-  Tile::Grass,
-  Tile::Water,
-  Tile::Sand,
-  Tile::StairsUp,
-  Tile::StairsDown,
-  Tile::TallGrass,
-  Tile::Bush,
-  Tile::Ash,
-  Tile::Lava,
-  Tile::ShallowWater,
-  Tile::DeepWater,
-  Tile::Road,
-  Tile::WoodWall,
-  Tile::WoodFloor,
-  Tile::WoodTile,
-  Tile::Fence,
-  Tile::CaveWall,
-  Tile::CaveFloor,
-  Tile::CrystalFormation,
-  Tile::Bulkhead,
-  Tile::Window,
-  Tile::StationFloor,
-  Tile::StationWall,
-  Tile::DerelictFloor,
-  Tile::DerelictWall,
-  Tile::Conduit,
-  Tile::AsteroidRock,
-  Tile::AsteroidFloor,
-  Tile::Regolith,
-  Tile::Vacuum,
-  Tile::IceFloor,
-  Tile::IceWall,
-  Tile::AlienSoil,
-  Tile::AlienGrass,
-  Tile::CrystalGrowth,
-  Tile::AlienFluid,
-  Tile::BioluminescentPool,
-  Tile::AcidPool,
-  Tile::CrimsonPool,
-  Tile::AmberPool,
-  Tile::ShipDock,
-  Tile::Blank,
-];
+  pub fn all() -> impl Iterator<Item = Tile> {
+    (0u16..).map_while(|i| Tile::try_from(i).ok())
+  }
+}

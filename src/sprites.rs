@@ -141,16 +141,16 @@ pub fn palette_sprite_handle(
   }
 }
 
-/// Build a 2D array image with one layer per tile in `ALL_TILES`.
+/// Build a 2D array image with one layer per tile variant.
 /// Tiles with a space_qud_sprite get palette-baked; others get solid color; Air/Blank transparent.
 pub fn build_tileset(images: &mut Assets<Image>) -> Handle<Image> {
   use crate::level::Tile;
-  use crate::tiles::ALL_TILES;
   let s = crate::SPRITE_TEXELS as u32;
   let pixels = (s * s * 4) as usize;
-  let n = ALL_TILES.len() as u32;
+  let tiles: Vec<Tile> = Tile::all().collect();
+  let n = tiles.len() as u32;
   let mut data: Vec<u8> = Vec::with_capacity(pixels * n as usize);
-  for &tile in ALL_TILES {
+  for tile in tiles {
     if tile == Tile::Air || tile == Tile::Blank {
       data.extend_from_slice(&vec![0u8; pixels]);
     } else if let Some((path, pri, sec)) = tile.space_qud_sprite() {
