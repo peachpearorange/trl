@@ -185,8 +185,8 @@ class Spryte:
             b = tk.Button(tool_frame, text=TOOL_LABELS[tool],
                           command=lambda t=tool: self._select_tool(t),
                           bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE,
-                          relief=tk.FLAT, borderwidth=0, padx=6, pady=2, anchor="w",
-                          font=BTN_FONT)
+                          relief=tk.FLAT, borderwidth=0, highlightthickness=0,
+                          padx=6, pady=2, anchor="w", font=BTN_FONT)
             b.pack(side=tk.TOP, fill=tk.X, pady=1)
             self._tool_buttons[tool] = b
         self._refresh_tool_buttons()
@@ -227,8 +227,8 @@ class Spryte:
             return tk.Button(btn_frame, text=text, command=cmd,
                              bg=BTN_BG, fg=BTN_FG,
                              activebackground=BTN_ACTIVE,
-                             relief=tk.FLAT, borderwidth=0, padx=8, pady=3,
-                             font=BTN_FONT)
+                             relief=tk.FLAT, borderwidth=0, highlightthickness=0,
+                             padx=8, pady=3, font=BTN_FONT)
 
         btn("New",     self._cmd_new).pack(side=tk.TOP, fill=tk.X, pady=1)
         btn("Save",    self._cmd_save).pack(side=tk.TOP, fill=tk.X, pady=1)
