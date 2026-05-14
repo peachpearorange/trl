@@ -799,7 +799,7 @@ fn update_fov_visuals(
   frame: Res<RenderFrame>,
   index: Res<TileEntityIndex>,
   player: Single<(Entity, &PlayerPos, &mut Visibility), With<Player>>,
-  mut chunk_q: Query<(&TilemapLayer, &mut TilemapChunkTileData, &mut Visibility)>,
+  mut chunk_q: Query<(&TilemapLayer, &mut TilemapChunkTileData, &mut Visibility), Without<Player>>,
   mut item_q: Query<
     (Entity, &ItemGlyph, &mut TextColor, &mut Visibility),
     (Without<Player>, Without<GlyphVisual>)
