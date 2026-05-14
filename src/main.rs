@@ -818,7 +818,8 @@ fn update_fov_visuals(
 
   for (layer, mut tile_data, mut vis) in chunk_q.iter_mut() {
     *vis = if layer.0 == z { Visibility::Visible } else { Visibility::Hidden };
-    if layer.0 == z && fov.is_changed() {
+    let chunk_fresh = tile_data.0.iter().all(|t| t.is_none());
+    if layer.0 == z && (fov.is_changed() || chunk_fresh) {
       for y in 0..height {
         for x in 0..width {
           let chunk_idx = (height - 1 - y) * width + x;
@@ -830,8 +831,12 @@ fn update_fov_visuals(
             let tileset_index = if count == 1 {
               base
             } else {
-              let h = x.wrapping_mul(1619).wrapping_add(y.wrapping_mul(131)) as u16;
-              base + h % count
+              // SplitMix64 finalizer on (x, y) packed into 64 bits — no correlation between positions.
+              let h: u64 = (x as u64) | ((y as u64) << 32);
+              let h = (h ^ (h >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+              let h = (h ^ (h >> 27)).wrapping_mul(0x94d049bb133111eb);
+              let h = h ^ (h >> 31);
+              base + (h as u16) % count
             };
             if fov.0.is_visible(x, y) {
               Some(TileData { tileset_index, color: Color::WHITE, visible: true })
@@ -2260,6 +2265,17 @@ fn spawn_zone_geometry(
   spawn_item_glyphs(commands, zone);
 }
 
+fn fov_recompute(
+  fov: &mut FovGrid,
+  zone: &active_zone::ActiveZone,
+  x: i32,
+  y: i32,
+  z: usize,
+  is_blocked: impl Fn(i32, i32) -> bool
+) {
+  compute_fov(fov, zone.level(z), x, y, FOV_RADIUS, is_blocked);
+}
+
 fn apply_pending_navigation(
   mut pending: ResMut<PendingNavigation>,
   mut commands: Commands,
@@ -2340,6 +2356,11 @@ fn apply_pending_navigation(
       tile_screen_pos(local_x as f32, local_y as f32, current.0.width, current.0.height)
         + Vec3::Z;
   }
+  // Compute FOV immediately so tile visuals are correct on the next frame.
+  // New tilemaps are spawned via deferred Commands so they arrive one frame later;
+  // update_fov_visuals detects the empty chunks and populates them then.
+  // No entity blockers yet — update_fov will fix them on the first sim step.
+  fov_recompute(&mut fov.0, &current.0, local_x, local_y, 0, |_, _| false);
   clock.spend_turn(&mut tb);
   let dest_name = galaxy.get(dest).map_or("destination", |loc| loc.name);
   log_message(&mut *log, format!("Astrogation: docked — {dest_name} sector."));
@@ -2460,9 +2481,7 @@ fn update_fov(
       }
     })
     .collect();
-  compute_fov(&mut fov.0, current.0.level(z), x, y, FOV_RADIUS, |tx, ty| {
-    blockers.contains(&(tx, ty))
-  });
+  fov_recompute(&mut fov.0, &current.0, x, y, z as usize, |tx, ty| blockers.contains(&(tx, ty)));
 }
 
 fn spawn_item_glyphs(commands: &mut Commands, zone: &active_zone::ActiveZone) {
