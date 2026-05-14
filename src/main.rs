@@ -1741,7 +1741,6 @@ fn dispatch_interactive_choice(
     }
     InteractionAction::Navigate { dest } => {
       pending_nav.0 = Some(*dest);
-      clock.spend_turn(tb);
     }
     InteractionAction::RecruitFollower { entity, name } => {
       commands.entity(*entity).insert(FollowerState::Following);
