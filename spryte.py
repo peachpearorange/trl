@@ -3,6 +3,7 @@
 
 import tkinter as tk
 from tkinter import filedialog, messagebox
+from collections import deque
 from pathlib import Path
 from PIL import Image
 
@@ -31,6 +32,9 @@ BTN_BG     = "#4c5052"
 BTN_FG     = "#dddddd"
 BTN_ACTIVE = "#5c6366"
 SWATCH_SZ  = 36
+
+TOOLS = ["pencil", "rect", "move", "fill"]
+TOOL_LABELS = {"pencil": "Pencil (Q)", "rect": "Rect (R)", "move": "Move (M)", "fill": "Fill (F)"}
 
 
 # ---------------------------------------------------------------------------
@@ -69,6 +73,23 @@ def pixel_color_hex(color: tuple) -> str | None:
     return "#{:02x}{:02x}{:02x}".format(color[0], color[1], color[2])
 
 
+def flood_fill(pixels: list[list[tuple]], col: int, row: int, fill_color: tuple):
+    target = pixels[row][col]
+    if target == fill_color:
+        return
+    q = deque([(col, row)])
+    visited = set()
+    while q:
+        c, r = q.popleft()
+        if (c, r) in visited or not (0 <= c < GRID and 0 <= r < GRID):
+            continue
+        if pixels[r][c] != target:
+            continue
+        visited.add((c, r))
+        pixels[r][c] = fill_color
+        q.extend([(c+1, r), (c-1, r), (c, r+1), (c, r-1)])
+
+
 # ---------------------------------------------------------------------------
 # Main application
 # ---------------------------------------------------------------------------
@@ -83,9 +104,26 @@ class Spryte:
         self.current_color: tuple = BLACK
         self.current_file: Path | None = None
         self.dirty: bool = False
-        self._painting: bool = False
         self._cell: int = 28
         self._resize_job = None
+
+        # tool state
+        self._tool: str = "pencil"
+        self._painting: bool = False
+
+        # rect tool
+        self._rect_start: tuple | None = None
+        self._rect_end: tuple | None = None
+
+        # move tool
+        self._move_phase: str = "select"   # "select" | "floating"
+        self._move_sel_start: tuple | None = None
+        self._move_sel_end: tuple | None = None
+        self._move_rect: tuple | None = None    # (c0, r0, c1, r1) normalized
+        self._move_lifted: list | None = None   # 2D pixel array of lifted region
+        self._move_offset: tuple = (0, 0)       # (dc, dr) applied to lifted pixels
+        self._move_grab: tuple | None = None    # grid cell where drag started
+        self._move_grab_offset: tuple = (0, 0) # offset at grab time
 
         self._build_ui()
         self._update_title()
@@ -102,15 +140,21 @@ class Spryte:
         self.canvas = tk.Canvas(self.root, bg=BG, highlightthickness=0, cursor="crosshair")
         self.canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-        self.canvas.bind("<Button-1>",        self._on_paint_start)
-        self.canvas.bind("<B1-Motion>",       self._on_paint_drag)
-        self.canvas.bind("<ButtonRelease-1>", self._on_paint_end)
-        self.canvas.bind("<Button-3>",        self._on_erase)
-        self.canvas.bind("<B3-Motion>",       self._on_erase)
+        self.canvas.bind("<Button-1>",        self._on_lmb_down)
+        self.canvas.bind("<B1-Motion>",       self._on_lmb_drag)
+        self.canvas.bind("<ButtonRelease-1>", self._on_lmb_up)
+        self.canvas.bind("<Button-3>",        self._on_rmb)
+        self.canvas.bind("<B3-Motion>",       self._on_rmb)
         self.canvas.bind("<Configure>",       self._on_canvas_resize)
+
         self.root.bind("1", lambda e: self._select_color(0))
         self.root.bind("2", lambda e: self._select_color(1))
         self.root.bind("3", lambda e: self._select_color(2))
+        self.root.bind("q", lambda e: self._select_tool("pencil"))
+        self.root.bind("r", lambda e: self._select_tool("rect"))
+        self.root.bind("m", lambda e: self._select_tool("move"))
+        self.root.bind("f", lambda e: self._select_tool("fill"))
+        self.root.bind("<Escape>", lambda e: self._cancel_tool())
 
     def _build_bottom_panel(self):
         panel = tk.Frame(self.root, bg=PANEL, pady=6)
@@ -118,7 +162,7 @@ class Spryte:
 
         # Color swatches
         swatch_frame = tk.Frame(panel, bg=PANEL)
-        swatch_frame.pack(side=tk.LEFT, padx=(8, 16))
+        swatch_frame.pack(side=tk.LEFT, padx=(8, 8))
 
         self._swatches: list[tk.Canvas] = []
         for i, (label, hex_c) in enumerate(zip(
@@ -126,8 +170,22 @@ class Spryte:
             [None, "#000000", "#ffffff"],
         )):
             self._build_swatch(swatch_frame, i, label, hex_c)
-
         self._refresh_swatches()
+
+        # Tool buttons
+        tool_frame = tk.Frame(panel, bg=PANEL)
+        tool_frame.pack(side=tk.LEFT, padx=(0, 16))
+
+        self._tool_buttons: dict[str, tk.Button] = {}
+        for tool in TOOLS:
+            b = tk.Button(tool_frame, text=TOOL_LABELS[tool],
+                          command=lambda t=tool: self._select_tool(t),
+                          bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE,
+                          relief=tk.FLAT, padx=6, pady=2, anchor="w",
+                          font=("Helvetica", 8))
+            b.pack(side=tk.TOP, fill=tk.X, pady=1)
+            self._tool_buttons[tool] = b
+        self._refresh_tool_buttons()
 
         # Sprite list
         list_frame = tk.Frame(panel, bg=PANEL)
@@ -183,10 +241,10 @@ class Spryte:
             sw = tk.Canvas(container, width=SWATCH_SZ, height=SWATCH_SZ,
                            highlightthickness=2, bd=0, highlightbackground=PANEL)
             h = SWATCH_SZ // 2
-            sw.create_rectangle(0, 0, h,        h,         fill=CHECK_A, outline="")
-            sw.create_rectangle(h, 0, SWATCH_SZ, h,         fill=CHECK_B, outline="")
-            sw.create_rectangle(0, h, h,         SWATCH_SZ, fill=CHECK_B, outline="")
-            sw.create_rectangle(h, h, SWATCH_SZ, SWATCH_SZ, fill=CHECK_A, outline="")
+            sw.create_rectangle(0, 0, h,         h,         fill=CHECK_A, outline="")
+            sw.create_rectangle(h, 0, SWATCH_SZ,  h,         fill=CHECK_B, outline="")
+            sw.create_rectangle(0, h, h,          SWATCH_SZ, fill=CHECK_B, outline="")
+            sw.create_rectangle(h, h, SWATCH_SZ,  SWATCH_SZ, fill=CHECK_A, outline="")
         else:
             sw = tk.Canvas(container, width=SWATCH_SZ, height=SWATCH_SZ,
                            bg=hex_color, highlightthickness=2, bd=0,
@@ -214,24 +272,25 @@ class Spryte:
         self._resize_job = None
         self._cell = max(1, min(w, h) // GRID)
         self._draw_canvas()
+        self._draw_overlay()
 
     # ------------------------------------------------------------------
     # Drawing
     # ------------------------------------------------------------------
 
     def _draw_canvas(self):
-        self.canvas.delete("all")
+        self.canvas.delete("pixel")
         c = self._cell
         for row in range(GRID):
             for col in range(GRID):
                 x0, y0 = col * c, row * c
                 x1, y1 = x0 + c, y0 + c
                 check = CHECK_A if (col + row) % 2 == 0 else CHECK_B
-                self.canvas.create_rectangle(x0, y0, x1, y1, fill=check, outline="")
+                self.canvas.create_rectangle(x0, y0, x1, y1, fill=check, outline="", tags="pixel")
                 color = self.pixels[row][col]
                 if color[3] > 0:
                     self.canvas.create_rectangle(x0, y0, x1, y1,
-                                                 fill=pixel_color_hex(color), outline="")
+                                                 fill=pixel_color_hex(color), outline="", tags="pixel")
 
     def _redraw_cell(self, col: int, row: int):
         c = self._cell
@@ -241,12 +300,258 @@ class Spryte:
         self.canvas.delete(tag)
 
         check = CHECK_A if (col + row) % 2 == 0 else CHECK_B
-        self.canvas.create_rectangle(x0, y0, x1, y1, fill=check, outline="", tags=tag)
+        self.canvas.create_rectangle(x0, y0, x1, y1, fill=check, outline="", tags=("pixel", tag))
 
         color = self.pixels[row][col]
         if color[3] > 0:
             self.canvas.create_rectangle(x0, y0, x1, y1,
-                                         fill=pixel_color_hex(color), outline="", tags=tag)
+                                         fill=pixel_color_hex(color), outline="", tags=("pixel", tag))
+
+    def _draw_overlay(self):
+        self.canvas.delete("overlay")
+        c = self._cell
+
+        if self._tool == "rect" and self._rect_start and self._rect_end:
+            c0, r0 = self._rect_start
+            c1, r1 = self._rect_end
+            x0 = min(c0, c1) * c
+            y0 = min(r0, r1) * c
+            x1 = (max(c0, c1) + 1) * c
+            y1 = (max(r0, r1) + 1) * c
+            self.canvas.create_rectangle(x0, y0, x1, y1,
+                                         outline="white", dash=(4, 4), width=1, tags="overlay")
+
+        elif self._tool == "move":
+            if self._move_phase == "select" and self._move_sel_start and self._move_sel_end:
+                c0, r0 = self._move_sel_start
+                c1, r1 = self._move_sel_end
+                x0 = min(c0, c1) * c
+                y0 = min(r0, r1) * c
+                x1 = (max(c0, c1) + 1) * c
+                y1 = (max(r0, r1) + 1) * c
+                self.canvas.create_rectangle(x0, y0, x1, y1,
+                                             outline="white", dash=(4, 4), width=1, tags="overlay")
+
+            elif self._move_phase == "floating" and self._move_lifted and self._move_rect:
+                mc0, mr0, mc1, mr1 = self._move_rect
+                dc, dr = self._move_offset
+                for row in range(mr0, mr1 + 1):
+                    for col in range(mc0, mc1 + 1):
+                        px = self._move_lifted[row - mr0][col - mc0]
+                        nc, nr = col + dc, row + dr
+                        if not (0 <= nc < GRID and 0 <= nr < GRID):
+                            continue
+                        x0, y0 = nc * c, nr * c
+                        check = CHECK_A if (nc + nr) % 2 == 0 else CHECK_B
+                        self.canvas.create_rectangle(x0, y0, x0 + c, y0 + c,
+                                                     fill=check, outline="", tags="overlay")
+                        if px[3] > 0:
+                            self.canvas.create_rectangle(x0, y0, x0 + c, y0 + c,
+                                                         fill=pixel_color_hex(px),
+                                                         outline="", tags="overlay")
+                # selection border
+                bx0 = (mc0 + dc) * c
+                by0 = (mr0 + dr) * c
+                bx1 = (mc1 + dc + 1) * c
+                by1 = (mr1 + dr + 1) * c
+                self.canvas.create_rectangle(bx0, by0, bx1, by1,
+                                             outline="white", dash=(4, 4), width=1, tags="overlay")
+
+    # ------------------------------------------------------------------
+    # Tool selection
+    # ------------------------------------------------------------------
+
+    def _select_tool(self, tool: str):
+        self._cancel_tool()
+        self._tool = tool
+        self._refresh_tool_buttons()
+
+    def _refresh_tool_buttons(self):
+        for tool, btn in self._tool_buttons.items():
+            btn.config(bg=HIGHLIGHT if tool == self._tool else BTN_BG)
+
+    def _cancel_tool(self):
+        if self._tool == "move" and self._move_phase == "floating":
+            self._move_restore()
+        self._rect_start = self._rect_end = None
+        self._move_phase = "select"
+        self._move_sel_start = self._move_sel_end = None
+        self._move_rect = self._move_lifted = None
+        self._move_offset = (0, 0)
+        self._draw_overlay()
+
+    # ------------------------------------------------------------------
+    # Mouse event dispatch
+    # ------------------------------------------------------------------
+
+    def _on_lmb_down(self, event):
+        self._painting = True
+        pos = self._canvas_to_grid(event.x, event.y)
+        if self._tool == "pencil":
+            if pos:
+                self._paint_pixel(pos, self.current_color)
+        elif self._tool == "rect":
+            self._rect_start = pos
+            self._rect_end = pos
+            self._draw_overlay()
+        elif self._tool == "move":
+            self._on_move_down(pos)
+        elif self._tool == "fill":
+            if pos:
+                col, row = pos
+                flood_fill(self.pixels, col, row, self.current_color)
+                self.dirty = True
+                self._draw_canvas()
+                self._draw_overlay()
+
+    def _on_lmb_drag(self, event):
+        if not self._painting:
+            return
+        pos = self._canvas_to_grid(event.x, event.y)
+        if self._tool == "pencil":
+            if pos:
+                self._paint_pixel(pos, self.current_color)
+        elif self._tool == "rect":
+            if pos:
+                self._rect_end = pos
+                self._draw_overlay()
+        elif self._tool == "move":
+            self._on_move_drag(pos)
+
+    def _on_lmb_up(self, event):
+        self._painting = False
+        pos = self._canvas_to_grid(event.x, event.y)
+        if self._tool == "rect":
+            self._commit_rect()
+        elif self._tool == "move":
+            self._on_move_up(pos)
+
+    def _on_rmb(self, event):
+        pos = self._canvas_to_grid(event.x, event.y)
+        if self._tool == "pencil" and pos:
+            self._paint_pixel(pos, TRANSPARENT)
+        elif self._tool == "move" and self._move_phase == "floating":
+            self._move_restore()
+
+    # ------------------------------------------------------------------
+    # Pencil
+    # ------------------------------------------------------------------
+
+    def _paint_pixel(self, pos: tuple, color: tuple):
+        col, row = pos
+        if self.pixels[row][col] == color:
+            return
+        self.pixels[row][col] = color
+        self.dirty = True
+        self._redraw_cell(col, row)
+
+    # ------------------------------------------------------------------
+    # Rect tool
+    # ------------------------------------------------------------------
+
+    def _commit_rect(self):
+        if not self._rect_start or not self._rect_end:
+            return
+        c0, r0 = self._rect_start
+        c1, r1 = self._rect_end
+        for row in range(min(r0, r1), max(r0, r1) + 1):
+            for col in range(min(c0, c1), max(c0, c1) + 1):
+                self.pixels[row][col] = self.current_color
+        self.dirty = True
+        self._rect_start = self._rect_end = None
+        self._draw_canvas()
+        self._draw_overlay()
+
+    # ------------------------------------------------------------------
+    # Move tool
+    # ------------------------------------------------------------------
+
+    def _on_move_down(self, pos: tuple | None):
+        if self._move_phase == "select":
+            self._move_sel_start = pos
+            self._move_sel_end = pos
+            self._draw_overlay()
+        elif self._move_phase == "floating":
+            # begin drag of floating selection
+            self._move_grab = pos
+            self._move_grab_offset = self._move_offset
+
+    def _on_move_drag(self, pos: tuple | None):
+        if not pos:
+            return
+        if self._move_phase == "select":
+            self._move_sel_end = pos
+            self._draw_overlay()
+        elif self._move_phase == "floating" and self._move_grab:
+            gc, gr = self._move_grab
+            pc, pr = pos
+            go_c, go_r = self._move_grab_offset
+            self._move_offset = (go_c + pc - gc, go_r + pr - gr)
+            self._draw_canvas()
+            self._draw_overlay()
+
+    def _on_move_up(self, pos: tuple | None):
+        if self._move_phase == "select":
+            if not self._move_sel_start or not self._move_sel_end:
+                return
+            c0, r0 = self._move_sel_start
+            c1, r1 = self._move_sel_end
+            nc0, nc1 = min(c0, c1), max(c0, c1)
+            nr0, nr1 = min(r0, r1), max(r0, r1)
+            self._move_rect = (nc0, nr0, nc1, nr1)
+            # lift pixels
+            self._move_lifted = [
+                [self.pixels[row][col] for col in range(nc0, nc1 + 1)]
+                for row in range(nr0, nr1 + 1)
+            ]
+            for row in range(nr0, nr1 + 1):
+                for col in range(nc0, nc1 + 1):
+                    self.pixels[row][col] = TRANSPARENT
+            self._move_offset = (0, 0)
+            self._move_grab = None
+            self._move_phase = "floating"
+            self._draw_canvas()
+            self._draw_overlay()
+
+        elif self._move_phase == "floating":
+            self._move_grab = None
+            # commit on release only if we actually dragged; otherwise keep floating
+            # (user can right-click to cancel or drag again)
+
+    def _move_restore(self):
+        """Put lifted pixels back at original position."""
+        if not self._move_rect or not self._move_lifted:
+            return
+        mc0, mr0, mc1, mr1 = self._move_rect
+        for row in range(mr0, mr1 + 1):
+            for col in range(mc0, mc1 + 1):
+                self.pixels[row][col] = self._move_lifted[row - mr0][col - mc0]
+        self.dirty = True
+        self._move_phase = "select"
+        self._move_rect = self._move_lifted = None
+        self._move_sel_start = self._move_sel_end = None
+        self._move_offset = (0, 0)
+        self._draw_canvas()
+        self._draw_overlay()
+
+    def _move_commit(self):
+        """Paste lifted pixels at current offset and end move."""
+        if not self._move_rect or not self._move_lifted:
+            return
+        mc0, mr0, mc1, mr1 = self._move_rect
+        dc, dr = self._move_offset
+        for row in range(mr0, mr1 + 1):
+            for col in range(mc0, mc1 + 1):
+                nc, nr = col + dc, row + dr
+                if 0 <= nc < GRID and 0 <= nr < GRID:
+                    self.pixels[nr][nc] = self._move_lifted[row - mr0][col - mc0]
+        self.dirty = True
+        self._move_phase = "select"
+        self._move_rect = self._move_lifted = None
+        self._move_sel_start = self._move_sel_end = None
+        self._move_offset = (0, 0)
+        self._draw_canvas()
+        self._draw_overlay()
 
     # ------------------------------------------------------------------
     # Color palette
@@ -261,38 +566,13 @@ class Spryte:
             sw.config(highlightbackground=HIGHLIGHT if PALETTE[i] == self.current_color else PANEL)
 
     # ------------------------------------------------------------------
-    # Painting
+    # Helpers
     # ------------------------------------------------------------------
 
     def _canvas_to_grid(self, cx: int, cy: int) -> tuple[int, int] | None:
         c = self._cell
         col, row = cx // c, cy // c
         return (col, row) if 0 <= col < GRID and 0 <= row < GRID else None
-
-    def _on_paint_start(self, event):
-        self._painting = True
-        self._paint_at(event.x, event.y, self.current_color)
-
-    def _on_paint_drag(self, event):
-        if self._painting:
-            self._paint_at(event.x, event.y, self.current_color)
-
-    def _on_paint_end(self, event):
-        self._painting = False
-
-    def _on_erase(self, event):
-        self._paint_at(event.x, event.y, TRANSPARENT)
-
-    def _paint_at(self, cx: int, cy: int, color: tuple):
-        pos = self._canvas_to_grid(cx, cy)
-        if pos is None:
-            return
-        col, row = pos
-        if self.pixels[row][col] == color:
-            return
-        self.pixels[row][col] = color
-        self.dirty = True
-        self._redraw_cell(col, row)
 
     # ------------------------------------------------------------------
     # Sprite list
@@ -326,6 +606,7 @@ class Spryte:
         self.pixels = blank_canvas()
         self.current_file = None
         self.dirty = False
+        self._cancel_tool()
         self._draw_canvas()
         self._update_title()
 
@@ -355,6 +636,7 @@ class Spryte:
         self._refresh_sprite_list()
 
     def _open(self, path: Path):
+        self._cancel_tool()
         self.pixels = load_image(path)
         self.current_file = path
         self.dirty = False
