@@ -57,7 +57,7 @@ pub(crate) const AIRLOCK_SEC: Color = Color::srgb(0.52, 0.55, 0.58);
 /// Primary color used for the player sprite and "You:" log labels.
 pub const PLAYER_PRIMARY: Color = Color::srgb(0.72, 0.72, 0.72);
 /// Simulated 60Hz display: one grid step / one input gate spans this many render updates.
-pub const RENDER_FRAMES_PER_SIM_STEP: u32 = 6;
+pub const RENDER_FRAMES_PER_SIM_STEP: u32 = 5;
 /// How many sim steps run per real-time second (= assumed display Hz / render frames per step).
 pub const SIM_STEPS_PER_SEC: f32 = 60.0 / RENDER_FRAMES_PER_SIM_STEP as f32;
 const FOV_RADIUS: i32 = 99;
