@@ -13,7 +13,7 @@ from PIL import Image
 SCRIPT_DIR = Path(__file__).parent
 ASSETS_DIR = SCRIPT_DIR / "assets" / "textures" / "space_qud"
 
-GRID = 20   # logical pixels per side
+GRID = 20
 
 TRANSPARENT = (0, 0, 0, 0)
 BLACK       = (0, 0, 0, 255)
@@ -30,8 +30,7 @@ HIGHLIGHT  = "#4e9fea"
 BTN_BG     = "#4c5052"
 BTN_FG     = "#dddddd"
 BTN_ACTIVE = "#5c6366"
-SWATCH_SZ  = 40
-SWATCH_PAD = 6
+SWATCH_SZ  = 36
 
 
 # ---------------------------------------------------------------------------
@@ -85,8 +84,8 @@ class Spryte:
         self.current_file: Path | None = None
         self.dirty: bool = False
         self._painting: bool = False
-        self._cell: int = 28          # updated on canvas resize
-        self._resize_job = None       # debounce timer id
+        self._cell: int = 28
+        self._resize_job = None
 
         self._build_ui()
         self._update_title()
@@ -96,43 +95,95 @@ class Spryte:
     # ------------------------------------------------------------------
 
     def _build_ui(self):
-        top = tk.Frame(self.root, bg=BG)
-        top.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self._build_canvas()
+        self._build_bottom_panel()
 
-        self._build_left_sidebar(top)
-        self._build_right_sidebar(top)   # pack right before center so center gets remaining space
-        self._build_canvas(top)
-        self._build_bottom_bar()
+    def _build_canvas(self):
+        self.canvas = tk.Canvas(self.root, bg=BG, highlightthickness=0, cursor="crosshair")
+        self.canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-    def _build_left_sidebar(self, parent):
-        frame = tk.Frame(parent, bg=PANEL, width=80, padx=8, pady=12)
-        frame.pack(side=tk.LEFT, fill=tk.Y)
-        frame.pack_propagate(False)
+        self.canvas.bind("<Button-1>",        self._on_paint_start)
+        self.canvas.bind("<B1-Motion>",       self._on_paint_drag)
+        self.canvas.bind("<ButtonRelease-1>", self._on_paint_end)
+        self.canvas.bind("<Button-3>",        self._on_erase)
+        self.canvas.bind("<B3-Motion>",       self._on_erase)
+        self.canvas.bind("<Configure>",       self._on_canvas_resize)
 
-        tk.Label(frame, text="Color", bg=PANEL, fg=FG,
-                 font=("Helvetica", 9, "bold")).pack(pady=(0, 8))
+    def _build_bottom_panel(self):
+        panel = tk.Frame(self.root, bg=PANEL, pady=6)
+        panel.pack(side=tk.BOTTOM, fill=tk.X)
+
+        # Color swatches
+        swatch_frame = tk.Frame(panel, bg=PANEL)
+        swatch_frame.pack(side=tk.LEFT, padx=(8, 16))
 
         self._swatches: list[tk.Canvas] = []
         for i, (label, hex_c) in enumerate(zip(
             ["Trans.", "Black", "White"],
             [None, "#000000", "#ffffff"],
         )):
-            self._build_swatch(frame, i, label, hex_c)
+            self._build_swatch(swatch_frame, i, label, hex_c)
 
         self._refresh_swatches()
 
+        # Sprite list
+        list_frame = tk.Frame(panel, bg=PANEL)
+        list_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        tk.Label(list_frame, text="Sprites:", bg=PANEL, fg=FG,
+                 font=("Helvetica", 8, "bold")).pack(side=tk.LEFT, padx=(0, 4))
+
+        scrollbar = tk.Scrollbar(list_frame, orient=tk.HORIZONTAL, bg=PANEL,
+                                 troughcolor=BG, width=8)
+        self.sprite_list = tk.Listbox(
+            list_frame,
+            xscrollcommand=scrollbar.set,
+            bg=BG, fg=FG, selectbackground=HIGHLIGHT,
+            selectforeground="#ffffff",
+            borderwidth=0, highlightthickness=0,
+            font=("Helvetica", 8),
+            activestyle="none",
+            height=3,
+        )
+        scrollbar.config(command=self.sprite_list.xview)
+        self.sprite_list.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.TOP, fill=tk.X)
+
+        self.sprite_list.bind("<Double-Button-1>", self._on_sprite_open)
+        self.sprite_list.bind("<Return>",          self._on_sprite_open)
+
+        self._refresh_sprite_list()
+
+        # File buttons + filename
+        btn_frame = tk.Frame(panel, bg=PANEL)
+        btn_frame.pack(side=tk.RIGHT, padx=8)
+
+        def btn(text, cmd):
+            return tk.Button(btn_frame, text=text, command=cmd,
+                             bg=BTN_BG, fg=BTN_FG,
+                             activebackground=BTN_ACTIVE,
+                             relief=tk.FLAT, padx=8, pady=3)
+
+        btn("New",     self._cmd_new).pack(side=tk.TOP, fill=tk.X, pady=1)
+        btn("Save",    self._cmd_save).pack(side=tk.TOP, fill=tk.X, pady=1)
+        btn("Save As", self._cmd_save_as).pack(side=tk.TOP, fill=tk.X, pady=1)
+
+        self.filename_label = tk.Label(panel, text="", bg=PANEL, fg=FG,
+                                       font=("Helvetica", 8))
+        self.filename_label.pack(side=tk.RIGHT, padx=(0, 12))
+
     def _build_swatch(self, parent, index: int, label: str, hex_color: str | None):
         container = tk.Frame(parent, bg=PANEL, cursor="hand2")
-        container.pack(pady=SWATCH_PAD)
+        container.pack(side=tk.LEFT, padx=4)
 
         if hex_color is None:
             sw = tk.Canvas(container, width=SWATCH_SZ, height=SWATCH_SZ,
                            highlightthickness=2, bd=0, highlightbackground=PANEL)
             h = SWATCH_SZ // 2
-            sw.create_rectangle(0,  0,  h,        h,        fill=CHECK_A, outline="")
-            sw.create_rectangle(h,  0,  SWATCH_SZ, h,        fill=CHECK_B, outline="")
-            sw.create_rectangle(0,  h,  h,        SWATCH_SZ, fill=CHECK_B, outline="")
-            sw.create_rectangle(h,  h,  SWATCH_SZ, SWATCH_SZ, fill=CHECK_A, outline="")
+            sw.create_rectangle(0, 0, h,        h,         fill=CHECK_A, outline="")
+            sw.create_rectangle(h, 0, SWATCH_SZ, h,         fill=CHECK_B, outline="")
+            sw.create_rectangle(0, h, h,         SWATCH_SZ, fill=CHECK_B, outline="")
+            sw.create_rectangle(h, h, SWATCH_SZ, SWATCH_SZ, fill=CHECK_A, outline="")
         else:
             sw = tk.Canvas(container, width=SWATCH_SZ, height=SWATCH_SZ,
                            bg=hex_color, highlightthickness=2, bd=0,
@@ -142,84 +193,16 @@ class Spryte:
         sw.bind("<Button-1>", lambda e, i=index: self._select_color(i))
 
         tk.Label(container, text=label, bg=PANEL, fg=FG,
-                 font=("Helvetica", 8)).pack()
+                 font=("Helvetica", 7)).pack()
         container.bind("<Button-1>", lambda e, i=index: self._select_color(i))
 
         self._swatches.append(sw)
-
-    def _build_canvas(self, parent):
-        frame = tk.Frame(parent, bg=BG)
-        frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        self.canvas = tk.Canvas(frame, bg=BG, highlightthickness=0, cursor="crosshair")
-        self.canvas.pack(fill=tk.BOTH, expand=True)
-
-        self.canvas.bind("<Button-1>",        self._on_paint_start)
-        self.canvas.bind("<B1-Motion>",       self._on_paint_drag)
-        self.canvas.bind("<ButtonRelease-1>", self._on_paint_end)
-        self.canvas.bind("<Button-3>",        self._on_erase)
-        self.canvas.bind("<B3-Motion>",       self._on_erase)
-        self.canvas.bind("<Configure>",       self._on_canvas_resize)
-
-    def _build_right_sidebar(self, parent):
-        frame = tk.Frame(parent, bg=PANEL, width=160, padx=6, pady=8)
-        frame.pack(side=tk.RIGHT, fill=tk.Y)
-        frame.pack_propagate(False)
-
-        tk.Label(frame, text="Sprites", bg=PANEL, fg=FG,
-                 font=("Helvetica", 9, "bold")).pack(pady=(0, 6))
-
-        list_frame = tk.Frame(frame, bg=PANEL)
-        list_frame.pack(fill=tk.BOTH, expand=True)
-
-        scrollbar = tk.Scrollbar(list_frame, orient=tk.VERTICAL, bg=PANEL,
-                                 troughcolor=BG, width=10)
-        self.sprite_list = tk.Listbox(
-            list_frame,
-            yscrollcommand=scrollbar.set,
-            bg=BG, fg=FG, selectbackground=HIGHLIGHT,
-            selectforeground="#ffffff",
-            borderwidth=0, highlightthickness=0,
-            font=("Helvetica", 8),
-            activestyle="none",
-        )
-        scrollbar.config(command=self.sprite_list.yview)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.sprite_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        self.sprite_list.bind("<Double-Button-1>", self._on_sprite_open)
-        self.sprite_list.bind("<Return>",          self._on_sprite_open)
-
-        tk.Button(frame, text="Open", command=self._on_sprite_open,
-                  bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE,
-                  relief=tk.FLAT, padx=4, pady=2).pack(pady=(4, 0))
-
-        self._refresh_sprite_list()
-
-    def _build_bottom_bar(self):
-        bar = tk.Frame(self.root, bg=PANEL, pady=6)
-        bar.pack(side=tk.BOTTOM, fill=tk.X)
-
-        def btn(text, cmd):
-            return tk.Button(bar, text=text, command=cmd,
-                             bg=BTN_BG, fg=BTN_FG,
-                             activebackground=BTN_ACTIVE,
-                             relief=tk.FLAT, padx=10, pady=4)
-
-        btn("New",     self._cmd_new).pack(side=tk.LEFT, padx=(8, 4))
-        btn("Save",    self._cmd_save).pack(side=tk.LEFT, padx=4)
-        btn("Save As", self._cmd_save_as).pack(side=tk.LEFT, padx=4)
-
-        self.filename_label = tk.Label(bar, text="", bg=PANEL, fg=FG,
-                                       font=("Helvetica", 9))
-        self.filename_label.pack(side=tk.LEFT, padx=12)
 
     # ------------------------------------------------------------------
     # Canvas resize
     # ------------------------------------------------------------------
 
     def _on_canvas_resize(self, event):
-        # Debounce: wait 50 ms after last resize event before redrawing
         if self._resize_job is not None:
             self.root.after_cancel(self._resize_job)
         self._resize_job = self.root.after(50, lambda: self._apply_resize(event.width, event.height))
@@ -229,16 +212,12 @@ class Spryte:
         self._cell = max(1, min(w, h) // GRID)
         self._draw_canvas()
 
-    def _canvas_size(self) -> int:
-        return self._cell * GRID
-
     # ------------------------------------------------------------------
     # Drawing
     # ------------------------------------------------------------------
 
     def _draw_canvas(self):
         self.canvas.delete("all")
-        sz = self._canvas_size()
         c = self._cell
         for row in range(GRID):
             for col in range(GRID):
@@ -265,7 +244,6 @@ class Spryte:
         if color[3] > 0:
             self.canvas.create_rectangle(x0, y0, x1, y1,
                                          fill=pixel_color_hex(color), outline="", tags=tag)
-
 
     # ------------------------------------------------------------------
     # Color palette
