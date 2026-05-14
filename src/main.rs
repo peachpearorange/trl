@@ -641,7 +641,7 @@ fn main() {
         .chain()
         .after(FramePipeline::UtilityMenus)
     )
-    .add_systems(PostStartup, init_follower_homes)
+    .add_systems(PostStartup, (update_fov, init_follower_homes).chain())
     .add_systems(Update, (accumulate_dir, player_input).chain().in_set(FramePipeline::PlayerMove))
     .add_systems(Update, auto_close_airlocks.after(FramePipeline::PlayerMove))
     .add_systems(
