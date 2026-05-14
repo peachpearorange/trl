@@ -1,4 +1,5 @@
 #![warn(dead_code)]
+#![warn(unused_imports)]
 mod ui;
 pub mod active_zone;
 pub mod atmosphere;
@@ -1235,7 +1236,7 @@ fn handle_menus(
 
   // Key-repeat constants: ~0.3 s initial delay, ~0.1 s repeat rate at 60 fps
   const NAV_INITIAL_DELAY: u32 = 18;
-  const NAV_REPEAT_RATE:   u32 = 6;
+  const NAV_REPEAT_RATE:   u32 = 3;
 
   ui.dir_consumed = false; // cleared each frame; set below when a direction key feeds the menu
   if matches!(ui.interact, InteractMenu::Open { .. }) {
