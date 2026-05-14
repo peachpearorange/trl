@@ -71,10 +71,15 @@ impl BspNode {
     fn leaf(cell: Rect) -> Self { BspNode { cell, left: None, right: None, room: None } }
 
     fn split(mut self, rng: &mut SmallRng, min_size: usize, depth: usize) -> Self {
-        if depth == 0 || (self.cell.w < min_size * 2 && self.cell.h < min_size * 2) {
-            // Leaf: carve a room with random inset
-            let inset_x = rng.random_range(1..=(self.cell.w / 4).max(1));
-            let inset_y = rng.random_range(1..=(self.cell.h / 4).max(1));
+        let can_split = self.cell.w >= min_size * 2 || self.cell.h >= min_size * 2;
+        // 20% chance to stop early and keep a fat hub room instead of splitting further.
+        let early_stop = can_split && depth > 0 && rng.random_bool(0.20);
+        if depth == 0 || !can_split || early_stop {
+            // Leaf: carve a room. Fat rooms get a small inset; regular rooms get a random one.
+            let max_inset_x = if early_stop { 1 } else { (self.cell.w / 4).max(1) };
+            let max_inset_y = if early_stop { 1 } else { (self.cell.h / 4).max(1) };
+            let inset_x = rng.random_range(1..=max_inset_x);
+            let inset_y = rng.random_range(1..=max_inset_y);
             let rw = self.cell.w.saturating_sub(inset_x * 2).max(3);
             let rh = self.cell.h.saturating_sub(inset_y * 2).max(3);
             self.room = Some(Rect {
@@ -193,6 +198,11 @@ pub fn generate(params: &StationParams) -> Location {
         bsp.collect_corridors(&mut corridors);
         for ((ax, ay), (bx, by)) in &corridors {
             carve_corridor(level, *ax, *ay, *bx, *by);
+        }
+
+        // Internal walls in large rooms — pillar grid or spine wall with a passage gap.
+        for room in bsp.rooms() {
+            add_internal_walls(level, room, &mut rng);
         }
 
         // Place doors where corridors enter rooms; collect positions for later Object spawn.
@@ -350,6 +360,67 @@ fn place_windows(level: &mut Level, size: usize, rng: &mut SmallRng) {
             ));
             if has_vacuum && has_floor && rng.random_bool(0.45) {
                 level.set(x, y, Tile::Window);
+            }
+        }
+    }
+}
+
+/// Add internal walls to rooms large enough to benefit from them.
+/// Only overwrites StationFloor so corridors (DeckPlate) are preserved.
+fn add_internal_walls(level: &mut Level, room: &Rect, rng: &mut SmallRng) {
+    let inner = room.inner();
+    if inner.w < 8 || inner.h < 8 {
+        return;
+    }
+    if rng.random_bool(0.5) {
+        add_pillar_grid(level, &inner, rng);
+    } else {
+        add_spine_wall(level, &inner, rng);
+    }
+}
+
+/// Pillar grid: StationWall columns at regular intervals, leaving walkable gaps between them.
+fn add_pillar_grid(level: &mut Level, inner: &Rect, rng: &mut SmallRng) {
+    let step = rng.random_range(3usize..=5);
+    let mut y = inner.y + 2;
+    while y + 2 < inner.y + inner.h {
+        let mut x = inner.x + 2;
+        while x + 2 < inner.x + inner.w {
+            if level.get(x as i32, y as i32) == Some(Tile::StationFloor) {
+                level.set(x as i32, y as i32, Tile::StationWall);
+            }
+            x += step;
+        }
+        y += step;
+    }
+}
+
+/// Spine wall: a partial wall through the room centre with a doorway-width gap.
+/// The wall stops short of room edges so it never seals off a corridor entrance.
+fn add_spine_wall(level: &mut Level, inner: &Rect, rng: &mut SmallRng) {
+    let horizontal = rng.random_bool(0.5);
+    let gap = 3usize; // passage width
+    if horizontal && inner.w > gap + 4 {
+        let wy = (inner.y + inner.h / 2) as i32;
+        // Gap at a random position in the middle half of the room.
+        let gap_x = inner.x + rng.random_range(2..inner.w.saturating_sub(gap + 2));
+        let wall_start = (inner.x + 1) as i32;
+        let wall_end   = (inner.x + inner.w - 1) as i32;
+        for x in wall_start..=wall_end {
+            let in_gap = x >= gap_x as i32 && x < (gap_x + gap) as i32;
+            if !in_gap && level.get(x, wy) == Some(Tile::StationFloor) {
+                level.set(x, wy, Tile::StationWall);
+            }
+        }
+    } else if !horizontal && inner.h > gap + 4 {
+        let wx = (inner.x + inner.w / 2) as i32;
+        let gap_y = inner.y + rng.random_range(2..inner.h.saturating_sub(gap + 2));
+        let wall_start = (inner.y + 1) as i32;
+        let wall_end   = (inner.y + inner.h - 1) as i32;
+        for y in wall_start..=wall_end {
+            let in_gap = y >= gap_y as i32 && y < (gap_y + gap) as i32;
+            if !in_gap && level.get(wx, y) == Some(Tile::StationFloor) {
+                level.set(wx, y, Tile::StationWall);
             }
         }
     }
