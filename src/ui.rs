@@ -18,9 +18,9 @@ use {crate::{Clock, GAME_VIEWPORT_WIDTH_FRAC, STATUS_BAR_HEIGHT, game_pane_rect,
              utils::mapv, world_to_level_cell},
      bevy::{prelude::*,
             text::FontWeight,
-            ui::{AlignItems, Display, FlexDirection, FlexWrap, JustifyContent}},
+            ui::{AlignItems, FlexWrap, JustifyContent}},
      haalka::{jonmo::SignalProcessing, prelude::*},
-     jonmo::{prelude::*, signal},
+     jonmo::{signal},
      crate::entities::{Named, PlayerEquipped, Stats}};
 
 // ---------------------------------------------------------------------------
@@ -98,19 +98,22 @@ pub fn log_spans(log: &mut LogEntries, line: LogLine) {
   log.0.push(line);
 }
 
-/// Selected row in the Interact overlay — written by `sync_ui`, read by per-row signals.
-/// Split out of [`OverlayKind::Interact`] so W/S navigation never recreates overlay entities.
+/// Per-row display state for the Interact overlay — written by sync_interact_display, read by
+/// per-row signals. Split out of OverlayKind::Interact so navigation/equip never rebuilds overlay
+/// nodes; only the signals for text and color re-fire.
 #[derive(Resource, Clone, Default, PartialEq)]
-pub struct InteractSelected(pub usize);
+pub struct InteractDisplayState {
+  pub selected: usize,
+  pub highlighted: Vec<bool>
+}
 
 #[derive(Resource, Clone, Debug, PartialEq)]
 pub enum OverlayKind {
   PauseMain,
   PauseControls,
-  /// Clickable option list with highlighted equipped items; cursor managed via [`InteractSelected`].
+  /// Clickable option list; row appearance driven by [`InteractDisplayState`] signals.
   Interact {
-    options: Vec<String>,
-    highlighted: Vec<bool>
+    options: Vec<String>
   },
   /// While talking: show numbered replies (1) text …) over the playfield.
   Dialogue {
@@ -184,9 +187,9 @@ impl Plugin for UiPlugin {
       .init_resource::<LogDisplayData>()
       .init_resource::<InvDisplayData>()
       .init_resource::<OverlayData>()
-      .init_resource::<InteractSelected>()
+      .init_resource::<InteractDisplayState>()
       .init_resource::<MenuClickPending>()
-      .add_systems(PostUpdate, (sync_interact_selected, sync_ui).before(SignalProcessing));
+      .add_systems(PostUpdate, (sync_interact_display, sync_ui).before(SignalProcessing));
   }
 }
 
@@ -236,6 +239,7 @@ fn main_layout() -> impl Element {
               n.min_width = Val::Px(0.0);
               n.justify_content = JustifyContent::FlexEnd;
             })
+            .item(dialogue_panel())
             .item(ability_bar())
         )
         // Sidebar column — fixed fraction of window width, flush right
@@ -645,48 +649,63 @@ fn status_bar() -> impl Element {
     )
 }
 
+// Dialogue panel — lives inside the game pane at the bottom, no fullscreen dim
+// ---------------------------------------------------------------------------
+
+fn dialogue_panel() -> impl Element {
+  El::<Node>::new()
+    .with_node(|mut n| {
+      n.width = Val::Percent(100.0);
+    })
+    .child_signal(
+      signal::from_resource_changed::<OverlayData>()
+        .map_in::<Option<El<Node>>, Option<El<Node>>, _>(|data: OverlayData| {
+          let Some(OverlayKind::Dialogue { title, options }) = data.kind else {
+            return None;
+          };
+          let mut lines: Vec<String> =
+            options.iter().enumerate().map(|(i, t)| format!("{}) {}", i + 1, t)).collect();
+          lines.push(String::new());
+          lines.push("Space to cancel".into());
+          Some(
+            El::<Node>::new()
+              .with_node(|mut n| {
+                n.width = Val::Percent(100.0);
+                n.border = UiRect::top(Val::Px(1.0));
+              })
+              .background_color(BackgroundColor(DIALOGUE_PANEL_BG))
+              .border_color(BorderColor::all(BORDER))
+              .child(
+                Column::<Node>::new()
+                  .with_node(|mut n| {
+                    n.width = Val::Percent(100.0);
+                    n.padding = UiRect::all(Val::Px(16.));
+                    n.row_gap = Val::Px(6.0);
+                  })
+                  .item(static_text(title, FONT_SIZE_TITLE, LIGHT_TEXT, W_STRONG))
+                  .items(
+                    lines
+                      .into_iter()
+                      .map(|l| static_text(l, FONT_SIZE_BODY, LIGHT_TEXT, W_OVERLAY))
+                  )
+              )
+          )
+        })
+    )
+}
+
 // Overlays — centred on top of everything
 // ---------------------------------------------------------------------------
 
 fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
-  signal::from_resource_changed::<OverlayData>().map_in(|data| {
-    data.kind.map(|kind| match kind {
-      OverlayKind::Dialogue { title, options } => {
-        let mut lines: Vec<String> =
-          options.iter().enumerate().map(|(i, t)| format!("{}) {}", i + 1, t)).collect();
-        lines.push(String::new());
-        lines.push("Space to cancel".into());
-        El::<Node>::new()
-          .with_node(|mut n| {
-            n.width = Val::Percent(100.);
-            n.height = Val::Percent(100.0);
-            n.display = Display::Flex;
-            n.flex_direction = FlexDirection::Column;
-            n.justify_content = JustifyContent::FlexEnd;
-            n.align_items = AlignItems::Center;
-            n.padding = UiRect::bottom(Val::Px(40.));
-          })
-          .background_color(BackgroundColor(DIALOGUE_OVERLAY_DIM))
-          .child(
-            Column::<Node>::new()
-              .with_node(|mut n| {
-                n.width = Val::Percent(92.);
-                n.max_width = Val::Px(960.);
-                n.border_radius = BorderRadius::all(Val::Px(8.0));
-                n.padding = UiRect::all(Val::Px(22.));
-                n.column_gap = Val::Px(7.0);
-              })
-              .background_color(BackgroundColor(DIALOGUE_PANEL_BG))
-              .border_color(BorderColor::all(BORDER))
-              .item(static_text(title, FONT_SIZE_TITLE, LIGHT_TEXT, W_STRONG))
-              .items(
-                lines
-                  .into_iter()
-                  .map(|l| static_text(l, FONT_SIZE_BODY, LIGHT_TEXT, W_OVERLAY))
-              )
-          )
-      }
-      OverlayKind::Interact { options, highlighted } => {
+  signal::from_resource_changed::<OverlayData>().map_in(|data: OverlayData| {
+    // Dialogue is rendered inside the game pane by dialogue_panel() — no fullscreen overlay.
+    let kind = match data.kind {
+      None | Some(OverlayKind::Dialogue { .. }) => return None,
+      Some(k) => k,
+    };
+    Some(match kind {
+      OverlayKind::Interact { options } => {
         El::<Node>::new()
           .with_node(|mut n| {
             n.width = Val::Percent(100.);
@@ -707,7 +726,6 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
               .border_color(BorderColor::all(BORDER))
               .item(static_text("Use what?", FONT_SIZE_TITLE, LIGHT_TEXT, W_STRONG))
               .items(options.into_iter().enumerate().map(move |(i, opt)| {
-                let is_hi = highlighted.get(i).copied().unwrap_or(false);
                 Row::<Node>::new()
                   .with_node(|mut n| {
                     n.width = Val::Percent(100.0);
@@ -719,16 +737,21 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
                       .text_color(TextColor(DIM_TEXT))
                       .with_builder(move |b| {
                         b.component_signal::<Text>(
-                          signal::from_resource::<InteractSelected>()
-                            .map_in(move |sel: InteractSelected| {
-                              let prefix = if sel.0 == i { ">" } else { " " };
+                          signal::from_resource::<InteractDisplayState>()
+                            .map_in(move |s: InteractDisplayState| {
+                              let prefix = if s.selected == i { ">" } else { " " };
                               Some(Text::new(format!("{prefix} {opt}")))
                             })
                         )
                         .component_signal::<TextColor>(
-                          signal::from_resource::<InteractSelected>()
-                            .map_in(move |sel: InteractSelected| {
-                              Some(TextColor(if is_hi { EQUIP_HIGHLIGHT } else if sel.0 == i { LIGHT_TEXT } else { DIM_TEXT }))
+                          signal::from_resource::<InteractDisplayState>()
+                            .map_in(move |s: InteractDisplayState| {
+                              let is_hi = s.highlighted.get(i).copied().unwrap_or(false);
+                              Some(TextColor(
+                                if is_hi { EQUIP_HIGHLIGHT }
+                                else if s.selected == i { LIGHT_TEXT }
+                                else { DIM_TEXT }
+                              ))
                             })
                         )
                       })
@@ -807,11 +830,17 @@ pub struct OverlayData {
 // sync_ui — reads Bevy world, writes signal resources
 // ---------------------------------------------------------------------------
 
-fn sync_interact_selected(ui: Res<crate::UiState>, mut interact_sel: ResMut<InteractSelected>) {
-  if let crate::InteractMenu::Open { selected, .. } = &ui.interact
-    && interact_sel.0 != *selected
-  {
-    interact_sel.0 = *selected;
+fn sync_interact_display(
+  ui: Res<crate::UiState>,
+  mut state: ResMut<InteractDisplayState>
+) {
+  let new = if let crate::InteractMenu::Open { selected, highlighted, .. } = &ui.interact {
+    InteractDisplayState { selected: *selected, highlighted: highlighted.clone() }
+  } else {
+    InteractDisplayState::default()
+  };
+  if *state != new {
+    *state = new;
   }
 }
 
@@ -874,10 +903,9 @@ fn sync_ui(
     crate::PauseMenu::Controls => Some(OverlayKind::PauseControls)
   }
   .or_else(|| match &ui.interact {
-    crate::InteractMenu::Open { options, highlighted, .. } => {
+    crate::InteractMenu::Open { options, .. } => {
       Some(OverlayKind::Interact {
-        options: mapv(|o| o.label.clone(), options),
-        highlighted: highlighted.clone()
+        options: mapv(|o| o.label.clone(), options)
       })
     }
     crate::InteractMenu::Closed => None

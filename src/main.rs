@@ -163,7 +163,11 @@ struct UiState {
   dialogue: DialogueState,
   /// Set by `handle_dialogue`/`handle_menus` when Space closes a menu; read+cleared by
   /// `handle_interact` so the same keypress doesn't also open an interaction.
-  space_consumed: bool
+  space_consumed: bool,
+  /// Set by `handle_menus` when a direction key (W/S/A/D/Enter) is consumed by menu navigation
+  /// or confirmation; cleared + checked by `accumulate_dir`/`player_input` to prevent that
+  /// keypress from also moving the player.
+  dir_consumed: bool
 }
 
 impl UiState {
@@ -972,7 +976,16 @@ fn update_time_mode(
 
 /// Runs every frame before [`player_input`]; latches any newly-pressed direction keys so a tap
 /// that falls between move ticks is not silently dropped.
-fn accumulate_dir(keys: Res<ButtonInput<KeyCode>>, mut acc: ResMut<AccumulatedDir>) {
+fn accumulate_dir(
+  keys: Res<ButtonInput<KeyCode>>,
+  ui: Res<UiState>,
+  mut acc: ResMut<AccumulatedDir>
+) {
+  // If handle_menus consumed a direction key this frame for menu navigation/confirmation,
+  // do not latch it — it must not bleed into player movement.
+  if ui.dir_consumed {
+    return;
+  }
   if keys.just_pressed(KeyCode::KeyW) || keys.just_pressed(KeyCode::ArrowUp) {
     acc.up = true;
   }
@@ -1204,6 +1217,7 @@ fn handle_menus(
   let cur_sel =
     if let InteractMenu::Open { selected, .. } = ui.interact { selected } else { 0 };
 
+  ui.dir_consumed = false; // cleared each frame; set below when a direction key feeds the menu
   if matches!(ui.interact, InteractMenu::Open { .. }) {
     if keys.just_pressed(KeyCode::Space) {
       ui.interact = InteractMenu::Closed;
@@ -1212,15 +1226,18 @@ fn handle_menus(
       if let InteractMenu::Open { ref mut selected, .. } = ui.interact {
         *selected = cur_sel.saturating_sub(1);
       }
+      ui.dir_consumed = true;
     } else if keys.just_pressed(KeyCode::KeyS) || keys.just_pressed(KeyCode::ArrowDown) {
       if let InteractMenu::Open { ref mut selected, .. } = ui.interact {
         *selected = (cur_sel + 1).min(n_opts.saturating_sub(1));
       }
+      ui.dir_consumed = true;
     } else {
       let exec_idx: Option<usize> = if keys.just_pressed(KeyCode::KeyA)
         || keys.just_pressed(KeyCode::KeyD)
         || keys.just_pressed(KeyCode::Enter)
       {
+        ui.dir_consumed = true;
         Some(cur_sel)
       } else if let Some(idx) = [
         KeyCode::Digit1,
@@ -2320,7 +2337,8 @@ fn spawn_level_tiles(
 
         if tile == Tile::Vacuum {
           {
-            let path: &'static str = match rand::random::<u8>() % 4 {
+            let rng = rand::random::<u8>();
+            let path: &'static str = match rng % 4 {
               0 => "textures/space_qud/stars1.png",
               1 => "textures/space_qud/stars2.png",
               2 => "textures/space_qud/stars3.png",
@@ -2333,14 +2351,22 @@ fn spawn_level_tiles(
               palette_cache,
               images
             );
+            let angle = match (rng >> 2) % 4 {
+              0 => 0.0_f32,
+              1 => std::f32::consts::FRAC_PI_2,
+              2 => std::f32::consts::PI,
+              _ => 3.0 * std::f32::consts::FRAC_PI_2
+            };
             commands.spawn((
               Sprite {
                 image: handle,
                 custom_size: Some(Vec2::splat(TILE_SIZE)),
                 color: Color::srgba(0.0, 0.0, 0.0, 0.0),
+                flip_x: rng & 0x10 != 0,
+                flip_y: rng & 0x20 != 0,
                 ..default()
               },
-              Transform::from_translation(pos),
+              Transform::from_translation(pos).with_rotation(Quat::from_rotation_z(angle)),
               TileGlyph { x, y },
               TilePng,
               Visibility::Visible
@@ -2460,6 +2486,7 @@ fn player_input(
   }
 
   if !ui.any_open()
+    && !ui.dir_consumed
     && let Ok((mut pos, stats, mut inventory, equipped)) = player_query.single_mut()
   {
     let player_attack = stats.attack + equipped.weapon.map(|w| w.attack_bonus()).unwrap_or(0);
