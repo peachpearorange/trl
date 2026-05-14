@@ -109,30 +109,41 @@ fn is_solid_ground(tile: Tile) -> bool {
     )
 }
 
-/// Scale `param` by `scale`; WFC requires weight > 0 so floor at 0.05.
 fn scaled(param: f32, scale: f32) -> f32 { (param * scale).max(0.05) }
 
 pub fn generate(params: &PlanetParams) -> Location {
     let mut sockets = SocketCollection::new();
+    // ground:  base walkable terrain — borders other ground, features, fluid, rock
+    // feature: vegetation/special clusters — ONLY borders itself or ground (forces patches)
+    // shallow: fluid edge — borders ground, itself, and deep
+    // deep:    deep fluid — enclosed by shallow
+    // rock:    walls — ONLY borders itself or ground (forces solid rock masses)
     let ground  = sockets.create();
+    let feature = sockets.create();
     let shallow = sockets.create();
     let deep    = sockets.create();
     let rock    = sockets.create();
 
     sockets.add_connections([
-        (ground,  vec![ground, shallow, rock]),
+        (ground,  vec![ground, feature, shallow, rock]),
+        (feature, vec![feature, ground]),
         (shallow, vec![shallow, deep, ground]),
         (deep,    vec![deep, shallow]),
         (rock,    vec![rock, ground]),
     ]);
 
     let mut models = ModelCollection::<Cartesian2D>::new();
-    let mut tile_map: Vec<Tile> = Vec::new();
+    // (tile, optional entity to spawn when this model is placed)
+    let mut tile_map: Vec<(Tile, Option<fn() -> Object>)> = Vec::new();
 
     macro_rules! tile {
         ($sock:expr, $weight:expr, $t:expr) => {{
             models.create(SocketsCartesian2D::Mono($sock)).with_weight($weight);
-            tile_map.push($t);
+            tile_map.push(($t, None));
+        }};
+        ($sock:expr, $weight:expr, $t:expr, $e:expr) => {{
+            models.create(SocketsCartesian2D::Mono($sock)).with_weight($weight);
+            tile_map.push(($t, Some($e as fn() -> Object)));
         }};
     }
 
@@ -141,15 +152,15 @@ pub fn generate(params: &PlanetParams) -> Location {
     match params.biome {
         PlanetBiome::Grassland => {
             tile!(ground,  10.0,             Tile::Grass);
-            tile!(ground,  scaled(vd, 5.0),  Tile::TallGrass);
-            tile!(ground,  scaled(vd, 3.0),  Tile::Bush);
+            tile!(feature, scaled(vd, 8.0),  Tile::TallGrass);   // tall grass clusters
+            tile!(feature, scaled(vd, 4.0),  Tile::Bush);         // bush clusters
             tile!(shallow, scaled(wc, 8.0),  Tile::ShallowWater);
             tile!(deep,    scaled(wc, 4.0),  Tile::DeepWater);
-            tile!(rock,    scaled(rf, 6.0),  Tile::Wall);
+            tile!(rock,    scaled(rf, 8.0),  Tile::Wall);
         }
         PlanetBiome::Desert => {
             tile!(ground,  10.0,             Tile::Ash);
-            tile!(ground,  scaled(rf, 4.0),  Tile::CaveFloor);
+            tile!(feature, scaled(rf, 5.0),  Tile::CaveFloor);    // hardpan patches
             tile!(rock,    scaled(rf, 8.0),  Tile::CaveWall);
             tile!(shallow, scaled(wc, 4.0),  Tile::AlienFluid);
             tile!(deep,    scaled(wc, 2.0),  Tile::AcidPool);
@@ -157,17 +168,19 @@ pub fn generate(params: &PlanetParams) -> Location {
         PlanetBiome::Crystal => {
             tile!(ground,  8.0,              Tile::CaveFloor);
             tile!(rock,    scaled(rf, 8.0),  Tile::CaveWall);
-            tile!(rock,    scaled(vd, 5.0),  Tile::CrystalFormation);
-            tile!(ground,  scaled(vd, 4.0),  Tile::Ash);
+            tile!(feature, scaled(vd, 6.0),  Tile::CrystalFormation); // crystal clusters
+            tile!(feature, scaled(vd, 3.0),  Tile::Ash);
             tile!(shallow, scaled(wc, 3.0),  Tile::BioluminescentPool);
             tile!(deep,    scaled(wc, 2.0),  Tile::AcidPool);
         }
         PlanetBiome::Alien => {
-            tile!(ground,  8.0,              Tile::AlienSoil);
-            tile!(ground,  scaled(vd, 6.0),  Tile::AlienGrass);
+            tile!(ground,  10.0,             Tile::AlienSoil);
+            tile!(feature, scaled(vd, 8.0),  Tile::AlienGrass);   // grass clusters in patches
             tile!(shallow, scaled(wc, 5.0),  Tile::AlienFluid);
             tile!(deep,    scaled(wc, 3.0),  Tile::BioluminescentPool);
             tile!(rock,    scaled(rf, 5.0),  Tile::CaveWall);
+            // Hunters: rare, WFC-placed on feature cells; underlying tile stays walkable
+            tile!(feature, 0.4,              Tile::AlienSoil, Object::alien_runner);
         }
         PlanetBiome::Arctic => {
             tile!(ground,  10.0,             Tile::IceFloor);
@@ -201,7 +214,7 @@ pub fn generate(params: &PlanetParams) -> Location {
 
     let (_info, grid_data) = generator.generate_grid().expect("planet_gen: generation failed");
 
-    let fill = tile_map[0];
+    let fill = tile_map[0].0;
     let mut loc = Location::new(
         params.name,
         PLANET_SIZE,
@@ -210,71 +223,30 @@ pub fn generate(params: &PlanetParams) -> Location {
         LocationType::PlanetSurface { breathable: params.breathable },
         fill,
     );
-    let level = loc.level_mut(0);
+
+    {
+        let level = loc.level_mut(0);
+        for y in 0..PLANET_SIZE as u32 {
+            for x in 0..PLANET_SIZE as u32 {
+                let (tile, _) = tile_map[grid_data.get_2d(x, y).model_index];
+                level.set(x as i32, y as i32, tile);
+            }
+        }
+        place_ship_dock(level, fill);
+    }
 
     for y in 0..PLANET_SIZE as u32 {
         for x in 0..PLANET_SIZE as u32 {
-            level.set(x as i32, y as i32, tile_map[grid_data.get_2d(x, y).model_index]);
+            let (_, entity_fn) = tile_map[grid_data.get_2d(x, y).model_index];
+            if let Some(spawn) = entity_fn {
+                loc.spawn_objects.push((x as i32, y as i32, 0, spawn()));
+            }
         }
-    }
-
-    place_ship_dock(level, fill);
-
-    if matches!(params.biome, PlanetBiome::Alien) {
-        // Use the WFC seed (or a fixed fallback) to deterministically place hostiles.
-        let seed32 = params.seed
-            .map(|s| (s ^ (s >> 32)) as u32)
-            .unwrap_or(0xa3c1_e5f7);
-        scatter_hostiles(&mut loc, seed32);
     }
 
     loc
 }
 
-/// Scatter alien_runner hostiles across the surface in a 5×5 grid with per-cell jitter.
-fn scatter_hostiles(loc: &mut Location, seed32: u32) {
-    const COLS: i32 = 5;
-    const ROWS: i32 = 5;
-    let ps = PLANET_SIZE as i32;
-    let cell_w = ps / COLS;
-    let cell_h = ps / ROWS;
-
-    let mut rng = seed32.wrapping_mul(0xa3c1_e5f7).wrapping_add(0x3b4d_9a21);
-
-    for row in 0..ROWS {
-        for col in 0..COLS {
-            rng = rng.wrapping_mul(0x5851f42d).wrapping_add(0xc4ceb9fe);
-            let jx = ((rng >> 8) & 0xff) as i32 - 128;
-            rng = rng.wrapping_mul(0x5851f42d).wrapping_add(0xc4ceb9fe);
-            let jy = ((rng >> 8) & 0xff) as i32 - 128;
-
-            let cx = (cell_w / 2 + col * cell_w + jx.clamp(-(cell_w / 4), cell_w / 4))
-                .clamp(5, ps - 5);
-            let cy = (cell_h / 2 + row * cell_h + jy.clamp(-(cell_h / 4), cell_h / 4))
-                .clamp(5, ps - 5);
-
-            if let Some((sx, sy)) = find_solid_ground(loc.level(0), cx, cy, 20) {
-                loc.spawn_objects.push((sx, sy, 0, Object::alien_runner()));
-            }
-        }
-    }
-}
-
-/// Spiral outward from (cx, cy) to find the nearest walkable solid-ground tile.
-fn find_solid_ground(level: &crate::level::Level, cx: i32, cy: i32, max_r: i32) -> Option<(i32, i32)> {
-    (0..max_r).find_map(|r| {
-        (-r..=r).find_map(|dy| {
-            (-r..=r).find_map(|dx| {
-                (dx.abs().max(dy.abs()) == r
-                    && level.get(cx + dx, cy + dy).is_some_and(is_solid_ground))
-                .then_some((cx + dx, cy + dy))
-            })
-        })
-    })
-}
-
-/// Spiral outward from center to find solid walkable ground, clear a 3×3
-/// landing pad, and stamp a ShipDock tile.
 fn place_ship_dock(level: &mut crate::level::Level, fill: Tile) {
     let (cx, cy) = (PLANET_SIZE as i32 / 2, PLANET_SIZE as i32 / 2);
     let max = PLANET_SIZE as i32 - 1;
