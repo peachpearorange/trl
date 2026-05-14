@@ -110,6 +110,7 @@ class Spryte:
         # tool state
         self._tool: str = "pencil"
         self._painting: bool = False
+        self._history: list[list[list[tuple]]] = []
 
         # rect tool
         self._rect_start: tuple | None = None
@@ -155,6 +156,7 @@ class Spryte:
         self.root.bind("m", lambda e: self._select_tool("move"))
         self.root.bind("f", lambda e: self._select_tool("fill"))
         self.root.bind("<Escape>", lambda e: self._cancel_tool())
+        self.root.bind("u", lambda e: self._undo())
 
     def _build_bottom_panel(self):
         panel = tk.Frame(self.root, bg=PANEL, pady=6)
@@ -275,6 +277,22 @@ class Spryte:
         self._draw_overlay()
 
     # ------------------------------------------------------------------
+    # Undo
+    # ------------------------------------------------------------------
+
+    def _snapshot(self):
+        self._history.append([row[:] for row in self.pixels])
+
+    def _undo(self):
+        if not self._history:
+            return
+        self._cancel_tool()
+        self.pixels = self._history.pop()
+        self.dirty = True
+        self._draw_canvas()
+        self._draw_overlay()
+
+    # ------------------------------------------------------------------
     # Drawing
     # ------------------------------------------------------------------
 
@@ -389,6 +407,7 @@ class Spryte:
         pos = self._canvas_to_grid(event.x, event.y)
         if self._tool == "pencil":
             if pos:
+                self._snapshot()
                 self._paint_pixel(pos, self.current_color)
         elif self._tool == "rect":
             self._rect_start = pos
@@ -398,6 +417,7 @@ class Spryte:
             self._on_move_down(pos)
         elif self._tool == "fill":
             if pos:
+                self._snapshot()
                 col, row = pos
                 flood_fill(self.pixels, col, row, self.current_color)
                 self.dirty = True
@@ -430,8 +450,6 @@ class Spryte:
         pos = self._canvas_to_grid(event.x, event.y)
         if self._tool == "pencil" and pos:
             self._paint_pixel(pos, TRANSPARENT)
-        elif self._tool == "move" and self._move_phase == "floating":
-            self._move_restore()
 
     # ------------------------------------------------------------------
     # Pencil
@@ -452,11 +470,17 @@ class Spryte:
     def _commit_rect(self):
         if not self._rect_start or not self._rect_end:
             return
+        self._snapshot()
         c0, r0 = self._rect_start
         c1, r1 = self._rect_end
-        for row in range(min(r0, r1), max(r0, r1) + 1):
-            for col in range(min(c0, c1), max(c0, c1) + 1):
-                self.pixels[row][col] = self.current_color
+        lc, rc = min(c0, c1), max(c0, c1)
+        tr, br = min(r0, r1), max(r0, r1)
+        for col in range(lc, rc + 1):
+            self.pixels[tr][col] = self.current_color
+            self.pixels[br][col] = self.current_color
+        for row in range(tr, br + 1):
+            self.pixels[row][lc] = self.current_color
+            self.pixels[row][rc] = self.current_color
         self.dirty = True
         self._rect_start = self._rect_end = None
         self._draw_canvas()
@@ -515,8 +539,7 @@ class Spryte:
 
         elif self._move_phase == "floating":
             self._move_grab = None
-            # commit on release only if we actually dragged; otherwise keep floating
-            # (user can right-click to cancel or drag again)
+            self._move_commit()
 
     def _move_restore(self):
         """Put lifted pixels back at original position."""
@@ -538,6 +561,7 @@ class Spryte:
         """Paste lifted pixels at current offset and end move."""
         if not self._move_rect or not self._move_lifted:
             return
+        self._snapshot()
         mc0, mr0, mc1, mr1 = self._move_rect
         dc, dr = self._move_offset
         for row in range(mr0, mr1 + 1):
