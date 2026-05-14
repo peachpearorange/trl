@@ -1,6 +1,6 @@
 //! Entity types and spawnable definitions for the game.
 
-use {crate::faction::Faction, bevy::prelude::*, std::sync::Arc};
+use {crate::faction::Faction, bevy::prelude::*, std::collections::VecDeque, std::sync::Arc};
 
 // ============ DIALOGUE ============
 
@@ -297,6 +297,14 @@ pub struct FollowerData {
   pub move_timer: u32
 }
 
+/// Cached A* path for an entity. Holds the next steps toward the goal and the goal position
+/// used to compute them. Cleared when the goal moves far enough to warrant a recompute.
+#[derive(Component, Clone, Debug, Default)]
+pub struct Path {
+  pub steps: VecDeque<(i32, i32)>,
+  pub cached_goal: Option<(i32, i32)>
+}
+
 /// Marker component for the flight console entity.
 #[derive(Component, Clone, Copy)]
 pub struct FlightConsole;
@@ -413,7 +421,9 @@ impl Object {
 
   /// Mark this NPC as a recruitable follower. `init_follower_homes` sets the home position at startup.
   pub fn as_follower(self) -> Self {
-    self.add(FollowerState::Available).add(FollowerData { home: (0, 0, 0), move_timer: 0 })
+    self.add(FollowerState::Available)
+        .add(FollowerData { home: (0, 0, 0), move_timer: 0 })
+        .add(Path::default())
   }
 
   /// Fully-defined NPC: named, statted, equipped, visible, conversable.
@@ -456,7 +466,7 @@ impl Object {
   }
   pub fn player() -> Self { Self::character(Faction::Player).add(Player) }
   pub fn enemy() -> Self {
-    Self::character(Faction::Hostile).add((Enemy, TimeSinceAction(0)))
+    Self::character(Faction::Hostile).add((Enemy, TimeSinceAction(0), Path::default()))
   }
   pub fn structure(blocks: bool) -> Self { Self::physical(blocks) }
   pub fn wall(material: Material) -> Self {

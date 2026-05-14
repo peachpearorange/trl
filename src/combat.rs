@@ -1,9 +1,10 @@
 use {bevy::prelude::*,
      rand::seq::SliceRandom,
-     std::collections::{HashMap, HashSet},
+     std::collections::{BinaryHeap, HashMap, HashSet, VecDeque},
+     std::cmp::Reverse,
      crate::{entities::{Collidable, DamageCloud, Enemy, FollowerData, FollowerState,
-                        GrenadeThrowComp, Location, Named, Object, PlayerEquipped, SporeEmitter,
-                        Stats, TimeSinceAction, WalkAroundRandomly, Wearing},
+                        GrenadeThrowComp, Location, Named, Object, Path, PlayerEquipped,
+                        SporeEmitter, Stats, TimeSinceAction, WalkAroundRandomly, Wearing},
              particles::{ParticleEffects, spawn_explosion_burst},
              ui::{LogEntries, log_message}}};
 
@@ -86,6 +87,67 @@ pub fn tile_blocked(
 const NEIGHBOR_DIRS: [(i32, i32); 8] =
   [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
 
+// ---------------------------------------------------------------------------
+// Pathfinding
+// ---------------------------------------------------------------------------
+
+fn chebyshev(a: (i32, i32), b: (i32, i32)) -> i32 {
+  (a.0 - b.0).abs().max((a.1 - b.1).abs())
+}
+
+/// A* pathfinding on a single z-level. Returns steps from start (exclusive) to goal (inclusive).
+/// Only checks static tile walkability — dynamic entities are handled at execution time.
+/// Returns an empty deque when start == goal or no path exists.
+fn astar(
+  start: (i32, i32),
+  goal: (i32, i32),
+  level: &crate::level::Level
+) -> VecDeque<(i32, i32)> {
+  if start == goal {
+    return VecDeque::new();
+  }
+
+  // (f_score, g_score, x, y) — BinaryHeap is max-heap so we wrap in Reverse
+  let mut open: BinaryHeap<Reverse<(i32, i32, i32, i32)>> = BinaryHeap::new();
+  let mut came_from: HashMap<(i32, i32), (i32, i32)> = HashMap::new();
+  let mut g_score: HashMap<(i32, i32), i32> = HashMap::new();
+
+  g_score.insert(start, 0);
+  open.push(Reverse((chebyshev(start, goal), 0, start.0, start.1)));
+
+  while let Some(Reverse((_, g, x, y))) = open.pop() {
+    if (x, y) == goal {
+      let mut path = Vec::new();
+      let mut cur = (x, y);
+      while cur != start {
+        path.push(cur);
+        cur = came_from[&cur];
+      }
+      path.reverse();
+      return VecDeque::from(path);
+    }
+    // Skip stale open-set entries
+    if g_score.get(&(x, y)).copied().unwrap_or(i32::MAX) < g {
+      continue;
+    }
+    for &(dx, dy) in &NEIGHBOR_DIRS {
+      let (nx, ny) = (x + dx, y + dy);
+      // Allow stepping onto the goal tile even if the entity standing there is non-walkable
+      if !level.walkable(nx, ny) && (nx, ny) != goal {
+        continue;
+      }
+      let ng = g + 1;
+      if ng < g_score.get(&(nx, ny)).copied().unwrap_or(i32::MAX) {
+        g_score.insert((nx, ny), ng);
+        came_from.insert((nx, ny), (x, y));
+        open.push(Reverse((ng + chebyshev((nx, ny), goal), ng, nx, ny)));
+      }
+    }
+  }
+
+  VecDeque::new()
+}
+
 pub fn npc_wander(
   current: Res<crate::CurrentZone>,
   index: Res<TileEntityIndex>,
@@ -119,11 +181,11 @@ pub fn follower_ai(
   index: Res<TileEntityIndex>,
   collidable_q: Query<&Collidable>,
   player_pos: Single<&crate::PlayerPos, With<crate::Player>>,
-  mut follower_q: Query<(&mut Location, &mut FollowerState, &mut FollowerData, &Stats)>
+  mut follower_q: Query<(&mut Location, &mut FollowerState, &mut FollowerData, &Stats, &mut Path)>
 ) {
   let (px, py, pz) = (player_pos.x, player_pos.y, player_pos.z);
 
-  for (mut location, mut state, mut data, stats) in follower_q.iter_mut() {
+  for (mut location, mut state, mut data, stats, mut path) in follower_q.iter_mut() {
     if let Location::Coords { x: fx, y: fy, z: fz, .. } = *location {
       match *state {
         FollowerState::Available => {}
@@ -134,10 +196,19 @@ pub fn follower_ai(
             if data.move_timer >= move_interval(stats.move_speed) {
               data.move_timer = 0;
               let level = current.0.level(fz);
-              let (dx, dy) = step_toward(fx, fy, px, py);
-              let (nx, ny) = (fx + dx, fy + dy);
-              if !tile_blocked(level, nx, ny, fz, &index, &collidable_q) {
-                *location = Location::xyz(nx, ny, fz);
+              let needs_recompute = path.steps.is_empty()
+                || path.cached_goal.map_or(true, |g| chebyshev(g, (px, py)) > 1);
+              if needs_recompute {
+                path.steps = astar((fx, fy), (px, py), level);
+                path.cached_goal = Some((px, py));
+              }
+              if let Some(&(nx, ny)) = path.steps.front() {
+                if !tile_blocked(level, nx, ny, fz, &index, &collidable_q) {
+                  path.steps.pop_front();
+                  *location = Location::xyz(nx, ny, fz);
+                } else {
+                  path.steps.clear();
+                }
               }
             }
           }
@@ -146,15 +217,26 @@ pub fn follower_ai(
           let (hx, hy, hz) = data.home;
           if fx == hx && fy == hy && fz == hz {
             *state = FollowerState::Available;
+            path.steps.clear();
+            path.cached_goal = None;
           } else if fz == hz {
             data.move_timer += 1;
             if data.move_timer >= move_interval(stats.move_speed) {
               data.move_timer = 0;
               let level = current.0.level(fz);
-              let (dx, dy) = step_toward(fx, fy, hx, hy);
-              let (nx, ny) = (fx + dx, fy + dy);
-              if !tile_blocked(level, nx, ny, fz, &index, &collidable_q) {
-                *location = Location::xyz(nx, ny, fz);
+              let needs_recompute = path.steps.is_empty()
+                || path.cached_goal.map_or(true, |g| g != (hx, hy));
+              if needs_recompute {
+                path.steps = astar((fx, fy), (hx, hy), level);
+                path.cached_goal = Some((hx, hy));
+              }
+              if let Some(&(nx, ny)) = path.steps.front() {
+                if !tile_blocked(level, nx, ny, fz, &index, &collidable_q) {
+                  path.steps.pop_front();
+                  *location = Location::xyz(nx, ny, fz);
+                } else {
+                  path.steps.clear();
+                }
               }
             }
           }
@@ -175,18 +257,19 @@ pub fn enemy_ai(
     (With<crate::Player>, Without<Enemy>)
   >,
   mut enemy_q: Query<
-    (&mut Location, &mut TimeSinceAction, &Stats, Option<&Wearing>, Option<&Named>),
+    (&mut Location, &mut TimeSinceAction, &Stats, Option<&Wearing>, Option<&Named>, &mut Path),
     (With<Enemy>, Without<crate::Player>)
   >,
   collidable_q: Query<&Collidable>
 ) {
   let (player_pos, ref mut player_stats, player_equipped) = player.into_inner();
-  let (px, py) = (player_pos.x, player_pos.y);
-  let level = current.0.level(player_pos.z);
+  let (px, py, pz) = (player_pos.x, player_pos.y, player_pos.z);
 
   let mut claimed: HashSet<(i32, i32)> = HashSet::new();
 
-  for (mut location, mut timer, enemy_stats, enemy_wearing, enemy_named) in enemy_q.iter_mut() {
+  for (mut location, mut timer, enemy_stats, enemy_wearing, enemy_named, mut path) in
+    enemy_q.iter_mut()
+  {
     timer.0 = timer.0.saturating_add(1);
 
     if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location {
@@ -208,26 +291,37 @@ pub fn enemy_ai(
           log_message(&mut log, "You died.".into());
         }
         timer.0 = 0;
-      } else if timer.0 >= mov_fr {
-        let (dx, dy) = step_toward(ex, ey, px, py);
-        let (nex, ney) = (ex + dx, ey + dy);
-        if !tile_blocked(level, nex, ney, ez, &index, &collidable_q)
-          && !claimed.contains(&(nex, ney))
-        {
-          let below = ez
-            .checked_sub(1)
-            .map(|z1| current.0.level(z1).tiles[ney as usize][nex as usize]);
-          let nz = if (level.tiles[ney as usize][nex as usize].causes_falling()
-            || below.is_some_and(|t| t.causes_falling()))
-            && ez > 0
+      } else if ez == pz && timer.0 >= mov_fr {
+        let level = current.0.level(ez);
+        let needs_recompute = path.steps.is_empty()
+          || path.cached_goal.map_or(true, |g| chebyshev(g, (px, py)) > 1);
+        if needs_recompute {
+          path.steps = astar((ex, ey), (px, py), level);
+          path.cached_goal = Some((px, py));
+        }
+        if let Some(&(nex, ney)) = path.steps.front() {
+          if !tile_blocked(level, nex, ney, ez, &index, &collidable_q)
+            && !claimed.contains(&(nex, ney))
           {
-            ez - 1
+            path.steps.pop_front();
+            let below = ez
+              .checked_sub(1)
+              .map(|z1| current.0.level(z1).tiles[ney as usize][nex as usize]);
+            let nz = if (level.tiles[ney as usize][nex as usize].causes_falling()
+              || below.is_some_and(|t| t.causes_falling()))
+              && ez > 0
+            {
+              ez - 1
+            } else {
+              ez
+            };
+            *location = Location::xyz(nex, ney, nz);
+            claimed.insert((nex, ney));
+            timer.0 = 0;
           } else {
-            ez
-          };
-          *location = Location::xyz(nex, ney, nz);
-          claimed.insert((nex, ney));
-          timer.0 = 0;
+            // Dynamic obstacle blocks the next step — recompute next tick
+            path.steps.clear();
+          }
         }
       }
     }
