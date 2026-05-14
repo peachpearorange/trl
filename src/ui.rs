@@ -979,8 +979,8 @@ fn compute_hover_info(
         })
     };
     if let Some((tx, ty)) = pick(window, camera, cam_tf, level.width, level.height) {
-      let visible = fov.0.is_visible(tx as usize, ty as usize);
-      let revealed = fov.0.is_revealed(tx as usize, ty as usize);
+      let visible = fov.grid.is_visible(tx as usize, ty as usize);
+      let revealed = fov.grid.is_revealed(tx as usize, ty as usize);
       if visible || revealed {
         let tile = level.tiles[ty as usize][tx as usize];
         let tile_name = if revealed && !visible {

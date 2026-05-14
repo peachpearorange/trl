@@ -313,7 +313,10 @@ struct SimStep;
 pub struct CurrentZone(pub active_zone::ActiveZone);
 
 #[derive(Resource)]
-pub struct Fov(pub FovGrid);
+pub struct Fov {
+  pub grid: FovGrid,
+  pub dirty: bool
+}
 
 #[derive(Component)]
 pub struct Player;
@@ -592,7 +595,7 @@ fn main() {
     .init_resource::<PaletteImageCache>()
     .init_resource::<AccumulatedDir>()
     .insert_resource(UiState::default())
-    .insert_resource(Fov(fov))
+    .insert_resource(Fov { grid: fov, dirty: true })
     .insert_resource(TileEntityIndex::default())
     .init_resource::<abilities::AbilityBarData>()
     .init_resource::<abilities::TargetingState>()
@@ -781,8 +784,8 @@ fn update_tile_hover_highlight(
       if let Some((tx, ty)) =
         pick(window, camera, cam_transform, level.width, level.height)
       {
-        let visible = fov.0.is_visible(tx as usize, ty as usize);
-        let revealed = fov.0.is_revealed(tx as usize, ty as usize);
+        let visible = fov.grid.is_visible(tx as usize, ty as usize);
+        let revealed = fov.grid.is_revealed(tx as usize, ty as usize);
         if visible || revealed {
           *vis = Visibility::Visible;
           transform.translation =
@@ -795,7 +798,7 @@ fn update_tile_hover_highlight(
 }
 
 fn update_fov_visuals(
-  fov: Res<Fov>,
+  mut fov: ResMut<Fov>,
   current: Res<CurrentZone>,
   frame: Res<RenderFrame>,
   index: Res<TileEntityIndex>,
@@ -836,49 +839,53 @@ fn update_fov_visuals(
       ents.sort_by_key(|e| e.index());
     }
 
-    for (tg, mut color) in glyph_tiles.iter_mut() {
-      if tg.z != z {
-        *color = TextColor(Color::srgba(0.0, 0.0, 0.0, 0.0));
-        continue;
+    if fov.dirty {
+      fov.bypass_change_detection().dirty = false;
+      for (tg, mut color) in glyph_tiles.iter_mut() {
+        if tg.z != z {
+          color.set_if_neq(TextColor(Color::srgba(0.0, 0.0, 0.0, 0.0)));
+          continue;
+        }
+        let tile = level.tiles[tg.y][tg.x];
+        let [r, g, b] = tile.color();
+        color.set_if_neq(if fov.grid.is_visible(tg.x, tg.y) {
+          TextColor(Color::srgb(r, g, b))
+        } else if fov.grid.is_revealed(tg.x, tg.y) {
+          TextColor(Color::srgb(r * DIM_FACTOR, g * DIM_FACTOR, b * DIM_FACTOR))
+        } else {
+          TextColor(Color::srgba(0.0, 0.0, 0.0, 0.0))
+        });
       }
-      let tile = level.tiles[tg.y][tg.x];
-      let [r, g, b] = tile.color();
-      *color = if fov.0.is_visible(tg.x, tg.y) {
-        TextColor(Color::srgb(r, g, b))
-      } else if fov.0.is_revealed(tg.x, tg.y) {
-        TextColor(Color::srgb(r * DIM_FACTOR, g * DIM_FACTOR, b * DIM_FACTOR))
-      } else {
-        TextColor(Color::srgba(0.0, 0.0, 0.0, 0.0))
-      };
-    }
-    for (tg, mut sprite) in sprite_tiles.iter_mut() {
-      if tg.z != z {
-        sprite.color = Color::srgba(0.0, 0.0, 0.0, 0.0);
-        continue;
+      for (tg, mut sprite) in sprite_tiles.iter_mut() {
+        let new_color = if tg.z != z {
+          Color::srgba(0.0, 0.0, 0.0, 0.0)
+        } else if fov.grid.is_visible(tg.x, tg.y) {
+          Color::WHITE
+        } else if fov.grid.is_revealed(tg.x, tg.y) {
+          Color::srgb(DIM_FACTOR, DIM_FACTOR, DIM_FACTOR)
+        } else {
+          Color::srgba(0.0, 0.0, 0.0, 0.0)
+        };
+        if sprite.color != new_color {
+          sprite.color = new_color;
+        }
       }
-      sprite.color = if fov.0.is_visible(tg.x, tg.y) {
-        Color::WHITE
-      } else if fov.0.is_revealed(tg.x, tg.y) {
-        Color::srgb(DIM_FACTOR, DIM_FACTOR, DIM_FACTOR)
-      } else {
-        Color::srgba(0.0, 0.0, 0.0, 0.0)
-      };
     }
     for (entity, location, mut vis) in entity_q.iter_mut() {
       let visible_in_fov = if let Location::Coords { x, y, z: lz, .. } = location
         && *lz == pos.z
-        && fov.0.is_visible(*x as usize, *y as usize)
+        && fov.grid.is_visible(*x as usize, *y as usize)
       {
         true
       } else {
         false
       };
       if !visible_in_fov {
-        *vis = Visibility::Hidden;
+        vis.set_if_neq(Visibility::Hidden);
         continue;
       }
       let Location::Coords { x, y, .. } = location else {
-        *vis = Visibility::Hidden;
+        vis.set_if_neq(Visibility::Hidden);
         continue;
       };
       let key = (*x, *y);
@@ -896,16 +903,16 @@ fn update_fov_visuals(
           })
           .map(|(_, &e)| e)
           .unwrap_or(entity);
-        *vis = if entity == winner { Visibility::Visible } else { Visibility::Hidden };
+        vis.set_if_neq(if entity == winner { Visibility::Visible } else { Visibility::Hidden });
       } else {
-        *vis = Visibility::Visible;
+        vis.set_if_neq(Visibility::Visible);
       }
     }
     for (entity, item, mut color, mut vis) in item_q.iter_mut() {
-      let visible_in_fov = item.z == pos.z && fov.0.is_visible(item.x, item.y);
-      let revealed = item.z == pos.z && fov.0.is_revealed(item.x, item.y);
+      let visible_in_fov = item.z == pos.z && fov.grid.is_visible(item.x, item.y);
+      let revealed = item.z == pos.z && fov.grid.is_revealed(item.x, item.y);
       let item_kind = level.items[item.y][item.x];
-      *color = item_kind.map_or(TextColor(Color::NONE), |item_kind| {
+      let new_color = item_kind.map_or(TextColor(Color::NONE), |item_kind| {
         let [r, g, b] = item_kind.color();
         if visible_in_fov {
           TextColor(Color::srgb(r, g, b))
@@ -915,8 +922,9 @@ fn update_fov_visuals(
           TextColor(Color::NONE)
         }
       });
+      color.set_if_neq(new_color);
       if !visible_in_fov {
-        *vis = Visibility::Hidden;
+        vis.set_if_neq(Visibility::Hidden);
       } else if let Some(list) = stacks.get(&(item.x as i32, item.y as i32))
         && list.len() > 1
       {
@@ -931,9 +939,9 @@ fn update_fov_visuals(
           })
           .map(|(_, &e)| e)
           .unwrap_or(entity);
-        *vis = if entity == winner { Visibility::Visible } else { Visibility::Hidden };
+        vis.set_if_neq(if entity == winner { Visibility::Visible } else { Visibility::Hidden });
       } else {
-        *vis = Visibility::Visible;
+        vis.set_if_neq(Visibility::Visible);
       }
     }
     let key = (pos.x, pos.y);
@@ -2295,7 +2303,8 @@ fn apply_pending_navigation(
   });
 
   *current = CurrentZone(new_zone);
-  fov.0 = FovGrid::new(current.0.width, current.0.height);
+  fov.grid = FovGrid::new(current.0.width, current.0.height);
+  fov.dirty = true;
   spawn_zone_geometry(
     &mut commands,
     &asset_server,
@@ -2444,9 +2453,10 @@ fn update_fov(
       }
     })
     .collect();
-  compute_fov(&mut fov.0, current.0.level(z), x, y, FOV_RADIUS, |tx, ty| {
+  compute_fov(&mut fov.grid, current.0.level(z), x, y, FOV_RADIUS, |tx, ty| {
     blockers.contains(&(tx, ty))
   });
+  fov.dirty = true;
 }
 
 fn spawn_level_tiles(
