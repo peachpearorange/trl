@@ -59,7 +59,7 @@ pub enum Tile {
   CaveWall,
   #[assoc(glyph = ".", color = [0.4, 0.38, 0.35], walkable = true, name = "Cave Floor", space_qud_sprite = ("textures/space_qud/floor3.png", [0.30, 0.28, 0.25], [0.48, 0.44, 0.38]))]
   CaveFloor,
-  #[assoc(glyph = "*", color = [0.5, 0.8, 0.95], walkable = false, name = "Crystal Formation")]
+  #[assoc(glyph = "*", color = [0.5, 0.8, 0.95], walkable = false, name = "Crystal Formation", space_qud_sprite = ("textures/space_qud/crystal.png", [0.28, 0.62, 0.82], [0.62, 0.88, 1.0]))]
   CrystalFormation,
   // --- Space tiles ---
   #[assoc(glyph = "#", color = [0.45, 0.47, 0.50], walkable = false, opaque = true, name = "Bulkhead", space_qud_sprite = ("textures/space_qud/wall hashtag.png", [0.28, 0.30, 0.34], [0.48, 0.52, 0.56]))]
@@ -92,7 +92,7 @@ pub enum Tile {
   AlienSoil,
   #[assoc(glyph = "\"", color = [0.3, 0.55, 0.3], walkable = true, name = "Alien Grass", space_qud_sprite = ("textures/space_qud/grass.png", [0.38, 0.16, 0.52], [0.68, 0.52, 0.88]))]
   AlienGrass,
-  #[assoc(glyph = "*", color = [0.5, 0.8, 0.95], walkable = false, name = "Crystal Growth")]
+  #[assoc(glyph = "*", color = [0.5, 0.8, 0.95], walkable = false, name = "Crystal Growth", space_qud_sprite = ("textures/space_qud/crystal.png", [0.28, 0.62, 0.82], [0.62, 0.88, 1.0]))]
   CrystalGrowth,
   #[assoc(glyph = "~", color = [0.5, 0.3, 0.7], walkable = true, name = "Alien Fluid", space_qud_sprite = ("textures/space_qud/liquid tile.png", [0.35, 0.12, 0.52], [0.68, 0.32, 0.88]))]
   AlienFluid,
@@ -104,7 +104,7 @@ pub enum Tile {
   CrimsonPool,
   #[assoc(glyph = "~", color = [0.85, 0.52, 0.08], walkable = true, name = "Amber Pool", space_qud_sprite = ("textures/space_qud/liquid tile.png", [0.62, 0.32, 0.04], [0.92, 0.68, 0.22]))]
   AmberPool,
-  #[assoc(glyph = "P", color = [0.85, 0.72, 0.1], walkable = true, name = "Ship Dock", has_atmosphere = false)]
+  #[assoc(glyph = "P", color = [0.85, 0.72, 0.1], walkable = true, name = "Ship Dock", has_atmosphere = false, space_qud_sprite = ("textures/space_qud/diagonal lines tile.png", [0.62, 0.50, 0.05], [1.0, 0.92, 0.38]))]
   ShipDock,
   /// Transparent filler for ship bounding-box corners — skipped when merging
   /// the ship into a docked zone so it never overwrites the destination tiles.
