@@ -530,11 +530,18 @@ pub fn compute_fov(
           let (pj, pi) = ((dx + px) + radius, (dy + py) + radius);
           let (uj, ui) = (pj as usize, pi as usize);
           let (lx, ly) = (cx + dx + px, cy + dy + py);
-          // SS13-style: the viewer's own cell never blocks *outward* spread (e.g. standing
-          // on a tree, wall, or "telefragged" into a wall still sees the ring around them).
+          let tile_opaque = |qx: i32, qy: i32| {
+            (qx, qy) != (cx, cy) && level.get(qx, qy).is_some_and(|t| t.opaque())
+          };
           let parent_blocks = (lx, ly) != (cx, cy)
-            && (level.get(lx, ly).is_some_and(|t| t.opaque()) || blocks_sight(lx, ly));
-          uj < size && ui < size && vis[ui][uj] && !parent_blocks
+            && (tile_opaque(lx, ly) || blocks_sight(lx, ly));
+          // For diagonal steps: blocked when both cardinal neighbours are opaque (kitty-corner).
+          // Applies at every ring, not just when |dx|==|dy|.
+          let corner_blocks = px != 0
+            && py != 0
+            && (tile_opaque(cx + dx, cy + dy + py) || blocks_sight(cx + dx, cy + dy + py))
+            && (tile_opaque(cx + dx + px, cy + dy) || blocks_sight(cx + dx + px, cy + dy));
+          uj < size && ui < size && vis[ui][uj] && !parent_blocks && !corner_blocks
         });
 
         if visible {

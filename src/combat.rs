@@ -136,8 +136,8 @@ fn astar(
       if !level.walkable(nx, ny) && (nx, ny) != goal {
         continue;
       }
-      // No cutting corners: diagonal requires both cardinal neighbours to be open
-      if dx != 0 && dy != 0 && (!level.walkable(x + dx, y) || !level.walkable(x, y + dy)) {
+      // Diagonal blocked only when both cardinal neighbours are impassable
+      if dx != 0 && dy != 0 && !level.walkable(x + dx, y) && !level.walkable(x, y + dy) {
         continue;
       }
       let ng = g + 1;

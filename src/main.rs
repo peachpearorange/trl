@@ -1059,8 +1059,8 @@ fn resolve_move(
 ) -> (i32, i32) {
   let passable = |x, y| level.walkable(x, y) && !entity_blocked(x, y);
   if dx != 0 && dy != 0 {
-    // Diagonal is only allowed when both cardinal neighbours are open
-    if passable(px + dx, py + dy) && passable(px + dx, py) && passable(px, py + dy) {
+    // Diagonal blocked only when both cardinal neighbours are impassable
+    if passable(px + dx, py + dy) && (passable(px + dx, py) || passable(px, py + dy)) {
       (dx, dy)
     } else if passable(px + dx, py) {
       (dx, 0)
