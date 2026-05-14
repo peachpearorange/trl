@@ -72,8 +72,9 @@ impl BspNode {
 
     fn split(mut self, rng: &mut SmallRng, min_size: usize, depth: usize) -> Self {
         let can_split = self.cell.w >= min_size * 2 || self.cell.h >= min_size * 2;
-        // 20% chance to stop early and keep a fat hub room instead of splitting further.
-        let early_stop = can_split && depth > 0 && rng.random_bool(0.20);
+        // Stop early only for medium-sized cells so we get fat-but-not-giant hub rooms.
+        let medium = self.cell.w <= 22 && self.cell.h <= 22;
+        let early_stop = can_split && depth > 0 && medium && rng.random_bool(0.25);
         if depth == 0 || !can_split || early_stop {
             // Leaf: carve a room. Fat rooms get a small inset; regular rooms get a random one.
             let max_inset_x = if early_stop { 1 } else { (self.cell.w / 4).max(1) };
@@ -379,15 +380,23 @@ fn add_internal_walls(level: &mut Level, room: &Rect, rng: &mut SmallRng) {
     }
 }
 
-/// Pillar grid: StationWall columns at regular intervals, leaving walkable gaps between them.
+/// Pillar grid: 2×2 StationWall blocks at regular intervals, leaving walkable gaps between.
 fn add_pillar_grid(level: &mut Level, inner: &Rect, rng: &mut SmallRng) {
-    let step = rng.random_range(3usize..=5);
+    if inner.w < 12 || inner.h < 12 {
+        return;
+    }
+    let step = rng.random_range(4usize..=6);
     let mut y = inner.y + 2;
-    while y + 2 < inner.y + inner.h {
+    while y + 3 < inner.y + inner.h {
         let mut x = inner.x + 2;
-        while x + 2 < inner.x + inner.w {
-            if level.get(x as i32, y as i32) == Some(Tile::StationFloor) {
-                level.set(x as i32, y as i32, Tile::StationWall);
+        while x + 3 < inner.x + inner.w {
+            for dy in 0..2i32 {
+                for dx in 0..2i32 {
+                    let (px, py) = (x as i32 + dx, y as i32 + dy);
+                    if level.get(px, py) == Some(Tile::StationFloor) {
+                        level.set(px, py, Tile::StationWall);
+                    }
+                }
             }
             x += step;
         }
