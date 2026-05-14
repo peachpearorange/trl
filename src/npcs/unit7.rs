@@ -130,4 +130,5 @@ pub fn unit7() -> Object {
     npc_robo_glyph('R', Color::srgb(0.22, 0.78, 0.88), Color::srgb(0.55, 0.95, 0.98)),
     &DIALOGUE
   )
+  .as_follower()
 }

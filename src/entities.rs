@@ -281,6 +281,22 @@ pub struct WalkAroundRandomly {
   pub interval: u32
 }
 
+/// Recruitable NPC companion state. A separate component so it can be swapped via `Commands::insert`.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub enum FollowerState {
+  Available,
+  Following,
+  Dismissed
+}
+
+/// Movement data for a recruitable companion. Home is set by `init_follower_homes` at startup.
+#[derive(Component, Clone, Debug)]
+pub struct FollowerData {
+  /// Tile coords the NPC returns to when dismissed.
+  pub home: (i32, i32, usize),
+  pub move_timer: u32
+}
+
 /// Marker component for the flight console entity.
 #[derive(Component, Clone, Copy)]
 pub struct FlightConsole;
@@ -393,6 +409,11 @@ impl Object {
       Gravity,
       WalkAroundRandomly { timer: 0, interval: 8 }
     ))
+  }
+
+  /// Mark this NPC as a recruitable follower. `init_follower_homes` sets the home position at startup.
+  pub fn as_follower(self) -> Self {
+    self.add(FollowerState::Available).add(FollowerData { home: (0, 0, 0), move_timer: 0 })
   }
 
   /// Fully-defined NPC: named, statted, equipped, visible, conversable.

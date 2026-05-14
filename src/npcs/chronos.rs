@@ -122,4 +122,5 @@ pub fn chronos() -> Object {
     npc_person_glyph('W', Color::srgb(0.52, 0.22, 0.88), Color::srgb(0.82, 0.62, 0.95)),
     &DIALOGUE
   )
+  .as_follower()
 }

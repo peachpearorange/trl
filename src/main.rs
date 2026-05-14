@@ -25,14 +25,14 @@ mod npcs;
 mod utils;
 
 use {bevy::prelude::*,
-     combat::{TileEntityIndex, damage_cloud_tick, enemy_ai, grenade_thrower_ai,
+     combat::{TileEntityIndex, damage_cloud_tick, enemy_ai, follower_ai, grenade_thrower_ai,
               maintain_tile_index, mushroom_spore_attack, npc_wander},
      level::{FovGrid, Item, LocationType, Tile, ZONE_HEIGHT, ZONE_WIDTH, compute_fov},
      std::collections::{HashMap, HashSet},
      crate::entities::{AirlockDoor, BlocksSight, Collidable, Dialogue, DialogueNode,
                        DialogueTree, Door, Elevator, Enemy, FixedChestLoot, FlightConsole,
-                       Glyph, LoadoutConsole, Location, LootChest, Named, PlayerEquipped, Stats,
-                       Tree, Visuals},
+                       FollowerData, FollowerState, Glyph, LoadoutConsole, Location, LootChest,
+                       Named, PlayerEquipped, Stats, Tree, Visuals},
      ui::{LogEntries, LogSpan, MenuClickPending, log_message, log_spans}};
 
 use {active_zone::ActiveZone,
@@ -109,6 +109,8 @@ enum InteractionAction {
   UnequipGrenade { slot: usize },
   ShowLoadoutStatus,
   TakeElevator { dest_z: usize, dest_x: i32, dest_y: i32 },
+  RecruitFollower { entity: Entity, name: &'static str },
+  DismissFollower { entity: Entity, name: &'static str },
 }
 
 /// Tracks which menu row index a [`Button`] entity belongs to; queried by [`detect_menu_option_clicks`].
@@ -641,6 +643,7 @@ fn main() {
         .chain()
         .after(FramePipeline::UtilityMenus)
     )
+    .add_systems(PostStartup, init_follower_homes)
     .add_systems(Update, (accumulate_dir, player_input).chain().in_set(FramePipeline::PlayerMove))
     .add_systems(Update, auto_close_airlocks.after(FramePipeline::PlayerMove))
     .add_systems(
@@ -659,6 +662,7 @@ fn main() {
         grenade_thrower_ai.in_set(SimStep),
         damage_cloud_tick.in_set(SimStep),
         npc_wander.in_set(SimStep),
+        follower_ai.in_set(SimStep),
         update_fov.in_set(SimStep),
         abilities::tick_cooldowns.in_set(SimStep)
       )
@@ -1699,6 +1703,7 @@ fn execute_interaction(
         pos.y = *dest_y;
         clock.spend_turn(tb);
       }
+      InteractionAction::RecruitFollower { .. } | InteractionAction::DismissFollower { .. } => {}
     }
   }
 }
@@ -1731,6 +1736,16 @@ fn dispatch_interactive_choice(
     }
     InteractionAction::Navigate { dest } => {
       pending_nav.0 = Some(*dest);
+      clock.spend_turn(tb);
+    }
+    InteractionAction::RecruitFollower { entity, name } => {
+      commands.entity(*entity).insert(FollowerState::Following);
+      log_message(log, format!("{name} is now following you."));
+      clock.spend_turn(tb);
+    }
+    InteractionAction::DismissFollower { entity, name } => {
+      commands.entity(*entity).insert(FollowerState::Dismissed);
+      log_message(log, format!("{name} heads home."));
       clock.spend_turn(tb);
     }
     InteractionAction::ToggleDoor(entity) => {
@@ -1869,8 +1884,8 @@ fn gather_interactions_at_tile(
   door_q: &Query<&Door>,
   elevator_q: &Query<&Elevator>,
   named_q: &Query<&Named>,
-  flight_console_q: &Query<Entity, With<FlightConsole>>,
-  loadout_console_q: &Query<Entity, With<LoadoutConsole>>,
+  console_q: &Query<(Option<&FlightConsole>, Option<&LoadoutConsole>)>,
+  follower_q: &Query<&FollowerState>,
   galaxy: &galaxy::Galaxy,
   inventory: &Inventory,
   equipped: &PlayerEquipped
@@ -1912,6 +1927,23 @@ fn gather_interactions_at_tile(
             .into_iter()
         )
         .chain(
+          follower_q
+            .get(e)
+            .ok()
+            .and_then(|state| named_q.get(e).ok().map(|named| (state, named.name)))
+            .map(|(state, name)| match *state {
+              FollowerState::Available | FollowerState::Dismissed => InteractionOption {
+                label: "Follow me".into(),
+                action: InteractionAction::RecruitFollower { entity: e, name }
+              },
+              FollowerState::Following => InteractionOption {
+                label: "Go home".into(),
+                action: InteractionAction::DismissFollower { entity: e, name }
+              }
+            })
+            .into_iter()
+        )
+        .chain(
           loot_chest_q
             .get_mut(e)
             .ok()
@@ -1947,26 +1979,25 @@ fn gather_interactions_at_tile(
                 .collect::<Vec<_>>()
             })
         )
-        .chain(flight_console_q.get(e).ok().into_iter().flat_map(|_| {
-          let mut dests: Vec<InteractionOption> = galaxy
-            .locations
-            .iter()
-            .filter(|(_, loc)| loc.location_type != LocationType::ShipInterior)
-            .map(|(&id, loc)| InteractionOption {
-              label: format!("Chart course — {}", loc.name),
-              action: InteractionAction::Navigate { dest: id }
-            })
-            .collect();
-          dests.sort_by_key(|o| o.label.clone());
-          dests
+        .chain(console_q.get(e).ok().into_iter().flat_map(|(flight, loadout)| {
+          let flight_opts: Vec<InteractionOption> = flight.map(|_| {
+            let mut dests: Vec<InteractionOption> = galaxy
+              .locations
+              .iter()
+              .filter(|(_, loc)| loc.location_type != LocationType::ShipInterior)
+              .map(|(&id, loc)| InteractionOption {
+                label: format!("Chart course — {}", loc.name),
+                action: InteractionAction::Navigate { dest: id }
+              })
+              .collect();
+            dests.sort_by_key(|o| o.label.clone());
+            dests
+          }).unwrap_or_default();
+          let loadout_opts: Vec<InteractionOption> = loadout
+            .map(|_| loadout_options(inventory, equipped))
+            .unwrap_or_default();
+          flight_opts.into_iter().chain(loadout_opts)
         }))
-        .chain(
-          loadout_console_q
-            .get(e)
-            .ok()
-            .into_iter()
-            .flat_map(|_| loadout_options(inventory, equipped))
-        )
     })
     .chain(
       ((wy as usize) < level.height
@@ -1995,8 +2026,8 @@ fn resolve_bump_interact(
   door_q: Query<&Door>,
   elevator_q: Query<&Elevator>,
   named_q: Query<&Named>,
-  flight_console_q: Query<Entity, With<FlightConsole>>,
-  loadout_console_q: Query<Entity, With<LoadoutConsole>>,
+  console_q: Query<(Option<&FlightConsole>, Option<&LoadoutConsole>)>,
+  follower_q: Query<&FollowerState>,
   player_q: Query<(&Inventory, &PlayerEquipped), With<Player>>
 ) {
   let Some((tx, ty, tz)) = pending.0.take() else {
@@ -2017,8 +2048,8 @@ fn resolve_bump_interact(
       &door_q,
       &elevator_q,
       &named_q,
-      &flight_console_q,
-      &loadout_console_q,
+      &console_q,
+      &follower_q,
       &galaxy,
       inventory,
       equipped
@@ -2114,8 +2145,8 @@ fn handle_interact(
   door_q: Query<&Door>,
   elevator_q: Query<&Elevator>,
   named_q: Query<&Named>,
-  flight_console_q: Query<Entity, With<FlightConsole>>,
-  loadout_console_q: Query<Entity, With<LoadoutConsole>>
+  console_q: Query<(Option<&FlightConsole>, Option<&LoadoutConsole>)>,
+  follower_q: Query<&FollowerState>
 ) {
   let space_consumed = std::mem::take(&mut ui.space_consumed);
   if ui.any_open() || space_consumed || !keys.just_pressed(KeyCode::Space) {
@@ -2133,7 +2164,7 @@ fn handle_interact(
           wx, wy, &dir, level,
           index.0.get(&(wx, wy, pos.z)),
           &tree_q, &dialogue_q, &glyph_q, &mut loot_chest_q,
-          &door_q, &elevator_q, &named_q, &flight_console_q, &loadout_console_q,
+          &door_q, &elevator_q, &named_q, &console_q, &follower_q,
           &galaxy, inventory, equipped
         )
       })
@@ -2300,6 +2331,14 @@ fn apply_pending_navigation(
   clock.spend_turn(&mut tb);
   let dest_name = galaxy.get(dest).map_or("destination", |loc| loc.name);
   log_message(&mut *log, format!("Astrogation: docked — {dest_name} sector."));
+}
+
+fn init_follower_homes(mut follower_q: Query<(&mut FollowerData, &Location)>) {
+  for (mut data, location) in follower_q.iter_mut() {
+    if let Location::Coords { x, y, z, .. } = *location {
+      data.home = (x, y, z);
+    }
+  }
 }
 
 fn setup(

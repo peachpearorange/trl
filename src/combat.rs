@@ -1,9 +1,9 @@
 use {bevy::prelude::*,
      rand::seq::SliceRandom,
      std::collections::{HashMap, HashSet},
-     crate::{entities::{Collidable, DamageCloud, Enemy, GrenadeThrowComp, Location, Named,
-                        Object, PlayerEquipped, SporeEmitter, Stats, TimeSinceAction,
-                        WalkAroundRandomly, Wearing},
+     crate::{entities::{Collidable, DamageCloud, Enemy, FollowerData, FollowerState,
+                        GrenadeThrowComp, Location, Named, Object, PlayerEquipped, SporeEmitter,
+                        Stats, TimeSinceAction, WalkAroundRandomly, Wearing},
              particles::{ParticleEffects, spawn_explosion_burst},
              ui::{LogEntries, log_message}}};
 
@@ -90,12 +90,14 @@ pub fn npc_wander(
   current: Res<crate::CurrentZone>,
   index: Res<TileEntityIndex>,
   collidable_q: Query<&Collidable>,
-  mut npc_q: Query<(&mut Location, &mut WalkAroundRandomly), Without<Enemy>>
+  mut npc_q: Query<(&mut Location, &mut WalkAroundRandomly, Option<&FollowerState>), Without<Enemy>>
 ) {
   let mut rng = rand::rng();
-  for (mut location, mut wander) in npc_q.iter_mut() {
+  for (mut location, mut wander, follower_state) in npc_q.iter_mut() {
+    let wandering = follower_state.map_or(true, |s| *s == FollowerState::Available);
     wander.timer += 1;
-    if wander.timer >= wander.interval
+    if wandering
+      && wander.timer >= wander.interval
       && let Location::Coords { x, y, z, .. } = *location
     {
       wander.timer = 0;
@@ -107,6 +109,57 @@ pub fn npc_wander(
         !tile_blocked(level, nx, ny, z, &index, &collidable_q)
       }) {
         *location = Location::xyz(x + dx, y + dy, z);
+      }
+    }
+  }
+}
+
+pub fn follower_ai(
+  current: Res<crate::CurrentZone>,
+  index: Res<TileEntityIndex>,
+  collidable_q: Query<&Collidable>,
+  player_q: Query<&crate::PlayerPos, With<crate::Player>>,
+  mut follower_q: Query<(&mut Location, &mut FollowerState, &mut FollowerData, &Stats)>
+) {
+  let Ok(player_pos) = player_q.single() else { return };
+  let (px, py, pz) = (player_pos.x, player_pos.y, player_pos.z);
+
+  for (mut location, mut state, mut data, stats) in follower_q.iter_mut() {
+    if let Location::Coords { x: fx, y: fy, z: fz, .. } = *location {
+      match *state {
+        FollowerState::Available => {}
+        FollowerState::Following => {
+          let dist = (px - fx).abs().max((py - fy).abs());
+          if fz == pz && dist > 2 {
+            data.move_timer += 1;
+            if data.move_timer >= move_interval(stats.move_speed) {
+              data.move_timer = 0;
+              let level = current.0.level(fz);
+              let (dx, dy) = step_toward(fx, fy, px, py);
+              let (nx, ny) = (fx + dx, fy + dy);
+              if !tile_blocked(level, nx, ny, fz, &index, &collidable_q) {
+                *location = Location::xyz(nx, ny, fz);
+              }
+            }
+          }
+        }
+        FollowerState::Dismissed => {
+          let (hx, hy, hz) = data.home;
+          if fx == hx && fy == hy && fz == hz {
+            *state = FollowerState::Available;
+          } else if fz == hz {
+            data.move_timer += 1;
+            if data.move_timer >= move_interval(stats.move_speed) {
+              data.move_timer = 0;
+              let level = current.0.level(fz);
+              let (dx, dy) = step_toward(fx, fy, hx, hy);
+              let (nx, ny) = (fx + dx, fy + dy);
+              if !tile_blocked(level, nx, ny, fz, &index, &collidable_q) {
+                *location = Location::xyz(nx, ny, fz);
+              }
+            }
+          }
+        }
       }
     }
   }

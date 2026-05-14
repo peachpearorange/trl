@@ -52,4 +52,5 @@ pub fn guard() -> Object {
     npc_person_glyph('G', Color::srgb(0.72, 0.76, 0.8), Color::srgb(0.42, 0.46, 0.52)),
     &DIALOGUE
   )
+  .as_follower()
 }

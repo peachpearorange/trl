@@ -122,4 +122,5 @@ pub fn kong() -> Object {
     npc_person_glyph('M', Color::srgb(0.38, 0.72, 0.32), Color::srgb(0.72, 0.92, 0.48)),
     &DIALOGUE
   )
+  .as_follower()
 }

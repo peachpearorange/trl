@@ -101,4 +101,5 @@ pub fn mira() -> Object {
     npc_person_glyph('c', Color::srgb(0.95, 0.55, 0.82), Color::srgb(0.48, 0.32, 0.62)),
     &DIALOGUE
   )
+  .as_follower()
 }
