@@ -25,5 +25,6 @@ bevy_ghx_proc_gen = "0.8.0"
 opt-level = 3
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+bevy = { version = "0.18.1", features = ["webgpu"] }
 getrandom = { version = "0.2", features = ["js"] }
 rust-embed = { version = "*", features = ["debug-embed"] }
