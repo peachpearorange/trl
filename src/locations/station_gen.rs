@@ -1,7 +1,8 @@
 use rand::{Rng, SeedableRng, rngs::SmallRng};
 
 use crate::{
-    galaxy::{Location, LocationId, SpawnTemplate},
+    entities::Object,
+    galaxy::{Location, LocationId},
     level::{Level, LocationType, Tile},
 };
 
@@ -185,8 +186,6 @@ pub fn generate(params: &StationParams) -> Location {
                     level.set(rx as i32, ry as i32, Tile::StationFloor);
                 }
             }
-            // Windows on room perimeter (outer boundary)
-            stamp_windows(level, room, size, &mut rng);
         }
 
         // Carve corridors
@@ -208,6 +207,9 @@ pub fn generate(params: &StationParams) -> Location {
             }
         }
 
+        // Windows: any StationWall directly facing Vacuum gets a random chance to become a Window.
+        place_windows_facing_vacuum(level, size, &mut rng);
+
         // Ship dock on level 0: find a walkable room center
         if z == 0 {
             let rooms = bsp.rooms();
@@ -225,27 +227,18 @@ pub fn generate(params: &StationParams) -> Location {
         stair_positions.push((sx, sy));
     }
 
-    // Wire elevators between adjacent decks via spawn_objects.
-    for z in 0..params.decks.saturating_sub(1) {
-        let (sx, sy) = stair_positions[z];
-        let (sx2, sy2) = stair_positions[z + 1];
+    // Build the full floor routing table: (deck_index, local_x, local_y) for every deck.
+    let floors: Vec<(usize, i32, i32)> = stair_positions
+        .iter()
+        .enumerate()
+        .map(|(z, &(sx, sy))| (z, sx as i32, sy as i32))
+        .collect();
+
+    // Spawn one elevator per deck, each knowing all other floors.
+    for (z, &(sx, sy)) in stair_positions.iter().enumerate() {
         loc.spawn_objects.push((
             sx as i32, sy as i32, z,
-            SpawnTemplate::Elevator {
-                going_down: true,
-                dest_z: z + 1,
-                local_dest_x: sx2 as i32,
-                local_dest_y: sy2 as i32,
-            },
-        ));
-        loc.spawn_objects.push((
-            sx2 as i32, sy2 as i32, z + 1,
-            SpawnTemplate::Elevator {
-                going_down: false,
-                dest_z: z,
-                local_dest_x: sx as i32,
-                local_dest_y: sy as i32,
-            },
+            Object::elevator(z, floors.clone()),
         ));
     }
 
@@ -318,33 +311,22 @@ fn place_room_doors(level: &mut Level, room: &Rect, rng: &mut SmallRng) {
     }
 }
 
-fn stamp_windows(level: &mut Level, room: &Rect, size: usize, rng: &mut SmallRng) {
-    // Place windows on the outermost wall tiles of rooms that face Vacuum.
-    let (rx, ry, rw, rh) = (room.x as i32, room.y as i32, room.w as i32, room.h as i32);
-    let max = (size - 1) as i32;
-
-    // Only place windows on very outer rooms (touching the border zone)
-    let near_edge = rx <= 4 || ry <= 4 || rx + rw >= max - 4 || ry + rh >= max - 4;
-    if !near_edge || !rng.random_bool(0.5) {
-        return;
-    }
-
-    // Top / bottom walls
-    for x in (rx..rx + rw).step_by(2) {
-        if ry <= 4 && level.get(x, ry) == Some(Tile::StationWall) {
-            level.set(x, ry, Tile::Window);
-        }
-        if ry + rh >= max - 4 && level.get(x, ry + rh - 1) == Some(Tile::StationWall) {
-            level.set(x, ry + rh - 1, Tile::Window);
-        }
-    }
-    // Left / right walls
-    for y in (ry..ry + rh).step_by(2) {
-        if rx <= 4 && level.get(rx, y) == Some(Tile::StationWall) {
-            level.set(rx, y, Tile::Window);
-        }
-        if rx + rw >= max - 4 && level.get(rx + rw - 1, y) == Some(Tile::StationWall) {
-            level.set(rx + rw - 1, y, Tile::Window);
+/// Post-pass window placement: scan every StationWall tile; if any cardinal
+/// neighbour is Vacuum (open space), randomly turn it into a Window.
+/// This is correct regardless of BSP room insets or corridor positions.
+fn place_windows_facing_vacuum(level: &mut Level, size: usize, rng: &mut SmallRng) {
+    let max = size as i32;
+    for y in 0..max {
+        for x in 0..max {
+            if level.get(x, y) != Some(Tile::StationWall) {
+                continue;
+            }
+            let faces_vacuum = [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]
+                .iter()
+                .any(|&(nx, ny)| level.get(nx, ny) == Some(Tile::Vacuum));
+            if faces_vacuum && rng.random_bool(0.45) {
+                level.set(x, y, Tile::Window);
+            }
         }
     }
 }

@@ -1893,17 +1893,23 @@ fn gather_interactions_at_tile(
             action: InteractionAction::ToggleDoor(e)
           }
         }))
-        .chain(elevator_q.get(e).ok().into_iter().map(move |elev| {
-          let label = if elev.going_down { "Descend (elevator)" } else { "Ascend (elevator)" };
-          InteractionOption {
-            label: label.to_string(),
-            action: InteractionAction::TakeElevator {
-              dest_z: elev.dest_z,
-              dest_x: elev.dest_x,
-              dest_y: elev.dest_y,
-            }
-          }
-        }))
+        .chain(
+          elevator_q
+            .get(e)
+            .ok()
+            .into_iter()
+            .flat_map(move |elev| {
+              elev
+                .floors
+                .iter()
+                .filter(|&&(z, _, _)| z != elev.current_z)
+                .map(|&(z, dx, dy)| InteractionOption {
+                  label: format!("Elevator — Deck {}", z + 1),
+                  action: InteractionAction::TakeElevator { dest_z: z, dest_x: dx, dest_y: dy }
+                })
+                .collect::<Vec<_>>()
+            })
+        )
         .chain(flight_console_q.get(e).ok().into_iter().flat_map(|_| {
           let mut dests: Vec<InteractionOption> = galaxy
             .locations
@@ -2155,18 +2161,17 @@ fn spawn_zone_geometry(
     && let Some(dest_loc) = galaxy.get(dest_id)
     && let Some((dox, doy)) = zone.dest_origin
   {
-    use galaxy::SpawnTemplate;
-    for (lx, ly, lz, tmpl) in &dest_loc.spawn_objects {
-      let wx = dox + lx;
-      let wy = doy + ly;
-      match tmpl {
-        SpawnTemplate::Elevator { going_down, dest_z, local_dest_x, local_dest_y } => {
-          let wdx = dox + local_dest_x;
-          let wdy = doy + local_dest_y;
-          entities::Object::elevator(*going_down, *dest_z, wdx, wdy)
-            .spawn_at(commands, wx, wy, *lz);
+    for (lx, ly, lz, obj) in &dest_loc.spawn_objects {
+      let ent = obj.clone().spawn_at(commands, dox + lx, doy + ly, *lz);
+      // Translate any local-coord data (e.g. Elevator floors) into world coords.
+      commands.entity(ent).queue(move |mut e: bevy::ecs::world::EntityWorldMut| {
+        if let Some(mut elev) = e.get_mut::<Elevator>() {
+          for (_, x, y) in &mut elev.floors {
+            *x += dox;
+            *y += doy;
+          }
         }
-      }
+      });
     }
   }
 }
