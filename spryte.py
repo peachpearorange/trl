@@ -108,6 +108,9 @@ class Spryte:
         self.canvas.bind("<Button-3>",        self._on_erase)
         self.canvas.bind("<B3-Motion>",       self._on_erase)
         self.canvas.bind("<Configure>",       self._on_canvas_resize)
+        self.root.bind("1", lambda e: self._select_color(0))
+        self.root.bind("2", lambda e: self._select_color(1))
+        self.root.bind("3", lambda e: self._select_color(2))
 
     def _build_bottom_panel(self):
         panel = tk.Frame(self.root, bg=PANEL, pady=6)
