@@ -318,7 +318,7 @@ pub fn place_room_with_door(
     Side::West => (x, y + door_offset as i32),
     Side::East => (x + w as i32 - 1, y + door_offset as i32)
   };
-  level.set(dx, dy, Tile::Door);
+  level.set(dx, dy, Tile::DeckPlate);
 }
 
 #[derive(Clone, Copy)]

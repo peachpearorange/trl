@@ -2431,10 +2431,6 @@ fn spawn_level_tiles(
         }
         let pos = tile_screen_pos(x as f32, y as f32, zone.width, zone.height);
 
-        if tile == Tile::Door {
-          continue;
-        }
-
         if tile == Tile::Vacuum {
           {
             let rng = rand::random::<u8>();

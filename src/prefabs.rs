@@ -159,7 +159,7 @@ impl Prefab {
     )
     .assoc('w', (Tile::StationWall, []))
     .assoc('f', (Tile::StationFloor, []))
-    .assoc('d', (Tile::Door, [Object::door()]))
+    .assoc('d', (Tile::StationFloor, [Object::door()]))
     .assoc('n', (Tile::StationFloor, [resident()]))
   }
 

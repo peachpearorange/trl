@@ -31,9 +31,7 @@ pub enum Tile {
   StairsUp,
   #[assoc(glyph = ">", color = [0.9, 0.9, 0.2], walkable = true, name = "Stairs Down")]
   StairsDown,
-  #[assoc(glyph = "+", color = [0.6, 0.3, 0.1], walkable = true, name = "Door")]
-  Door,
-  #[assoc(glyph = "\"", color = [0.25, 0.65, 0.25], walkable = true, name = "Tall Grass", space_qud_sprite = ("textures/space_qud/grass.png", [0.22, 0.48, 0.18], [0.52, 0.72, 0.28]))]
+#[assoc(glyph = "\"", color = [0.25, 0.65, 0.25], walkable = true, name = "Tall Grass", space_qud_sprite = ("textures/space_qud/grass.png", [0.22, 0.48, 0.18], [0.52, 0.72, 0.28]))]
   TallGrass,
   #[assoc(glyph = "%", color = [0.15, 0.45, 0.15], walkable = false, name = "Bush")]
   Bush,
