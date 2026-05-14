@@ -20,8 +20,8 @@ BLACK       = (0, 0, 0, 255)
 WHITE       = (255, 255, 255, 255)
 PALETTE     = [TRANSPARENT, BLACK, WHITE]
 
-CHECK_A = "#c0c0c0"
-CHECK_B = "#e8e8e8"
+CHECK_A = "#888888"
+CHECK_B = "#aaaaaa"
 
 BG         = "#2b2b2b"
 PANEL      = "#3c3f41"
@@ -250,9 +250,6 @@ class Spryte:
                 if color[3] > 0:
                     self.canvas.create_rectangle(x0, y0, x1, y1,
                                                  fill=pixel_color_hex(color), outline="")
-        for i in range(GRID + 1):
-            self.canvas.create_line(i * c, 0,  i * c, sz,  fill="#3a3a3a")
-            self.canvas.create_line(0,  i * c, sz,  i * c, fill="#3a3a3a")
 
     def _redraw_cell(self, col: int, row: int):
         c = self._cell
@@ -269,12 +266,6 @@ class Spryte:
             self.canvas.create_rectangle(x0, y0, x1, y1,
                                          fill=pixel_color_hex(color), outline="", tags=tag)
 
-        self.canvas.create_line(x0, y0, x1, y0, fill="#3a3a3a", tags=tag)
-        self.canvas.create_line(x0, y0, x0, y1, fill="#3a3a3a", tags=tag)
-        if col == GRID - 1:
-            self.canvas.create_line(x1, y0, x1, y1, fill="#3a3a3a", tags=tag)
-        if row == GRID - 1:
-            self.canvas.create_line(x0, y1, x1, y1, fill="#3a3a3a", tags=tag)
 
     # ------------------------------------------------------------------
     # Color palette
