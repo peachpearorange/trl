@@ -281,6 +281,9 @@ pub fn enemy_ai(
 
     if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location {
       let dist = (px - ex).abs().max((py - ey).abs());
+      if dist > 24 {
+        continue;
+      }
       let atk_fr = attack_interval(enemy_stats.attack_speed);
       let mov_fr = move_interval(enemy_stats.move_speed);
 
