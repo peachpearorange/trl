@@ -1,8 +1,9 @@
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 
 use crate::{
+    entities::Object,
     galaxy::{Location, LocationId},
-    level::{LocationType, Tile},
+    level::{LocationType, Tile, carve_blob},
 };
 
 pub const ID_ALIEN_JUNGLE: LocationId  = (4, 0, 0);
@@ -45,7 +46,11 @@ pub fn all() -> Vec<(LocationId, Location)> {
     ]
 }
 
-pub const PLANET_SIZE: usize = 100;
+pub const PLANET_SIZE: usize = 500;
+
+/// How many cave entrances are scattered across the planet surface (4 cols × 2 rows).
+const STAIR_GRID_COLS: i32 = 4;
+const STAIR_GRID_ROWS: i32 = 2;
 
 #[derive(Clone, Copy, Debug)]
 pub enum PlanetBiome {
@@ -173,6 +178,21 @@ fn biome_ground_tile(biome: PlanetBiome) -> Tile {
     }
 }
 
+fn biome_cave_wall(biome: PlanetBiome) -> Tile {
+    match biome {
+        PlanetBiome::Arctic => Tile::IceWall,
+        _                   => Tile::CaveWall,
+    }
+}
+
+fn biome_cave_floor(biome: PlanetBiome) -> Tile {
+    match biome {
+        PlanetBiome::Arctic => Tile::IceFloor,
+        PlanetBiome::Lava   => Tile::Ash,
+        _                   => Tile::CaveFloor,
+    }
+}
+
 /// Maps noise values to a tile for the given biome and parameters.
 ///
 /// `t` is low-frequency terrain elevation in [-1, 1] — controls zone (water/ground/rock).
@@ -234,6 +254,26 @@ fn sample_tile(t: f64, d: f64, biome: PlanetBiome, wc: f64, vd: f64, rf: f64) ->
     }
 }
 
+/// Maps cave noise to a tile. Returns `None` to leave the cave wall in place.
+/// `v` is the primary cave openness value — positive means open passage.
+/// `d` is detail noise for biome-specific features inside the open areas.
+fn sample_cave_tile(v: f64, d: f64, biome: PlanetBiome) -> Option<Tile> {
+    if v <= 0.05 {
+        return None; // solid wall
+    }
+    let floor = biome_cave_floor(biome);
+    // Rare feature pockets inside open cave areas (only walkable tiles)
+    let feature = match biome {
+        PlanetBiome::Crystal if d > 0.55 => Some(Tile::BioluminescentPool),
+        PlanetBiome::Alien   if d > 0.60 => Some(Tile::AlienFluid),
+        PlanetBiome::Lava    if d > 0.65 => Some(Tile::CrimsonPool),
+        PlanetBiome::Desert  if d > 0.70 => Some(Tile::AcidPool),
+        PlanetBiome::Arctic  if d > 0.60 => Some(Tile::ShallowWater),
+        _                                 => None,
+    };
+    Some(feature.unwrap_or(floor))
+}
+
 pub fn generate(params: &PlanetParams) -> Location {
     let seed = params.seed.unwrap_or_else(rand::random::<u64>);
     // Fold 64-bit seed to 32-bit for the noise crate.
@@ -251,6 +291,17 @@ pub fn generate(params: &PlanetParams) -> Location {
         .set_octaves(3)
         .set_frequency(0.15);
 
+    // Cave noise — different seeds so underground never mirrors the surface.
+    let cave_terrain: Fbm<Perlin> = Fbm::new(seed32.wrapping_add(0x4b7a_c9f2))
+        .set_octaves(4)
+        .set_frequency(0.04)
+        .set_lacunarity(2.0)
+        .set_persistence(0.5);
+
+    let cave_detail: Fbm<Perlin> = Fbm::new(seed32.wrapping_add(0xd3e8_2a1c))
+        .set_octaves(3)
+        .set_frequency(0.15);
+
     let (wc, vd, rf) = (
         params.water_coverage as f64,
         params.vegetation_density as f64,
@@ -258,26 +309,119 @@ pub fn generate(params: &PlanetParams) -> Location {
     );
 
     let fill = biome_ground_tile(params.biome);
+    let cave_wall = biome_cave_wall(params.biome);
+
     let mut loc = Location::new(
         params.name,
         PLANET_SIZE,
         PLANET_SIZE,
-        1,
+        2,
         LocationType::PlanetSurface { breathable: params.breathable },
         fill,
     );
-    let level = loc.level_mut(0);
 
-    for y in 0..PLANET_SIZE as i32 {
-        for x in 0..PLANET_SIZE as i32 {
-            let t = terrain.get([x as f64, y as f64]).clamp(-1.0, 1.0);
-            let d = detail.get([x as f64, y as f64]).clamp(-1.0, 1.0);
-            level.set(x, y, sample_tile(t, d, params.biome, wc, vd, rf));
+    // Overwrite cave level (z=1) with solid cave walls before carving it open.
+    {
+        let cave = loc.level_mut(1);
+        for y in 0..PLANET_SIZE as i32 {
+            for x in 0..PLANET_SIZE as i32 {
+                cave.set(x, y, cave_wall);
+            }
         }
     }
 
-    place_ship_dock(level, fill);
+    // Generate surface (z=0).
+    {
+        let level = loc.level_mut(0);
+        for y in 0..PLANET_SIZE as i32 {
+            for x in 0..PLANET_SIZE as i32 {
+                let t = terrain.get([x as f64, y as f64]).clamp(-1.0, 1.0);
+                let d = detail.get([x as f64, y as f64]).clamp(-1.0, 1.0);
+                level.set(x, y, sample_tile(t, d, params.biome, wc, vd, rf));
+            }
+        }
+    }
+
+    // Generate cave level (z=1): carve organic passages from solid rock.
+    {
+        let cave = loc.level_mut(1);
+        for y in 0..PLANET_SIZE as i32 {
+            for x in 0..PLANET_SIZE as i32 {
+                let v = cave_terrain.get([x as f64, y as f64]).clamp(-1.0, 1.0);
+                let d = cave_detail.get([x as f64, y as f64]).clamp(-1.0, 1.0);
+                if let Some(tile) = sample_cave_tile(v, d, params.biome) {
+                    cave.set(x, y, tile);
+                }
+            }
+        }
+    }
+
+    place_ship_dock(loc.level_mut(0), fill);
+    place_cave_stairs(&mut loc, params.biome, seed32);
     loc
+}
+
+/// Scatter cave entrances across the surface in a STAIR_GRID_COLS × STAIR_GRID_ROWS grid.
+/// Each entrance is a `StairsDown` tile on the surface paired with a `StairsUp` tile
+/// underground, and an Elevator entity on both z-levels so the player can travel between them.
+fn place_cave_stairs(loc: &mut Location, biome: PlanetBiome, seed32: u32) {
+    let ps = PLANET_SIZE as i32;
+    let cell_w = ps / STAIR_GRID_COLS;
+    let cell_h = ps / STAIR_GRID_ROWS;
+    let cave_floor = biome_cave_floor(biome);
+
+    // Simple LCG for deterministic jitter within each grid cell.
+    let mut rng = seed32.wrapping_mul(0x6c62272e).wrapping_add(0x07bb0142);
+
+    let mut stair_positions: Vec<(i32, i32)> = Vec::new();
+
+    for row in 0..STAIR_GRID_ROWS {
+        for col in 0..STAIR_GRID_COLS {
+            rng = rng.wrapping_mul(0x5851f42d).wrapping_add(0xc4ceb9fe);
+            let jx = ((rng >> 8) & 0xff) as i32 - 128;
+            rng = rng.wrapping_mul(0x5851f42d).wrapping_add(0xc4ceb9fe);
+            let jy = ((rng >> 8) & 0xff) as i32 - 128;
+
+            let cx = (cell_w / 2 + col * cell_w + jx.clamp(-(cell_w / 4), cell_w / 4))
+                .clamp(5, ps - 5);
+            let cy = (cell_h / 2 + row * cell_h + jy.clamp(-(cell_h / 4), cell_h / 4))
+                .clamp(5, ps - 5);
+
+            // Find walkable solid-ground near this grid center on the surface.
+            let pos = find_solid_ground(loc.level(0), cx, cy, 40);
+            if let Some((sx, sy)) = pos {
+                // StairsDown visible on surface; StairsUp emerges from underground.
+                loc.level_mut(0).set(sx, sy, Tile::StairsDown);
+
+                // Guarantee open floor around the underground arrival point.
+                carve_blob(loc.level_mut(1), sx, sy, 6, cave_floor);
+                loc.level_mut(1).set(sx, sy, Tile::StairsUp);
+
+                stair_positions.push((sx, sy));
+            }
+        }
+    }
+
+    // Spawn one Elevator entity per z-level per stair so players can go both ways.
+    // Each elevator knows both floors: surface (z=0) and caves (z=1) at the same (x,y).
+    for &(sx, sy) in &stair_positions {
+        let floors = vec![(0usize, sx, sy), (1usize, sx, sy)];
+        loc.spawn_objects.push((sx, sy, 0, Object::elevator(0, floors.clone())));
+        loc.spawn_objects.push((sx, sy, 1, Object::elevator(1, floors)));
+    }
+}
+
+/// Spiral outward from (cx, cy) to find the nearest tile that passes `is_solid_ground`.
+fn find_solid_ground(level: &crate::level::Level, cx: i32, cy: i32, max_r: i32) -> Option<(i32, i32)> {
+    (0..max_r).find_map(|r| {
+        (-r..=r).find_map(|dy| {
+            (-r..=r).find_map(|dx| {
+                (dx.abs().max(dy.abs()) == r
+                    && level.get(cx + dx, cy + dy).is_some_and(is_solid_ground))
+                .then_some((cx + dx, cy + dy))
+            })
+        })
+    })
 }
 
 /// Spiral outward from center to find solid walkable ground, clear a 3×3
