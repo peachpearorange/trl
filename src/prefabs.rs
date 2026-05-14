@@ -179,7 +179,7 @@ impl Prefab {
     .assoc('w', (Tile::Window, []))
     .assoc('.', (Tile::DeckPlate, []))
     .assoc('c', (Tile::DeckPlate, [Object::flight_console()]))
-    .assoc('a', (Tile::AirlockDoor, [Object::airlock_door()]))
+    .assoc('a', (Tile::DeckPlate, [Object::airlock_door()]))
     .assoc('p', (Tile::DeckPlate, [ship_pilot()]))
   }
 
@@ -209,7 +209,7 @@ impl Prefab {
     .assoc('.', (Tile::DeckPlate, []))
     .assoc(',', (Tile::WoodTile, []))
     .assoc('W', (Tile::Window, []))
-    .assoc('a', (Tile::AirlockDoor, [Object::airlock_door()]))
+    .assoc('a', (Tile::DeckPlate, [Object::airlock_door()]))
     .assoc('l', (Tile::DeckPlate, [Object::airlock_door()]))
     .assoc('=', (Tile::Conduit, []))
     .assoc('C', (Tile::DeckPlate, [Object::flight_console()]))
@@ -352,8 +352,8 @@ aa
     let (w, h) = p.dimensions();
     let mut stamped = Level::new(w, h, Tile::Vacuum);
     p.stamp_level(&mut stamped, 0, 0);
-    // airlock at bottom centre
-    assert_eq!(stamped.get(16, 15), Some(Tile::AirlockDoor));
+    // airlock sits on deck plate
+    assert_eq!(stamped.get(16, 15), Some(Tile::DeckPlate));
     // console
     assert_eq!(stamped.get(29, 7),  Some(Tile::DeckPlate));
     // conduit column (cols 5-8 of rows 6-8)

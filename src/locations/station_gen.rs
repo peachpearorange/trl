@@ -162,6 +162,7 @@ pub fn generate(params: &StationParams) -> Location {
 
     // --- Generate each deck independently ---
     let mut stair_positions: Vec<(usize, usize)> = Vec::new(); // stair (x,y) per deck boundary
+    let mut door_positions: Vec<(i32, i32, usize)> = Vec::new();
 
     for z in 0..params.decks {
         let level = loc.level_mut(z);
@@ -194,9 +195,11 @@ pub fn generate(params: &StationParams) -> Location {
             carve_corridor(level, *ax, *ay, *bx, *by);
         }
 
-        // Place doors where corridors enter rooms
+        // Place doors where corridors enter rooms; collect positions for later Object spawn.
         for room in bsp.rooms() {
-            place_room_doors(level, room, &mut rng);
+            door_positions.extend(
+                place_room_doors(level, room, &mut rng).into_iter().map(|(x, y)| (x, y, z))
+            );
         }
 
         // Place conduit strips in some corridors for visual interest
@@ -224,6 +227,11 @@ pub fn generate(params: &StationParams) -> Location {
         let stair_room = rooms.get(rooms.len() / 2).or_else(|| rooms.last());
         let (sx, sy) = stair_room.map(|r| r.center()).unwrap_or((size / 2, size / 2));
         stair_positions.push((sx, sy));
+    }
+
+    // Spawn airlock Objects at door positions collected above.
+    for (dx, dy, z) in door_positions {
+        loc.spawn_objects.push((dx, dy, z, Object::airlock_door()));
     }
 
     // Build the full floor routing table: (deck_index, local_x, local_y) for every deck.
@@ -283,10 +291,11 @@ fn stamp_corridor_tile(level: &mut Level, x: i32, y: i32, horizontal: bool) {
     }
 }
 
-fn place_room_doors(level: &mut Level, room: &Rect, rng: &mut SmallRng) {
+fn place_room_doors(level: &mut Level, room: &Rect, rng: &mut SmallRng) -> Vec<(i32, i32)> {
     // Scan the room perimeter; where corridor (DeckPlate) is adjacent to the room interior,
-    // place an AirlockDoor in the room wall tile.
+    // open the wall and return the position for the caller to spawn an airlock Object.
     let (rx, ry, rw, rh) = (room.x as i32, room.y as i32, room.w as i32, room.h as i32);
+    let mut doors = Vec::new();
 
     // Top and bottom edges
     for x in rx..rx + rw {
@@ -294,13 +303,15 @@ fn place_room_doors(level: &mut Level, room: &Rect, rng: &mut SmallRng) {
             && level.get(x, ry - 1) == Some(Tile::DeckPlate)
             && rng.random_bool(0.6)
         {
-            level.set(x, ry, Tile::AirlockDoor);
+            level.set(x, ry, Tile::StationFloor);
+            doors.push((x, ry));
         }
         if level.get(x, ry + rh - 1) == Some(Tile::StationWall)
             && level.get(x, ry + rh) == Some(Tile::DeckPlate)
             && rng.random_bool(0.6)
         {
-            level.set(x, ry + rh - 1, Tile::AirlockDoor);
+            level.set(x, ry + rh - 1, Tile::StationFloor);
+            doors.push((x, ry + rh - 1));
         }
     }
     // Left and right edges
@@ -309,15 +320,18 @@ fn place_room_doors(level: &mut Level, room: &Rect, rng: &mut SmallRng) {
             && level.get(rx - 1, y) == Some(Tile::DeckPlate)
             && rng.random_bool(0.6)
         {
-            level.set(rx, y, Tile::AirlockDoor);
+            level.set(rx, y, Tile::StationFloor);
+            doors.push((rx, y));
         }
         if level.get(rx + rw - 1, y) == Some(Tile::StationWall)
             && level.get(rx + rw, y) == Some(Tile::DeckPlate)
             && rng.random_bool(0.6)
         {
-            level.set(rx + rw - 1, y, Tile::AirlockDoor);
+            level.set(rx + rw - 1, y, Tile::StationFloor);
+            doors.push((rx + rw - 1, y));
         }
     }
+    doors
 }
 
 /// Place windows on StationWall tiles that face both Vacuum (exterior) and a

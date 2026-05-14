@@ -63,7 +63,7 @@ pub fn station_prefab() -> Prefab {
   .assoc('w', (Tile::StationWall, []))
   .assoc('s', (Tile::Window, []))
   .assoc('f', (Tile::StationFloor, []))
-  .assoc('d', (Tile::AirlockDoor, [Object::airlock_door()]))
+  .assoc('d', (Tile::StationFloor, [Object::airlock_door()]))
   .assoc('P', (Tile::ShipDock, []))
   .assoc('l', (Tile::StationFloor, [Object::locker()]))
   .assoc('t', (Tile::StationFloor, [Object::table()]))

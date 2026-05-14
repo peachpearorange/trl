@@ -66,9 +66,7 @@ pub enum Tile {
   Bulkhead,
   #[assoc(glyph = "o", color = [0.2, 0.25, 0.7], walkable = false, name = "Window", space_qud_sprite = ("textures/space_qud/window (1).png", [0.22, 0.32, 0.52], [0.62, 0.76, 0.94]))]
   Window,
-  #[assoc(glyph = "+", color = [0.7, 0.65, 0.3], walkable = true, name = "Airlock Door")]
-  AirlockDoor,
-  #[assoc(glyph = ".", color = [0.55, 0.58, 0.62], walkable = true, name = "Station Floor", space_qud_sprite = ("textures/space_qud/floor4.png", [0.52, 0.56, 0.62], [0.88, 0.90, 0.94]))]
+#[assoc(glyph = ".", color = [0.55, 0.58, 0.62], walkable = true, name = "Station Floor", space_qud_sprite = ("textures/space_qud/floor4.png", [0.52, 0.56, 0.62], [0.88, 0.90, 0.94]))]
   StationFloor,
   #[assoc(glyph = "#", color = [0.5, 0.52, 0.55], walkable = false, opaque = true, name = "Station Wall", space_qud_sprite = ("textures/space_qud/wall hashtag.png", [0.28, 0.30, 0.34], [0.48, 0.52, 0.56]))]
   StationWall,

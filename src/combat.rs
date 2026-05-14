@@ -5,7 +5,6 @@ use {bevy::prelude::*,
                         Object, PlayerEquipped, SporeEmitter, Stats, TimeSinceAction,
                         WalkAroundRandomly, Wearing},
              particles::{ParticleEffects, spawn_explosion_burst},
-             tiles::Tile,
              ui::{LogEntries, log_message}}};
 
 // ---------------------------------------------------------------------------
@@ -106,7 +105,6 @@ pub fn npc_wander(
       if let Some(&(dx, dy)) = dirs.iter().find(|&&(dx, dy)| {
         let (nx, ny) = (x + dx, y + dy);
         !tile_blocked(level, nx, ny, z, &index, &collidable_q)
-          && level.get(nx, ny) != Some(Tile::AirlockDoor)
       }) {
         *location = Location::xyz(x + dx, y + dy, z);
       }
