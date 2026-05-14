@@ -165,21 +165,20 @@ pub fn generate(params: &StationParams) -> Location {
 
     for z in 0..params.decks {
         let level = loc.level_mut(z);
-        // Fill with walls first; vacuum is the outer shell.
-        // The outer border stays Vacuum; inner area starts as StationWall.
-        let border = 2usize;
-        for ry in border..size - border {
-            for rx in border..size - border {
-                level.set(rx as i32, ry as i32, Tile::StationWall);
-            }
-        }
+        // Outer border stays Vacuum; we stamp walls+floors per-room so outer
+        // room walls are directly adjacent to Vacuum — enabling visible windows.
 
         // BSP rooms
-        let root_cell = Rect { x: border, y: border, w: size - border * 2, h: size - border * 2 };
+        let root_cell = Rect { x: 1, y: 1, w: size - 2, h: size - 2 };
         let bsp = BspNode::leaf(root_cell).split(&mut rng, 8, 4);
 
-        // Carve rooms
+        // Stamp rooms: wall perimeter first, then floor interior
         for room in bsp.rooms() {
+            for ry in room.y..room.y + room.h {
+                for rx in room.x..room.x + room.w {
+                    level.set(rx as i32, ry as i32, Tile::StationWall);
+                }
+            }
             let inner = room.inner();
             for ry in inner.y..inner.y + inner.h {
                 for rx in inner.x..inner.x + inner.w {
@@ -207,8 +206,8 @@ pub fn generate(params: &StationParams) -> Location {
             }
         }
 
-        // Windows: any StationWall directly facing Vacuum gets a random chance to become a Window.
-        place_windows_facing_vacuum(level, size, &mut rng);
+        // Windows: StationWall adjacent to both Vacuum AND floor — visible from inside.
+        place_windows(level, size, &mut rng);
 
         // Ship dock on level 0: find a walkable room center
         if z == 0 {
@@ -250,27 +249,37 @@ pub fn generate(params: &StationParams) -> Location {
 // ---------------------------------------------------------------------------
 
 fn carve_corridor(level: &mut Level, ax: usize, ay: usize, bx: usize, by: usize) {
-    // L-shaped corridor: move horizontally first, then vertically.
+    // L-shaped corridor: horizontal leg first, then vertical.
+    // Where the corridor crosses Vacuum we also add StationWall flanks so the
+    // corridor has solid walls (enabling door and window placement later).
     let (mut x, mut y) = (ax as i32, ay as i32);
     let (tx, ty) = (bx as i32, by as i32);
 
     let dx = (tx - x).signum();
     while x != tx {
-        if level.get(x, y) == Some(Tile::StationWall) || level.get(x, y) == Some(Tile::Vacuum) {
-            level.set(x, y, Tile::DeckPlate);
-        }
+        stamp_corridor_tile(level, x, y, true);
         x += dx;
     }
     let dy = (ty - y).signum();
     while y != ty {
-        if level.get(x, y) == Some(Tile::StationWall) || level.get(x, y) == Some(Tile::Vacuum) {
-            level.set(x, y, Tile::DeckPlate);
-        }
+        stamp_corridor_tile(level, x, y, false);
         y += dy;
     }
-    // Ensure endpoint is carved
-    if level.get(x, y) == Some(Tile::StationWall) || level.get(x, y) == Some(Tile::Vacuum) {
+    stamp_corridor_tile(level, x, y, false);
+}
+
+/// Carve one corridor tile and ensure flanking walls exist in Vacuum.
+fn stamp_corridor_tile(level: &mut Level, x: i32, y: i32, horizontal: bool) {
+    if matches!(level.get(x, y), Some(Tile::StationWall) | Some(Tile::Vacuum)) {
         level.set(x, y, Tile::DeckPlate);
+    }
+    // Add StationWall flanks perpendicular to travel direction so crossing
+    // Vacuum gaps still have a wall — enabling window detection later.
+    let flanks: [(i32, i32); 2] = if horizontal { [(x, y-1), (x, y+1)] } else { [(x-1, y), (x+1, y)] };
+    for (fx, fy) in flanks {
+        if level.get(fx, fy) == Some(Tile::Vacuum) {
+            level.set(fx, fy, Tile::StationWall);
+        }
     }
 }
 
@@ -311,20 +320,21 @@ fn place_room_doors(level: &mut Level, room: &Rect, rng: &mut SmallRng) {
     }
 }
 
-/// Post-pass window placement: scan every StationWall tile; if any cardinal
-/// neighbour is Vacuum (open space), randomly turn it into a Window.
-/// This is correct regardless of BSP room insets or corridor positions.
-fn place_windows_facing_vacuum(level: &mut Level, size: usize, rng: &mut SmallRng) {
+/// Place windows on StationWall tiles that face both Vacuum (exterior) and a
+/// floor tile (interior) — guaranteeing visibility from inside the station.
+fn place_windows(level: &mut Level, size: usize, rng: &mut SmallRng) {
     let max = size as i32;
     for y in 0..max {
         for x in 0..max {
             if level.get(x, y) != Some(Tile::StationWall) {
                 continue;
             }
-            let faces_vacuum = [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]
-                .iter()
-                .any(|&(nx, ny)| level.get(nx, ny) == Some(Tile::Vacuum));
-            if faces_vacuum && rng.random_bool(0.45) {
+            let neighbors: [(i32, i32); 4] = [(x-1, y), (x+1, y), (x, y-1), (x, y+1)];
+            let has_vacuum = neighbors.iter().any(|&(nx, ny)| level.get(nx, ny) == Some(Tile::Vacuum));
+            let has_floor  = neighbors.iter().any(|&(nx, ny)| matches!(
+                level.get(nx, ny), Some(Tile::StationFloor) | Some(Tile::DeckPlate)
+            ));
+            if has_vacuum && has_floor && rng.random_bool(0.45) {
                 level.set(x, y, Tile::Window);
             }
         }
