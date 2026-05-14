@@ -802,11 +802,11 @@ fn update_fov_visuals(
   mut chunk_q: Query<(&TilemapLayer, &mut TilemapChunkTileData, &mut Visibility), Without<Player>>,
   mut item_q: Query<
     (Entity, &ItemGlyph, &mut TextColor, &mut Visibility),
-    (Without<Player>, Without<GlyphVisual>)
+    (Without<Player>, Without<GlyphVisual>, Without<TilemapLayer>)
   >,
   mut entity_q: Query<
     (Entity, &Location, &mut Visibility),
-    (With<GlyphVisual>, Without<Player>)
+    (With<GlyphVisual>, Without<Player>, Without<TilemapLayer>)
   >
 ) {
   let (player_ent, pos, mut player_vis) = player.into_inner();
