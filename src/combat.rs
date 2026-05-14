@@ -180,9 +180,10 @@ pub fn follower_ai(
   current: Res<crate::CurrentZone>,
   index: Res<TileEntityIndex>,
   collidable_q: Query<&Collidable>,
-  player_pos: Single<&crate::PlayerPos, With<crate::Player>>,
+  player: Single<(&crate::PlayerPos, &Stats), With<crate::Player>>,
   mut follower_q: Query<(&mut Location, &mut FollowerState, &mut FollowerData, &Stats, &mut Path)>
 ) {
+  let (player_pos, player_stats) = *player;
   let (px, py, pz) = (player_pos.x, player_pos.y, player_pos.z);
 
   for (mut location, mut state, mut data, stats, mut path) in follower_q.iter_mut() {
@@ -193,7 +194,9 @@ pub fn follower_ai(
           let dist = (px - fx).abs().max((py - fy).abs());
           if fz == pz && dist > 2 {
             data.move_timer += 1;
-            if data.move_timer >= move_interval(stats.move_speed) {
+            // Hurry to keep up: never move slower than the player when following
+            let follow_speed = stats.move_speed.max(player_stats.move_speed);
+            if data.move_timer >= move_interval(follow_speed) {
               data.move_timer = 0;
               let level = current.0.level(fz);
               let needs_recompute = path.steps.is_empty()
