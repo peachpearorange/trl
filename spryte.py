@@ -31,6 +31,8 @@ HIGHLIGHT  = "#4e9fea"
 BTN_BG     = "#4c5052"
 BTN_FG     = "#dddddd"
 BTN_ACTIVE = "#5c6366"
+BTN_FONT          = ("Helvetica", 8)
+BTN_FONT_SELECTED = ("Helvetica", 8, "bold")
 SWATCH_SZ  = 36
 
 TOOLS = ["pencil", "rect", "move", "fill"]
@@ -183,8 +185,8 @@ class Spryte:
             b = tk.Button(tool_frame, text=TOOL_LABELS[tool],
                           command=lambda t=tool: self._select_tool(t),
                           bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE,
-                          relief=tk.FLAT, padx=6, pady=2, anchor="w",
-                          font=("Helvetica", 8))
+                          relief=tk.FLAT, borderwidth=0, padx=6, pady=2, anchor="w",
+                          font=BTN_FONT)
             b.pack(side=tk.TOP, fill=tk.X, pady=1)
             self._tool_buttons[tool] = b
         self._refresh_tool_buttons()
@@ -225,7 +227,8 @@ class Spryte:
             return tk.Button(btn_frame, text=text, command=cmd,
                              bg=BTN_BG, fg=BTN_FG,
                              activebackground=BTN_ACTIVE,
-                             relief=tk.FLAT, padx=8, pady=3)
+                             relief=tk.FLAT, borderwidth=0, padx=8, pady=3,
+                             font=BTN_FONT)
 
         btn("New",     self._cmd_new).pack(side=tk.TOP, fill=tk.X, pady=1)
         btn("Save",    self._cmd_save).pack(side=tk.TOP, fill=tk.X, pady=1)
@@ -395,7 +398,11 @@ class Spryte:
 
     def _refresh_tool_buttons(self):
         for tool, btn in self._tool_buttons.items():
-            btn.config(bg=HIGHLIGHT if tool == self._tool else BTN_BG)
+            selected = tool == self._tool
+            btn.config(
+                bg=HIGHLIGHT if selected else BTN_BG,
+                font=BTN_FONT_SELECTED if selected else BTN_FONT,
+            )
 
     def _cancel_tool(self):
         if self._tool == "move" and self._move_phase == "floating":
