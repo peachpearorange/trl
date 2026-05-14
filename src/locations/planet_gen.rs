@@ -1,13 +1,4 @@
-use bevy_ghx_proc_gen::proc_gen::{
-    generator::{
-        builder::GeneratorBuilder,
-        model::ModelCollection,
-        rules::RulesBuilder,
-        socket::{SocketCollection, SocketsCartesian2D},
-        RngMode,
-    },
-    ghx_grid::cartesian::{coordinates::Cartesian2D, grid::CartesianGrid},
-};
+use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 
 use crate::{
     galaxy::{Location, LocationId},
@@ -171,105 +162,102 @@ fn is_solid_ground(tile: Tile) -> bool {
     )
 }
 
-/// Scale `param` by `scale`; WFC requires weight > 0 so floor at 0.05.
-fn scaled(param: f32, scale: f32) -> f32 { (param * scale).max(0.05) }
-
-pub fn generate(params: &PlanetParams) -> Location {
-    let mut sockets = SocketCollection::new();
-    let ground  = sockets.create();
-    let shallow = sockets.create();
-    let deep    = sockets.create();
-    let rock    = sockets.create();
-
-    // ground borders itself, shallow water, and rock outcroppings.
-    // shallow borders itself, deep (only reachable through shallow), and ground.
-    // deep is enclosed by shallow.
-    // rock borders itself and ground.
-    sockets.add_connections([
-        (ground,  vec![ground, shallow, rock]),
-        (shallow, vec![shallow, deep, ground]),
-        (deep,    vec![deep, shallow]),
-        (rock,    vec![rock, ground]),
-    ]);
-
-    let mut models = ModelCollection::<Cartesian2D>::new();
-    let mut tile_map: Vec<Tile> = Vec::new();
-
-    // Adds a model with the given socket + weight and registers its Tile.
-    // Model indices are assigned in insertion order, matching tile_map indices.
-    macro_rules! tile {
-        ($sock:expr, $weight:expr, $t:expr) => {{
-            models.create(SocketsCartesian2D::Mono($sock)).with_weight($weight);
-            tile_map.push($t);
-        }};
+fn biome_ground_tile(biome: PlanetBiome) -> Tile {
+    match biome {
+        PlanetBiome::Grassland => Tile::Grass,
+        PlanetBiome::Desert    => Tile::Ash,
+        PlanetBiome::Crystal   => Tile::CaveFloor,
+        PlanetBiome::Alien     => Tile::AlienSoil,
+        PlanetBiome::Arctic    => Tile::IceFloor,
+        PlanetBiome::Lava      => Tile::Ash,
     }
+}
 
-    let (wc, vd, rf) = (params.water_coverage, params.vegetation_density, params.rock_frequency);
+/// Maps noise values to a tile for the given biome and parameters.
+///
+/// `t` is low-frequency terrain elevation in [-1, 1] — controls zone (water/ground/rock).
+/// `d` is higher-frequency detail in [-1, 1] — adds variation within the ground zone.
+fn sample_tile(t: f64, d: f64, biome: PlanetBiome, wc: f64, vd: f64, rf: f64) -> Tile {
+    // Zone thresholds derived from parameters:
+    //   wc (water coverage) shifts water/ground boundary up → more area submerged
+    //   rf (rock frequency) pulls rock threshold down       → more area is rock
+    //   vd (vegetation density) lowers veg threshold        → more vegetation in ground
+    let deep_thresh    = -0.65 + wc * 0.9;   // wc=0 → -0.65,  wc=1 → 0.25
+    let shallow_thresh = deep_thresh + 0.25;
+    let rock_thresh    = 0.55 - rf * 0.60;   // rf=0 → 0.55,   rf=1 → -0.05
+    let veg_thresh     = 0.40 - vd * 0.80;   // vd=0 → 0.40,   vd=1 → -0.40
 
-    match params.biome {
+    match biome {
         PlanetBiome::Grassland => {
-            tile!(ground,  10.0,             Tile::Grass);
-            tile!(ground,  scaled(vd, 5.0),  Tile::TallGrass);
-            tile!(ground,  scaled(vd, 3.0),  Tile::Bush);
-            tile!(shallow, scaled(wc, 8.0),  Tile::ShallowWater);
-            tile!(deep,    scaled(wc, 4.0),  Tile::DeepWater);
-            tile!(rock,    scaled(rf, 6.0),  Tile::Wall);
+            if t < deep_thresh         { Tile::DeepWater }
+            else if t < shallow_thresh { Tile::ShallowWater }
+            else if t > rock_thresh    { Tile::Wall }
+            else if d > veg_thresh     { Tile::TallGrass }
+            else if d > veg_thresh - 0.3 { Tile::Bush }
+            else                       { Tile::Grass }
         }
         PlanetBiome::Desert => {
-            tile!(ground,  10.0,             Tile::Ash);
-            tile!(ground,  scaled(rf, 4.0),  Tile::CaveFloor);
-            tile!(rock,    scaled(rf, 8.0),  Tile::CaveWall);
-            tile!(shallow, scaled(wc, 4.0),  Tile::AlienFluid);
-            tile!(deep,    scaled(wc, 2.0),  Tile::AcidPool);
+            if t < deep_thresh         { Tile::AcidPool }
+            else if t < shallow_thresh { Tile::AlienFluid }
+            else if t > rock_thresh    { Tile::CaveWall }
+            else if d > veg_thresh     { Tile::CaveFloor }
+            else                       { Tile::Ash }
         }
         PlanetBiome::Crystal => {
-            tile!(ground,  8.0,              Tile::CaveFloor);
-            tile!(rock,    scaled(rf, 8.0),  Tile::CaveWall);
-            tile!(rock,    scaled(vd, 5.0),  Tile::CrystalFormation);
-            tile!(ground,  scaled(vd, 4.0),  Tile::Ash);
-            tile!(shallow, scaled(wc, 3.0),  Tile::BioluminescentPool);
-            tile!(deep,    scaled(wc, 2.0),  Tile::AcidPool);
+            if t < deep_thresh         { Tile::AcidPool }
+            else if t < shallow_thresh { Tile::BioluminescentPool }
+            else if t > rock_thresh {
+                if d > 0.0 { Tile::CrystalFormation } else { Tile::CaveWall }
+            }
+            else if d > veg_thresh     { Tile::Ash }
+            else                       { Tile::CaveFloor }
         }
         PlanetBiome::Alien => {
-            tile!(ground,  8.0,              Tile::AlienSoil);
-            tile!(ground,  scaled(vd, 6.0),  Tile::AlienGrass);
-            tile!(shallow, scaled(wc, 5.0),  Tile::AlienFluid);
-            tile!(deep,    scaled(wc, 3.0),  Tile::BioluminescentPool);
-            tile!(rock,    scaled(rf, 5.0),  Tile::CaveWall);
+            if t < deep_thresh         { Tile::BioluminescentPool }
+            else if t < shallow_thresh { Tile::AlienFluid }
+            else if t > rock_thresh    { Tile::CaveWall }
+            else if d > veg_thresh     { Tile::AlienGrass }
+            else                       { Tile::AlienSoil }
         }
         PlanetBiome::Arctic => {
-            tile!(ground,  10.0,             Tile::IceFloor);
-            tile!(rock,    scaled(rf, 8.0),  Tile::IceWall);
-            tile!(shallow, scaled(wc, 6.0),  Tile::ShallowWater);
-            tile!(deep,    scaled(wc, 3.0),  Tile::DeepWater);
+            if t < deep_thresh         { Tile::DeepWater }
+            else if t < shallow_thresh { Tile::ShallowWater }
+            else if t > rock_thresh    { Tile::IceWall }
+            else                       { Tile::IceFloor }
         }
         PlanetBiome::Lava => {
-            tile!(ground,  8.0,              Tile::Ash);
-            tile!(rock,    scaled(rf, 10.0), Tile::CaveWall);
-            tile!(shallow, 8.0,              Tile::Lava);
-            tile!(deep,    scaled(wc, 6.0),  Tile::CrimsonPool);
+            if t < deep_thresh         { Tile::CrimsonPool }
+            else if t < shallow_thresh { Tile::Lava }
+            else if t > rock_thresh    { Tile::CaveWall }
+            else                       { Tile::Ash }
         }
     }
+}
 
-    let rules = RulesBuilder::new_cartesian_2d(models, sockets)
-        .build()
-        .expect("planet_gen: rules build failed");
-    let grid = CartesianGrid::new_cartesian_2d(
-        PLANET_SIZE as u32, PLANET_SIZE as u32, false, false,
+pub fn generate(params: &PlanetParams) -> Location {
+    let seed = params.seed.unwrap_or_else(rand::random::<u64>);
+    // Fold 64-bit seed to 32-bit for the noise crate.
+    let seed32 = (seed ^ (seed >> 32)) as u32;
+
+    // Low-frequency terrain noise — large, chunky zones (features span ~25 tiles).
+    let terrain: Fbm<Perlin> = Fbm::new(seed32)
+        .set_octaves(4)
+        .set_frequency(0.04)
+        .set_lacunarity(2.0)
+        .set_persistence(0.5);
+
+    // Higher-frequency detail noise for surface variation (~7-tile features).
+    let detail: Fbm<Perlin> = Fbm::new(seed32.wrapping_add(0x9e37_79b9))
+        .set_octaves(3)
+        .set_frequency(0.15);
+
+    let (wc, vd, rf) = (
+        params.water_coverage as f64,
+        params.vegetation_density as f64,
+        params.rock_frequency as f64,
     );
-    let rng = params.seed.map(RngMode::Seeded).unwrap_or(RngMode::RandomSeed);
 
-    let mut generator = GeneratorBuilder::new()
-        .with_rules(rules)
-        .with_grid(grid)
-        .with_rng(rng)
-        .with_max_retry_count(100)
-        .build()
-        .expect("planet_gen: generator build failed");
-
-    let (_info, grid_data) = generator.generate_grid().expect("planet_gen: generation failed");
-
-    let fill = tile_map[0];
+    let fill = biome_ground_tile(params.biome);
     let mut loc = Location::new(
         params.name,
         PLANET_SIZE,
@@ -280,14 +268,15 @@ pub fn generate(params: &PlanetParams) -> Location {
     );
     let level = loc.level_mut(0);
 
-    for y in 0..PLANET_SIZE as u32 {
-        for x in 0..PLANET_SIZE as u32 {
-            level.set(x as i32, y as i32, tile_map[grid_data.get_2d(x, y).model_index]);
+    for y in 0..PLANET_SIZE as i32 {
+        for x in 0..PLANET_SIZE as i32 {
+            let t = terrain.get([x as f64, y as f64]).clamp(-1.0, 1.0);
+            let d = detail.get([x as f64, y as f64]).clamp(-1.0, 1.0);
+            level.set(x, y, sample_tile(t, d, params.biome, wc, vd, rf));
         }
     }
 
     place_ship_dock(level, fill);
-
     loc
 }
 

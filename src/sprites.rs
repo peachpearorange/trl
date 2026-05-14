@@ -1,4 +1,31 @@
 use std::collections::HashMap;
+
+/// Defines a sprite path constant and verifies the asset exists at compile time.
+///
+/// Usage: `checked_sprite!(CONST_NAME, "textures/space_qud/foo.png")`
+///
+/// Fails to compile if the file is missing from `assets/`.
+macro_rules! checked_sprite {
+    ($name:ident, $path:literal) => {
+        pub const $name: &str = $path;
+        #[allow(dead_code)]
+        const _: &[u8] = include_bytes!(concat!("../assets/", $path));
+    };
+}
+
+checked_sprite!(SP_FLOOR2,       "textures/space_qud/floor2.png");
+checked_sprite!(SP_FLOOR3,       "textures/space_qud/floor3.png");
+checked_sprite!(SP_FLOOR4,       "textures/space_qud/floor4.png");
+checked_sprite!(SP_TILES1,       "textures/space_qud/tiles1.png");
+checked_sprite!(SP_GRASS,        "textures/space_qud/grass.png");
+checked_sprite!(SP_WAVY,         "textures/space_qud/wavy.png");
+checked_sprite!(SP_LIQUID,       "textures/space_qud/liquid tile.png");
+checked_sprite!(SP_GROUND,       "textures/space_qud/ground.png");
+checked_sprite!(SP_COBBLE,       "textures/space_qud/cobble tile.png");
+checked_sprite!(SP_WALL_HASHTAG, "textures/space_qud/wall hashtag.png");
+checked_sprite!(SP_WINDOW,       "textures/space_qud/window (1).png");
+checked_sprite!(SP_GRID,         "textures/space_qud/grid.png");
+checked_sprite!(SP_SPACE_BG,     "textures/space_qud/space background.png");
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 
