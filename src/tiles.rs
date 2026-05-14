@@ -76,7 +76,7 @@ pub enum Tile {
   Window,
   #[assoc(glyph = ".", color = [0.55, 0.58, 0.62], walkable = true, name = "Station Floor", render_mode = TileRenderMode::Sprite("textures/space_qud/floor4.png", [0.52, 0.56, 0.62], [0.88, 0.90, 0.94]))]
   StationFloor,
-  #[assoc(glyph = "#", color = [0.5, 0.52, 0.55], walkable = false, opaque = true, name = "Station Wall", render_mode = TileRenderMode::Sprite("textures/space_qud/wall hashtag.png", [0.28, 0.30, 0.34], [0.48, 0.52, 0.56]))]
+  #[assoc(glyph = "#", color = [0.5, 0.52, 0.55], walkable = false, opaque = true, name = "Station Wall", render_mode = TileRenderMode::Sprite("textures/space_qud/wall1.png", [0.28, 0.30, 0.34], [0.48, 0.52, 0.56]))]
   StationWall,
   #[assoc(glyph = ".", color = [0.35, 0.33, 0.3], walkable = true, name = "Derelict Floor", render_mode = TileRenderMode::Sprite("textures/space_qud/floor2.png", [0.28, 0.26, 0.22], [0.42, 0.38, 0.32]))]
   DerelictFloor,
