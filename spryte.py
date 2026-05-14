@@ -31,8 +31,8 @@ HIGHLIGHT  = "#4e9fea"
 BTN_BG     = "#4c5052"
 BTN_FG     = "#dddddd"
 BTN_ACTIVE = "#5c6366"
-BTN_FONT          = ("Helvetica", 8)
-BTN_FONT_SELECTED = ("Helvetica", 8, "bold")
+BTN_FONT          = ("Helvetica", 10)
+BTN_FONT_SELECTED = ("Helvetica", 10, "bold")
 SWATCH_SZ  = 36
 
 TOOLS = ["pencil", "rect", "move", "fill"]
@@ -186,7 +186,7 @@ class Spryte:
                           command=lambda t=tool: self._select_tool(t),
                           bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE,
                           relief=tk.FLAT, borderwidth=0, highlightthickness=0,
-                          padx=6, pady=2, anchor="w", font=BTN_FONT)
+                          padx=8, pady=4, anchor="w", font=BTN_FONT)
             b.pack(side=tk.TOP, fill=tk.X, pady=1)
             self._tool_buttons[tool] = b
         self._refresh_tool_buttons()
@@ -196,7 +196,7 @@ class Spryte:
         list_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         tk.Label(list_frame, text="Sprites:", bg=PANEL, fg=FG,
-                 font=("Helvetica", 8, "bold")).pack(side=tk.LEFT, padx=(0, 4))
+                 font=("Helvetica", 10, "bold")).pack(side=tk.LEFT, padx=(0, 4))
 
         scrollbar = tk.Scrollbar(list_frame, orient=tk.HORIZONTAL, bg=PANEL,
                                  troughcolor=BG, width=8)
@@ -206,7 +206,7 @@ class Spryte:
             bg=BG, fg=FG, selectbackground=HIGHLIGHT,
             selectforeground="#ffffff",
             borderwidth=0, highlightthickness=0,
-            font=("Helvetica", 8),
+            font=("Helvetica", 10),
             activestyle="none",
             height=3,
         )
@@ -228,14 +228,14 @@ class Spryte:
                              bg=BTN_BG, fg=BTN_FG,
                              activebackground=BTN_ACTIVE,
                              relief=tk.FLAT, borderwidth=0, highlightthickness=0,
-                             padx=8, pady=3, font=BTN_FONT)
+                             padx=10, pady=5, font=BTN_FONT)
 
         btn("New",     self._cmd_new).pack(side=tk.TOP, fill=tk.X, pady=1)
         btn("Save",    self._cmd_save).pack(side=tk.TOP, fill=tk.X, pady=1)
         btn("Save As", self._cmd_save_as).pack(side=tk.TOP, fill=tk.X, pady=1)
 
         self.filename_label = tk.Label(panel, text="", bg=PANEL, fg=FG,
-                                       font=("Helvetica", 8))
+                                       font=("Helvetica", 10))
         self.filename_label.pack(side=tk.RIGHT, padx=(0, 12))
 
     def _build_swatch(self, parent, index: int, label: str, hex_color: str | None):
@@ -259,7 +259,7 @@ class Spryte:
         sw.bind("<Button-1>", lambda e, i=index: self._select_color(i))
 
         tk.Label(container, text=label, bg=PANEL, fg=FG,
-                 font=("Helvetica", 7)).pack()
+                 font=("Helvetica", 9)).pack()
         container.bind("<Button-1>", lambda e, i=index: self._select_color(i))
 
         self._swatches.append(sw)
