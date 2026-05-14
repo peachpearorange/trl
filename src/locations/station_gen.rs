@@ -373,35 +373,7 @@ fn add_internal_walls(level: &mut Level, room: &Rect, rng: &mut SmallRng) {
     if inner.w < 8 || inner.h < 8 {
         return;
     }
-    if rng.random_bool(0.5) {
-        add_pillar_grid(level, &inner, rng);
-    } else {
-        add_spine_wall(level, &inner, rng);
-    }
-}
-
-/// Pillar grid: 2×2 StationWall blocks at regular intervals, leaving walkable gaps between.
-fn add_pillar_grid(level: &mut Level, inner: &Rect, rng: &mut SmallRng) {
-    if inner.w < 12 || inner.h < 12 {
-        return;
-    }
-    let step = rng.random_range(4usize..=6);
-    let mut y = inner.y + 2;
-    while y + 3 < inner.y + inner.h {
-        let mut x = inner.x + 2;
-        while x + 3 < inner.x + inner.w {
-            for dy in 0..2i32 {
-                for dx in 0..2i32 {
-                    let (px, py) = (x as i32 + dx, y as i32 + dy);
-                    if level.get(px, py) == Some(Tile::StationFloor) {
-                        level.set(px, py, Tile::StationWall);
-                    }
-                }
-            }
-            x += step;
-        }
-        y += step;
-    }
+    add_spine_wall(level, &inner, rng);
 }
 
 /// Spine wall: a partial wall through the room centre with a doorway-width gap.
