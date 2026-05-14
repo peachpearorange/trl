@@ -358,6 +358,9 @@ pub fn generate(params: &PlanetParams) -> Location {
 
     place_ship_dock(loc.level_mut(0), fill);
     place_cave_stairs(&mut loc, params.biome, seed32);
+    if matches!(params.biome, PlanetBiome::Alien) {
+        scatter_hostiles(&mut loc, seed32);
+    }
     loc
 }
 
@@ -408,6 +411,35 @@ fn place_cave_stairs(loc: &mut Location, biome: PlanetBiome, seed32: u32) {
         let floors = vec![(0usize, sx, sy), (1usize, sx, sy)];
         loc.spawn_objects.push((sx, sy, 0, Object::elevator(0, floors.clone())));
         loc.spawn_objects.push((sx, sy, 1, Object::elevator(1, floors)));
+    }
+}
+
+/// Scatter alien_runner hostiles across the surface in a grid, one per cell with jitter.
+fn scatter_hostiles(loc: &mut Location, seed32: u32) {
+    const COLS: i32 = 10;
+    const ROWS: i32 = 10;
+    let ps = PLANET_SIZE as i32;
+    let cell_w = ps / COLS;
+    let cell_h = ps / ROWS;
+
+    let mut rng = seed32.wrapping_mul(0xa3c1_e5f7).wrapping_add(0x3b4d_9a21);
+
+    for row in 0..ROWS {
+        for col in 0..COLS {
+            rng = rng.wrapping_mul(0x5851f42d).wrapping_add(0xc4ceb9fe);
+            let jx = ((rng >> 8) & 0xff) as i32 - 128;
+            rng = rng.wrapping_mul(0x5851f42d).wrapping_add(0xc4ceb9fe);
+            let jy = ((rng >> 8) & 0xff) as i32 - 128;
+
+            let cx = (cell_w / 2 + col * cell_w + jx.clamp(-(cell_w / 4), cell_w / 4))
+                .clamp(5, ps - 5);
+            let cy = (cell_h / 2 + row * cell_h + jy.clamp(-(cell_h / 4), cell_h / 4))
+                .clamp(5, ps - 5);
+
+            if let Some((sx, sy)) = find_solid_ground(loc.level(0), cx, cy, 30) {
+                loc.spawn_objects.push((sx, sy, 0, Object::alien_runner()));
+            }
+        }
     }
 }
 
