@@ -136,6 +136,10 @@ fn astar(
       if !level.walkable(nx, ny) && (nx, ny) != goal {
         continue;
       }
+      // No cutting corners: diagonal requires both cardinal neighbours to be open
+      if dx != 0 && dy != 0 && (!level.walkable(x + dx, y) || !level.walkable(x, y + dy)) {
+        continue;
+      }
       let ng = g + 1;
       if ng < g_score.get(&(nx, ny)).copied().unwrap_or(i32::MAX) {
         g_score.insert((nx, ny), ng);

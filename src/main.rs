@@ -1058,16 +1058,19 @@ fn resolve_move(
   entity_blocked: impl Fn(i32, i32) -> bool
 ) -> (i32, i32) {
   let passable = |x, y| level.walkable(x, y) && !entity_blocked(x, y);
-  if passable(px + dx, py + dy) {
-    (dx, dy)
-  } else if dx != 0 && dy != 0 {
-    if passable(px + dx, py) {
+  if dx != 0 && dy != 0 {
+    // Diagonal is only allowed when both cardinal neighbours are open
+    if passable(px + dx, py + dy) && passable(px + dx, py) && passable(px, py + dy) {
+      (dx, dy)
+    } else if passable(px + dx, py) {
       (dx, 0)
     } else if passable(px, py + dy) {
       (0, dy)
     } else {
       (0, 0)
     }
+  } else if passable(px + dx, py + dy) {
+    (dx, dy)
   } else {
     (0, 0)
   }
