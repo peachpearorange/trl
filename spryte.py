@@ -332,12 +332,21 @@ class Spryte:
         if self._tool == "rect" and self._rect_start and self._rect_end:
             c0, r0 = self._rect_start
             c1, r1 = self._rect_end
-            x0 = min(c0, c1) * c
-            y0 = min(r0, r1) * c
-            x1 = (max(c0, c1) + 1) * c
-            y1 = (max(r0, r1) + 1) * c
-            self.canvas.create_rectangle(x0, y0, x1, y1,
-                                         outline="white", dash=(4, 4), width=1, tags="overlay")
+            lc, rc = min(c0, c1), max(c0, c1)
+            tr, br = min(r0, r1), max(r0, r1)
+            border = set()
+            for col in range(lc, rc + 1):
+                border.add((col, tr))
+                border.add((col, br))
+            for row in range(tr, br + 1):
+                border.add((lc, row))
+                border.add((rc, row))
+            hex_c = pixel_color_hex(self.current_color)
+            for col, row in border:
+                x0, y0 = col * c, row * c
+                x1, y1 = x0 + c, y0 + c
+                fill = hex_c if hex_c else (CHECK_A if (col + row) % 2 == 0 else CHECK_B)
+                self.canvas.create_rectangle(x0, y0, x1, y1, fill=fill, outline="", tags="overlay")
 
         elif self._tool == "move":
             if self._move_phase == "select" and self._move_sel_start and self._move_sel_end:
