@@ -331,9 +331,9 @@ pub struct PlayerPos {
 #[derive(Component)]
 struct TilemapLayer(usize);
 
-/// Stores the baked tileset image handle for tilemap chunks.
+/// Stores the baked tileset and its per-tile layer-range index.
 #[derive(Resource)]
-struct Tileset(Handle<Image>);
+struct Tileset(sprites::TilesetInfo);
 
 #[derive(Component)]
 struct ItemGlyph {
@@ -797,6 +797,7 @@ fn update_fov_visuals(
   fov: Res<Fov>,
   current: Res<CurrentZone>,
   frame: Res<RenderFrame>,
+  tileset: Res<Tileset>,
   index: Res<TileEntityIndex>,
   player: Single<(Entity, &PlayerPos, &mut Visibility), With<Player>>,
   mut chunk_q: Query<(&TilemapLayer, &mut TilemapChunkTileData, &mut Visibility), Without<Player>>,
@@ -824,16 +825,21 @@ fn update_fov_visuals(
           let tile = level.get(x as i32, y as i32).unwrap_or(Tile::Air);
           tile_data.0[chunk_idx] = if tile == Tile::Air || tile == Tile::Blank {
             None
-          } else if fov.0.is_visible(x, y) {
-            Some(TileData { tileset_index: tile.tileset_index(), color: Color::WHITE, visible: true })
-          } else if fov.0.is_revealed(x, y) {
-            Some(TileData {
-              tileset_index: tile.tileset_index(),
-              color: Color::srgb(DIM_FACTOR, DIM_FACTOR, DIM_FACTOR),
-              visible: true
-            })
           } else {
-            None
+            let (base, count) = tileset.0.layer_range[tile as usize];
+            let tileset_index = if count == 1 {
+              base
+            } else {
+              let h = x.wrapping_mul(1619).wrapping_add(y.wrapping_mul(131)) as u16;
+              base + h % count
+            };
+            if fov.0.is_visible(x, y) {
+              Some(TileData { tileset_index, color: Color::WHITE, visible: true })
+            } else if fov.0.is_revealed(x, y) {
+              Some(TileData { tileset_index, color: Color::srgb(DIM_FACTOR, DIM_FACTOR, DIM_FACTOR), visible: true })
+            } else {
+              None
+            }
           };
         }
       }
@@ -2312,7 +2318,7 @@ fn apply_pending_navigation(
     &current.0,
     &galaxy,
     ship.docked_at,
-    tileset.0.clone()
+    tileset.0.handle.clone()
   );
   let (sox, soy) = current.0.ship_origin;
   // Reapply offset to the new zone's ship_origin, falling back to ship center.
@@ -2361,15 +2367,16 @@ fn setup(
   clock.spend_turn(&mut tb);
   commands.spawn((Camera2d, Msaa::Off));
 
-  let tileset = sprites::build_tileset(&mut images);
-  commands.insert_resource(Tileset(tileset.clone()));
+  let tileset_info = sprites::build_tileset(&mut images);
+  let tileset_handle = tileset_info.handle.clone();
+  commands.insert_resource(Tileset(tileset_info));
 
   spawn_zone_geometry(
     &mut commands,
     &current.0,
     &galaxy,
     ship.docked_at,
-    tileset
+    tileset_handle
   );
 
   let hover_img = white_pixel_image(&mut images);

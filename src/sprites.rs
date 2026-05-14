@@ -30,7 +30,15 @@ use {bevy::{asset::RenderAssetUsages,
               Extent3d, TextureAspect, TextureDimension, TextureFormat, TextureViewDescriptor,
               TextureViewDimension
             }},
-     image::RgbaImage};
+     image::{imageops, RgbaImage}};
+
+/// Handle and per-tile layer-range data for the baked tileset.
+pub struct TilesetInfo {
+  pub handle: Handle<Image>,
+  /// Indexed by `Tile as usize`. Each entry is (first_layer, layer_count).
+  /// Single-sprite tiles have count=1; SpritePackRandom tiles have count = paths * 8.
+  pub layer_range: Vec<(u16, u16)>
+}
 
 /// Cache key for baked palette sprites (path + instance colors).
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -141,36 +149,78 @@ pub fn palette_sprite_handle(
   }
 }
 
+/// Returns all 8 flip/rotation variants of an image (4 rotations × 2 horizontal mirrors).
+fn all_orientations(img: &RgbaImage) -> [RgbaImage; 8] {
+  let r0 = img.clone();
+  let r90 = imageops::rotate90(img);
+  let r180 = imageops::rotate180(img);
+  let r270 = imageops::rotate270(img);
+  let fh = imageops::flip_horizontal(img);
+  let fh90 = imageops::rotate90(&fh);
+  let fh180 = imageops::rotate180(&fh);
+  let fh270 = imageops::rotate270(&fh);
+  [r0, r90, r180, r270, fh, fh90, fh180, fh270]
+}
+
 /// Build a 2D array image with one layer per tile variant.
-/// Tiles with a space_qud_sprite get palette-baked; others get solid color; Air/Blank transparent.
-pub fn build_tileset(images: &mut Assets<Image>) -> Handle<Image> {
-  use crate::level::Tile;
+/// `SpritePackRandom` tiles expand to paths × 8 orientation layers each.
+/// Returns `TilesetInfo` with the image handle and a per-tile (base_layer, count) index.
+pub fn build_tileset(images: &mut Assets<Image>) -> TilesetInfo {
+  use crate::tiles::{Tile, TileRenderMode};
   let s = crate::SPRITE_TEXELS as u32;
-  let pixels = (s * s * 4) as usize;
+  let layer_bytes = (s * s * 4) as usize;
   let tiles: Vec<Tile> = Tile::all().collect();
-  let n = tiles.len() as u32;
-  let mut data: Vec<u8> = Vec::with_capacity(pixels * n as usize);
+  let mut data: Vec<u8> = Vec::new();
+  let mut layer_range: Vec<(u16, u16)> = Vec::with_capacity(tiles.len());
+  let mut current_layer: u16 = 0;
+
   for tile in tiles {
+    let base = current_layer;
     if tile == Tile::Air || tile == Tile::Blank {
-      data.extend_from_slice(&vec![0u8; pixels]);
-    } else if let Some((path, pri, sec)) = tile.space_qud_sprite() {
-      let bytes = load_asset_bytes(path);
-      let dyn_img = image::load_from_memory(&bytes)
-        .unwrap_or_else(|e| panic!("build_tileset: failed to decode {path}: {e}"));
-      let rgba = dyn_img.to_rgba8();
-      data.extend_from_slice(&bake_palette_png(
-        &rgba,
-        Color::srgb(pri[0], pri[1], pri[2]),
-        Color::srgb(sec[0], sec[1], sec[2])
-      ));
+      data.extend(std::iter::repeat(0u8).take(layer_bytes));
+      current_layer += 1;
     } else {
-      let [r, g, b] = tile.color();
-      let pixel = [(r * 255.0).round() as u8, (g * 255.0).round() as u8, (b * 255.0).round() as u8, 255u8];
-      for _ in 0..(s * s) {
-        data.extend_from_slice(&pixel);
+      match tile.render_mode() {
+        TileRenderMode::SolidColor => {
+          let [r, g, b] = tile.color();
+          let px = [(r * 255.0).round() as u8, (g * 255.0).round() as u8, (b * 255.0).round() as u8, 255u8];
+          for _ in 0..(s * s) {
+            data.extend_from_slice(&px);
+          }
+          current_layer += 1;
+        }
+        TileRenderMode::Sprite(path, pri, sec) => {
+          let bytes = load_asset_bytes(path);
+          let rgba = image::load_from_memory(&bytes)
+            .unwrap_or_else(|e| panic!("build_tileset: failed to decode {path}: {e}"))
+            .to_rgba8();
+          data.extend_from_slice(&bake_palette_png(
+            &rgba,
+            Color::srgb(pri[0], pri[1], pri[2]),
+            Color::srgb(sec[0], sec[1], sec[2])
+          ));
+          current_layer += 1;
+        }
+        TileRenderMode::SpritePackRandom(paths, pri, sec) => {
+          let prim = Color::srgb(pri[0], pri[1], pri[2]);
+          let sec_col = Color::srgb(sec[0], sec[1], sec[2]);
+          for path in paths {
+            let bytes = load_asset_bytes(path);
+            let rgba = image::load_from_memory(&bytes)
+              .unwrap_or_else(|e| panic!("build_tileset: failed to decode {path}: {e}"))
+              .to_rgba8();
+            for oriented in all_orientations(&rgba) {
+              data.extend_from_slice(&bake_palette_png(&oriented, prim, sec_col));
+              current_layer += 1;
+            }
+          }
+        }
       }
     }
+    layer_range.push((base, current_layer - base));
   }
+
+  let n = current_layer as u32;
   let mut img = Image::new(
     Extent3d { width: s, height: s, depth_or_array_layers: n },
     TextureDimension::D2,
@@ -187,9 +237,9 @@ pub fn build_tileset(images: &mut Assets<Image>) -> Handle<Image> {
     base_mip_level: 0,
     mip_level_count: None,
     base_array_layer: 0,
-    array_layer_count: Some(n),
+    array_layer_count: Some(n)
   });
-  images.add(img)
+  TilesetInfo { handle: images.add(img), layer_range }
 }
 
 pub struct SpriteDef {
