@@ -7,6 +7,7 @@ use crate::{
 };
 
 pub const STATION_SIZE: usize = 64;
+pub const STATION_MARGIN: usize = 16;
 
 pub const ID_NOVA_OUTPOST: LocationId = (2, 1, 0);
 pub const ID_IRON_RING:    LocationId = (3, 1, 0);
@@ -156,11 +157,12 @@ pub fn generate(params: &StationParams) -> Location {
     let mut rng = SmallRng::seed_from_u64(seed);
 
     let size = STATION_SIZE;
+    let map_size = size + 2 * STATION_MARGIN;
     let fill = Tile::Vacuum;
     let mut loc = Location::new(
         params.name,
-        size,
-        size,
+        map_size,
+        map_size,
         params.decks,
         LocationType::SpaceStation,
         fill,
@@ -175,8 +177,8 @@ pub fn generate(params: &StationParams) -> Location {
         // Outer border stays Vacuum; we stamp walls+floors per-room so outer
         // room walls are directly adjacent to Vacuum — enabling visible windows.
 
-        // BSP rooms
-        let root_cell = Rect { x: 1, y: 1, w: size - 2, h: size - 2 };
+        // BSP rooms — offset by STATION_MARGIN so the station sits centred in the larger map
+        let root_cell = Rect { x: STATION_MARGIN + 1, y: STATION_MARGIN + 1, w: size - 2, h: size - 2 };
         let bsp = BspNode::leaf(root_cell).split(&mut rng, 8, 4);
 
         // Stamp rooms: wall perimeter first, then floor interior
@@ -221,7 +223,7 @@ pub fn generate(params: &StationParams) -> Location {
         }
 
         // Windows: StationWall adjacent to both Vacuum AND floor — visible from inside.
-        place_windows(level, size, &mut rng);
+        place_windows(level, map_size, &mut rng);
 
         // Ship dock on level 0: find a walkable room center
         if z == 0 {
@@ -236,7 +238,7 @@ pub fn generate(params: &StationParams) -> Location {
         // We collect a candidate position now; we'll wire them up after all levels are built.
         let rooms = bsp.rooms();
         let stair_room = rooms.get(rooms.len() / 2).or_else(|| rooms.last());
-        let (sx, sy) = stair_room.map(|r| r.center()).unwrap_or((size / 2, size / 2));
+        let (sx, sy) = stair_room.map(|r| r.center()).unwrap_or((map_size / 2, map_size / 2));
         stair_positions.push((sx, sy));
     }
 

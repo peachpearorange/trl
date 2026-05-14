@@ -168,7 +168,10 @@ struct UiState {
   /// Set by `handle_menus` when a direction key (W/S/A/D/Enter) is consumed by menu navigation
   /// or confirmation; cleared + checked by `accumulate_dir`/`player_input` to prevent that
   /// keypress from also moving the player.
-  dir_consumed: bool
+  dir_consumed: bool,
+  /// Key-repeat state for W/S popup menu scrolling: (-1/1/0) direction + frames countdown.
+  menu_nav_dir: i8,
+  menu_nav_frames: u32,
 }
 
 impl UiState {
@@ -1230,17 +1233,50 @@ fn handle_menus(
   let cur_sel =
     if let InteractMenu::Open { selected, .. } = ui.interact { selected } else { 0 };
 
+  // Key-repeat constants: ~0.3 s initial delay, ~0.1 s repeat rate at 60 fps
+  const NAV_INITIAL_DELAY: u32 = 18;
+  const NAV_REPEAT_RATE:   u32 = 6;
+
   ui.dir_consumed = false; // cleared each frame; set below when a direction key feeds the menu
   if matches!(ui.interact, InteractMenu::Open { .. }) {
+    let up_just   = keys.just_pressed(KeyCode::KeyW) || keys.just_pressed(KeyCode::ArrowUp);
+    let down_just = keys.just_pressed(KeyCode::KeyS) || keys.just_pressed(KeyCode::ArrowDown);
+    let up_held   = keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp);
+    let down_held = keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown);
+
+    // Advance or reset the repeat counter
+    let do_up = if up_just {
+      ui.menu_nav_dir    = -1;
+      ui.menu_nav_frames = NAV_INITIAL_DELAY;
+      true
+    } else if up_held && ui.menu_nav_dir == -1 {
+      if ui.menu_nav_frames == 0 { ui.menu_nav_frames = NAV_REPEAT_RATE; true }
+      else { ui.menu_nav_frames -= 1; false }
+    } else { false };
+
+    let do_down = if down_just {
+      ui.menu_nav_dir    = 1;
+      ui.menu_nav_frames = NAV_INITIAL_DELAY;
+      true
+    } else if down_held && ui.menu_nav_dir == 1 {
+      if ui.menu_nav_frames == 0 { ui.menu_nav_frames = NAV_REPEAT_RATE; true }
+      else { ui.menu_nav_frames -= 1; false }
+    } else { false };
+
+    if !up_held && !down_held {
+      ui.menu_nav_dir    = 0;
+      ui.menu_nav_frames = 0;
+    }
+
     if keys.just_pressed(KeyCode::Space) {
       ui.interact = InteractMenu::Closed;
       ui.space_consumed = true;
-    } else if keys.just_pressed(KeyCode::KeyW) || keys.just_pressed(KeyCode::ArrowUp) {
+    } else if do_up {
       if let InteractMenu::Open { ref mut selected, .. } = ui.interact {
         *selected = cur_sel.saturating_sub(1);
       }
       ui.dir_consumed = true;
-    } else if keys.just_pressed(KeyCode::KeyS) || keys.just_pressed(KeyCode::ArrowDown) {
+    } else if do_down {
       if let InteractMenu::Open { ref mut selected, .. } = ui.interact {
         *selected = (cur_sel + 1).min(n_opts.saturating_sub(1));
       }
