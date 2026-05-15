@@ -231,12 +231,12 @@ pub fn generate(params: &PlanetParams) -> Location {
             // at each step, giving average run length of ~5 tiles before exiting to open ground.
             models.create(SocketsCartesian2D::Simple {
                 x_pos: t_open, x_neg: t_open, y_pos: t_wall, y_neg: t_wall,
-            }).with_weight(90.0);
+            }).with_weight(300.0);
             tile_map.push((Tile::Ash, None));
 
             models.create(SocketsCartesian2D::Simple {
                 x_pos: t_wall, x_neg: t_wall, y_pos: t_open, y_neg: t_open,
-            }).with_weight(90.0);
+            }).with_weight(300.0);
             tile_map.push((Tile::Ash, None));
 
             // Low chamber weight keeps open pockets rare so they don't look like tunnel bends.
