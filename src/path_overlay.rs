@@ -276,8 +276,8 @@ pub fn update_ranged_path(
         let py = pos.y as f32 + 0.5;
         // Tile-space → world-space for overlay z-layer
         let tile_world = |x: f32, y: f32| Vec3::new(
-          (x - w as f32 / 2.0) * TILE_SIZE,
-          (h as f32 / 2.0 - y) * TILE_SIZE,
+          (x - 0.5 - w as f32 / 2.0) * TILE_SIZE,
+          (h as f32 / 2.0 - y + 0.5) * TILE_SIZE,
           0.35,
         );
         let laser_line = euclidean_los_point(px, py, tx, ty, level)

@@ -707,10 +707,8 @@ pub(crate) fn game_pane_rect(w: &Window) -> Rect {
 /// Inverse of [`tile_screen_pos`] for a point in world: which level cell it falls into.
 /// World units use `TILE_SIZE` and the same origin as the camera-facing grid.
 pub(crate) fn world_to_level_cell(world: Vec2, w: usize, h: usize) -> (i32, i32) {
-  // Tiny bias avoids float edge cases on cell boundaries.
-  const E: f32 = 1.0e-4;
-  let tx = (world.x / TILE_SIZE + w as f32 * 0.5 - E).floor() as i32;
-  let ty = (h as f32 * 0.5 - world.y / TILE_SIZE - E).floor() as i32;
+  let tx = (world.x / TILE_SIZE + w as f32 * 0.5 + 0.5).floor() as i32;
+  let ty = (h as f32 * 0.5 - world.y / TILE_SIZE + 0.5).floor() as i32;
   (tx, ty)
 }
 

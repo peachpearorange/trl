@@ -58,8 +58,8 @@ pub fn grid_world(x: i32, y: i32, w: usize, h: usize) -> Vec3 {
 /// Like `grid_world` but accepts continuous tile-space coordinates, e.g. (3.7, 5.1).
 pub fn tile_to_world(x: f32, y: f32, w: usize, h: usize) -> Vec3 {
   Vec3::new(
-    (x - w as f32 / 2.0) * TILE_SIZE,
-    (h as f32 / 2.0 - y) * TILE_SIZE,
+    (x - 0.5 - w as f32 / 2.0) * TILE_SIZE,
+    (h as f32 / 2.0 - y + 0.5) * TILE_SIZE,
     5.0,
   )
 }
