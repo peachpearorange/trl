@@ -6,7 +6,7 @@ use {std::collections::HashMap,
      crate::{Clock, CurrentZone, Inventory, Player, PlayerPos, TurnBasedWorldState, UiState,
              entities::{Enemy, Location, Named, Object, PlayerEquipped, Stats},
              level::Item,
-             particles::{ParticleEffects, spawn_bullet_trail, spawn_explosion_burst},
+             particles::{ParticleEffects, spawn_bullet_trail, spawn_explosion_burst, spawn_laser_beam},
              path_overlay::ray_cast_target,
              ui::{LogEntries, log_message}}};
 
@@ -21,6 +21,7 @@ const EXPLOSION_OFFSETS: [(i32, i32); 13] = [
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum AbilityKind {
   FireGun,
+  FireLaser,
   ThrowGrenade { slot: usize, item: Item }
 }
 
@@ -63,14 +64,16 @@ pub fn sync_ability_bar(
 ) {
   let mut new_slots = Vec::new();
 
-  if equipped.weapon.is_some_and(|w| w.is_ranged()) {
-    let cd = targeting.cooldowns.get(&AbilityKind::FireGun).copied().unwrap_or(0);
-    new_slots.push(AbilitySlot {
-      kind: AbilityKind::FireGun,
-      name: "Fire Gun".into(),
-      cooldown: cd,
-      max_cooldown: 3
-    });
+  if let Some(weapon) = equipped.weapon
+    && weapon.is_ranged()
+  {
+    let (kind, name, max_cd) = if weapon.is_laser() {
+      (AbilityKind::FireLaser, "Fire Laser", 4)
+    } else {
+      (AbilityKind::FireGun, "Fire Gun", 3)
+    };
+    let cd = targeting.cooldowns.get(&kind).copied().unwrap_or(0);
+    new_slots.push(AbilitySlot { kind, name: name.into(), cooldown: cd, max_cooldown: max_cd });
   }
 
   for slot in 0..3usize {
@@ -155,6 +158,31 @@ pub fn handle_ability_click(
 
         // Returns true if the ability was actually fired (spend turn + set cooldown).
         let fired = match &slot.kind {
+          AbilityKind::FireLaser => {
+            use crate::path_overlay::bresenham_path;
+            let path = bresenham_path(pos.x, pos.y, tx, ty);
+            spawn_laser_beam(&mut commands, &effects, &path, level.width, level.height);
+            let attack = equipped.weapon.map(|w| w.attack_bonus()).unwrap_or(0) + 5;
+            let mut hit_names: Vec<&str> = vec![];
+            for &(px, py) in path.iter().skip(1) {
+              if let Some((_, mut stats, named)) = enemy_q.iter_mut().find(|(loc, _, _)| {
+                matches!(loc, Location::Coords { x, y, z, .. } if *x == px && *y == py && *z == pos.z)
+              }) {
+                stats.hp -= attack;
+                hit_names.push(named.map(|n| n.name).unwrap_or("Enemy"));
+              }
+            }
+            log_message(&mut log, match hit_names.len() {
+              0 => if (tx, ty) != (cursor_tx, cursor_ty) {
+                "Your laser hits the wall.".into()
+              } else {
+                "Your laser hits nothing.".into()
+              },
+              1 => format!("Laser burns {} for {} damage!", hit_names[0], attack),
+              n => format!("Laser burns {} enemies for {} damage each!", n, attack)
+            });
+            true
+          }
           AbilityKind::FireGun => {
             use crate::path_overlay::bresenham_path;
             let path = bresenham_path(pos.x, pos.y, tx, ty);

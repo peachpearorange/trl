@@ -9,7 +9,8 @@ const WEAPONS: &[Item] = &[
   Item::SteelAxe,
   Item::CopperKnife,
   Item::CombatSpear,
-  Item::PipeRevolver
+  Item::PipeRevolver,
+  Item::LaserRifle
 ];
 const ARMOR: &[Item] =
   &[Item::LeatherVest, Item::ChainMail, Item::SteelBoots, Item::SynthHelmet];

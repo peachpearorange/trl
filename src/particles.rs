@@ -17,6 +17,8 @@ pub struct ParticleEffects {
   pub bullet_spark:  Handle<EffectAsset>,
   /// Large orange-red explosion burst.
   pub explosion:     Handle<EffectAsset>,
+  /// Tight cyan glow: one spawned per tile along the laser beam.
+  pub laser_beam:    Handle<EffectAsset>,
 }
 
 /// Despawn this entity once the timer expires.
@@ -155,7 +157,39 @@ fn setup_particle_effects(mut commands: Commands, mut effects: ResMut<Assets<Eff
       .render(SizeOverLifetimeModifier { gradient: sg, screen_space_size: false })
   );
 
-  commands.insert_resource(ParticleEffects { bullet_tracer, bullet_spark, explosion });
+  // --- Laser beam glow ---
+  // Tight cyan/white cluster per tile — very low drift so it looks like a solid beam.
+  let writer = ExprWriter::new();
+  let age      = writer.lit(0.0_f32).expr();
+  let lifetime = writer.lit(0.15_f32).uniform(writer.lit(0.35_f32)).expr();
+  let p_center = writer.lit(Vec3::ZERO).expr();
+  let p_radius = writer.lit(2.0_f32).expr();
+  let v_center = writer.lit(Vec3::ZERO).expr();
+  let speed    = writer.lit(5.0_f32).uniform(writer.lit(25.0_f32)).expr();
+
+  let mut cg: bevy_hanabi::Gradient<Vec4> = bevy_hanabi::Gradient::new();
+  cg.add_key(0.0, Vec4::new(0.8, 1.0, 1.0, 1.0));
+  cg.add_key(0.3, Vec4::new(0.0, 0.9, 1.0, 1.0));
+  cg.add_key(0.7, Vec4::new(0.0, 0.5, 0.8, 0.6));
+  cg.add_key(1.0, Vec4::new(0.0, 0.2, 0.5, 0.0));
+
+  let mut sg: bevy_hanabi::Gradient<Vec3> = bevy_hanabi::Gradient::new();
+  sg.add_key(0.0, Vec3::splat(18.0));
+  sg.add_key(0.4, Vec3::splat(12.0));
+  sg.add_key(1.0, Vec3::ZERO);
+
+  let laser_beam = effects.add(
+    EffectAsset::new(64, SpawnerSettings::once(16.0_f32.into()), writer.finish())
+      .with_name("laser_beam")
+      .init(SetAttributeModifier::new(Attribute::AGE, age))
+      .init(SetAttributeModifier::new(Attribute::LIFETIME, lifetime))
+      .init(SetPositionSphereModifier { center: p_center, radius: p_radius, dimension: ShapeDimension::Surface })
+      .init(SetVelocitySphereModifier { center: v_center, speed })
+      .render(ColorOverLifetimeModifier::new(cg))
+      .render(SizeOverLifetimeModifier { gradient: sg, screen_space_size: false })
+  );
+
+  commands.insert_resource(ParticleEffects { bullet_tracer, bullet_spark, explosion, laser_beam });
 }
 
 // ---------------------------------------------------------------------------
@@ -184,6 +218,23 @@ pub fn spawn_bullet_trail(
       ParticleEffect::new(effects.bullet_spark.clone()),
       Transform::from_translation(grid_world(x, y, level_w, level_h)),
       EffectLifetime(Timer::from_seconds(0.6, TimerMode::Once)),
+    ));
+  }
+}
+
+/// Spawn a cyan laser beam flash along the full path (skipping the shooter tile).
+pub fn spawn_laser_beam(
+  commands: &mut Commands,
+  effects: &ParticleEffects,
+  path: &[(i32, i32)],
+  level_w: usize,
+  level_h: usize
+) {
+  for &(x, y) in path.iter().skip(1) {
+    commands.spawn((
+      ParticleEffect::new(effects.laser_beam.clone()),
+      Transform::from_translation(grid_world(x, y, level_w, level_h)),
+      EffectLifetime(Timer::from_seconds(0.5, TimerMode::Once)),
     ));
   }
 }

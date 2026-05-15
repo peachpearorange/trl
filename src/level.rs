@@ -41,7 +41,8 @@ pub enum Item {
   CannedGoods,
   FilterWater,
   FragGrenade,
-  StunGrenade
+  StunGrenade,
+  LaserRifle
 }
 
 impl Item {
@@ -73,7 +74,8 @@ impl Item {
       Item::CannedGoods => "Canned Goods",
       Item::FilterWater => "Filtered Water",
       Item::FragGrenade => "Frag Grenade",
-      Item::StunGrenade => "Stun Grenade"
+      Item::StunGrenade => "Stun Grenade",
+      Item::LaserRifle => "Laser Rifle"
     }
   }
 
@@ -105,7 +107,8 @@ impl Item {
       Item::CannedGoods => "o",
       Item::FilterWater => "u",
       Item::FragGrenade => "g",
-      Item::StunGrenade => "g"
+      Item::StunGrenade => "g",
+      Item::LaserRifle => "\\"
     }
   }
 
@@ -137,7 +140,8 @@ impl Item {
       Item::CannedGoods => [0.85, 0.35, 0.12],
       Item::FilterWater => [0.35, 0.65, 0.95],
       Item::FragGrenade => [0.55, 0.78, 0.35],
-      Item::StunGrenade => [0.35, 0.72, 0.92]
+      Item::StunGrenade => [0.35, 0.72, 0.92],
+      Item::LaserRifle => [0.0, 0.9, 1.0]
     }
   }
 
@@ -167,6 +171,9 @@ impl Item {
       Item::FilterWater => &[(Item::Glass, 2), (Item::OrganicMaterial, 1)],
       Item::FragGrenade => &[(Item::Steel, 1), (Item::Copper, 1), (Item::Screws, 2)],
       Item::StunGrenade => &[(Item::Crystal, 1), (Item::Copper, 1), (Item::Screws, 2)],
+      Item::LaserRifle => {
+        &[(Item::Crystal, 2), (Item::SyntheticMaterial, 2), (Item::Glass, 1), (Item::Screws, 2)]
+      }
       Item::Torch => &[(Item::Wood, 1), (Item::OrganicMaterial, 1)],
       Item::Rock => &[(Item::Crystal, 1)],
       Item::Mushroom => &[(Item::OrganicMaterial, 2)],
@@ -181,7 +188,7 @@ impl Item {
   pub fn equip_slot(self) -> Option<EquipSlot> {
     match self {
       Item::IronSword | Item::SteelAxe | Item::CopperKnife
-      | Item::CombatSpear | Item::PipeRevolver => Some(EquipSlot::Weapon),
+      | Item::CombatSpear | Item::PipeRevolver | Item::LaserRifle => Some(EquipSlot::Weapon),
       Item::LeatherVest | Item::ChainMail | Item::SteelBoots
       | Item::SynthHelmet => Some(EquipSlot::Armor),
       Item::FragGrenade | Item::StunGrenade => Some(EquipSlot::Grenade),
@@ -192,7 +199,8 @@ impl Item {
   pub fn is_weapon(self) -> bool { self.equip_slot() == Some(EquipSlot::Weapon) }
   pub fn is_armor(self) -> bool { self.equip_slot() == Some(EquipSlot::Armor) }
   pub fn is_grenade(self) -> bool { self.equip_slot() == Some(EquipSlot::Grenade) }
-  pub fn is_ranged(self) -> bool { matches!(self, Item::PipeRevolver) }
+  pub fn is_ranged(self) -> bool { matches!(self, Item::PipeRevolver | Item::LaserRifle) }
+  pub fn is_laser(self) -> bool { matches!(self, Item::LaserRifle) }
 
   /// Bonus attack power when this item is wielded.
   pub fn attack_bonus(self) -> i32 {
@@ -202,6 +210,7 @@ impl Item {
       Item::CopperKnife => 2,
       Item::CombatSpear => 3,
       Item::PipeRevolver => 5,
+      Item::LaserRifle => 8,
       _ => 0
     }
   }

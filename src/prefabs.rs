@@ -219,6 +219,7 @@ impl Prefab {
     .assoc('T', (Tile::WoodTile, [Object::table()]))
     .assoc('L', (Tile::WoodTile, [Object::locker()]))
     .assoc('X', (Tile::WoodTile, [Object::supply_cache(&[
+      (Item::LaserRifle, 1),
       (Item::PipeRevolver, 1),
       (Item::FragGrenade, 2),
       (Item::StunGrenade, 1)
