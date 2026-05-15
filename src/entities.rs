@@ -768,6 +768,25 @@ impl Object {
     ))
   }
 
+  pub fn mantis_alien() -> Self {
+    Self::enemy().add((
+      Named {
+        name: "Crystal Mantis",
+        flavor: "A translucent predator that haunts crystal caves, nearly invisible until it strikes. Razor forelegs. Extremely fast."
+      },
+      Stats { hp: 6, max_hp: 6, attack: 5, move_speed: 10.0, attack_speed: 2.0 },
+      DriftChance(0.5),
+      Wielding(None),
+      Wearing(None),
+      Glyph::palette_sprite(
+        "textures/space_qud/mantis alien.png",
+        'M',
+        Color::srgb(0.65, 0.90, 0.95),
+        Color::srgb(0.20, 0.55, 0.70)
+      ),
+    ))
+  }
+
   pub fn crab_alien() -> Self {
     Self::enemy().add((
       Named {

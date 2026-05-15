@@ -172,6 +172,8 @@ pub fn generate(params: &PlanetParams) -> Location {
             tile!(feature, scaled(vd, 3.0),  Tile::Ash);
             tile!(shallow, scaled(wc, 3.0),  Tile::BioluminescentPool);
             tile!(deep,    scaled(wc, 2.0),  Tile::AcidPool);
+            // Mantis: ambush predators lurking among crystal formations
+            tile!(feature, 0.35,             Tile::CrystalFormation, Object::mantis_alien);
         }
         PlanetBiome::Alien => {
             tile!(ground,  10.0,             Tile::AlienSoil);
