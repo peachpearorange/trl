@@ -37,15 +37,27 @@
     <div id="webgpu-notice">
       <h2>WebGPU required</h2>
       <p>This game needs WebGPU, which isn't enabled in your browser yet.</p>
+      <p>Steps to enable it:</p>
       <p>
-        <strong>Chrome / Edge:</strong> update to version 113+ — WebGPU is on by default.<br>
-        <strong>Firefox:</strong> set <code>dom.webgpu.enabled = true</code> in <code>about:config</code>.<br>
-        <strong>Safari:</strong> enable <em>WebGPU</em> under Develop → Feature Flags.
+        <strong>Chrome or Edge</strong> (easiest)<br>
+        Update to version 113 or newer — WebGPU is on by default. Check your version at
+        <code>chrome://settings/help</code> or <code>edge://settings/help</code>
+        and click <em>Update</em> if offered.
       </p>
       <p>
-        More info: <a href="https://developer.chrome.com/docs/web-platform/webgpu" target="_blank">WebGPU on Chrome</a>
-        &nbsp;|&nbsp;
-        <a href="https://caniuse.com/webgpu" target="_blank">Browser support table</a>
+        <strong>Firefox</strong><br>
+        1. Type <code>about:config</code> in the address bar and press Enter.<br>
+        2. Accept the warning.<br>
+        3. Search for <code>dom.webgpu.enabled</code>.<br>
+        4. Double-click it to set it to <code>true</code>.<br>
+        5. Reload this page.
+      </p>
+      <p>
+        <strong>Safari 18+</strong><br>
+        1. Open <em>Safari → Settings → Advanced</em> and tick <em>Show features for web developers</em>.<br>
+        2. Open <em>Develop → Feature Flags</em>.<br>
+        3. Search for <em>WebGPU</em> and enable it.<br>
+        4. Reload this page.
       </p>
     </div>
     <link data-trunk rel="copy-dir" href="assets"/>
