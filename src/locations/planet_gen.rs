@@ -202,10 +202,22 @@ pub fn generate(params: &PlanetParams) -> Location {
             tile!(deep,    scaled(wc, 3.0),  Tile::DeepWater);
         }
         PlanetBiome::Lava => {
-            tile!(ground,  14.0,             Tile::Ash);       // high weight = wide ash plains
-            tile!(rock,    scaled(rf, 18.0), Tile::CaveWall);  // boosted to force dense rock masses
-            tile!(shallow, scaled(wc, 3.0),  Tile::Lava);      // narrow rivers leave more ash space
+            tile!(ground,  14.0,             Tile::Ash);
+            tile!(rock,    scaled(rf, 18.0), Tile::CaveWall);
+            tile!(shallow, scaled(wc, 3.0),  Tile::Lava);
             tile!(deep,    scaled(wc, 2.0),  Tile::CrimsonPool);
+            // Tunnel tiles: ash corridors forced through rock by directional socket constraints.
+            // tunnel_h can only sit where rock is above AND below, ground left AND right.
+            // tunnel_v is the vertical flip. WFC places these wherever those constraints are met,
+            // carving natural-looking corridors through rock masses.
+            models.create(SocketsCartesian2D::Simple {
+                x_pos: ground, x_neg: ground, y_pos: rock, y_neg: rock,
+            }).with_weight(4.0);
+            tile_map.push((Tile::Ash, None));
+            models.create(SocketsCartesian2D::Simple {
+                x_pos: rock, x_neg: rock, y_pos: ground, y_neg: ground,
+            }).with_weight(4.0);
+            tile_map.push((Tile::Ash, None));
             // Scorch Crawlers: lava-adapted crabs, patrol open ash ground
             tile!(ground,  0.35,             Tile::Ash, Object::lava_crab);
         }
