@@ -11,17 +11,49 @@
         height: 100%;
         background: #000;
         overflow: hidden;
+        color: #ccc;
+        font-family: monospace;
       }
       canvas {
         display: block;
         width: 100% !important;
         height: 100% !important;
       }
+      #webgpu-notice {
+        display: none;
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        max-width: 480px;
+        text-align: center;
+        line-height: 1.6;
+      }
+      #webgpu-notice h2 { color: #fff; margin-bottom: 0.5em; }
+      #webgpu-notice a { color: #4af; }
     </style>
   </head>
   <body>
+    <div id="webgpu-notice">
+      <h2>WebGPU required</h2>
+      <p>This game needs WebGPU, which isn't enabled in your browser yet.</p>
+      <p>
+        <strong>Chrome / Edge:</strong> update to version 113+ — WebGPU is on by default.<br>
+        <strong>Firefox:</strong> set <code>dom.webgpu.enabled = true</code> in <code>about:config</code>.<br>
+        <strong>Safari:</strong> enable <em>WebGPU</em> under Develop → Feature Flags.
+      </p>
+      <p>
+        More info: <a href="https://developer.chrome.com/docs/web-platform/webgpu" target="_blank">WebGPU on Chrome</a>
+        &nbsp;|&nbsp;
+        <a href="https://caniuse.com/webgpu" target="_blank">Browser support table</a>
+      </p>
+    </div>
     <link data-trunk rel="copy-dir" href="assets"/>
     <script>
+      // Show the notice if WebGPU is unavailable before the WASM even loads.
+      if (!navigator.gpu) {
+        document.getElementById("webgpu-notice").style.display = "block";
+      }
       document.addEventListener("click", () => {
         if (!document.fullscreenElement) {
           document.documentElement.requestFullscreen();
