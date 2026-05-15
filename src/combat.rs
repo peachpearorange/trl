@@ -95,6 +95,51 @@ fn chebyshev(a: (i32, i32), b: (i32, i32)) -> i32 {
   (a.0 - b.0).abs().max((a.1 - b.1).abs())
 }
 
+/// BFS flow field from `origin` outward. Each reachable tile maps to the adjacent tile
+/// one step closer to `origin`, so enemies can look up their next move in O(1).
+fn bfs_flow_field(origin: (i32, i32), level: &crate::level::Level) -> HashMap<(i32, i32), (i32, i32)> {
+  let mut came_from: HashMap<(i32, i32), (i32, i32)> = HashMap::new();
+  let mut queue: VecDeque<(i32, i32)> = VecDeque::new();
+  came_from.insert(origin, origin);
+  queue.push_back(origin);
+  while let Some((x, y)) = queue.pop_front() {
+    for &(dx, dy) in &NEIGHBOR_DIRS {
+      let (nx, ny) = (x + dx, y + dy);
+      if came_from.contains_key(&(nx, ny)) || !level.walkable(nx, ny) {
+        continue;
+      }
+      if dx != 0 && dy != 0 && !level.walkable(x + dx, y) && !level.walkable(x, y + dy) {
+        continue;
+      }
+      came_from.insert((nx, ny), (x, y));
+      queue.push_back((nx, ny));
+    }
+  }
+  came_from
+}
+
+/// Cached BFS flow field from the player's position. Recomputed whenever the player moves.
+/// `field[tile]` = the adjacent tile one step closer to the player.
+#[derive(Resource, Default)]
+pub struct FlowField {
+  field: HashMap<(i32, i32), (i32, i32)>,
+  computed_for: Option<(i32, i32, usize)>,
+}
+
+pub fn compute_flow_field(
+  current: Res<crate::CurrentZone>,
+  player: Single<&crate::PlayerPos, With<crate::Player>>,
+  mut flow: ResMut<FlowField>,
+) {
+  let pos = player.into_inner();
+  let key = (pos.x, pos.y, pos.z);
+  if flow.computed_for == Some(key) {
+    return;
+  }
+  flow.field = bfs_flow_field((pos.x, pos.y), current.0.level(pos.z));
+  flow.computed_for = Some(key);
+}
+
 /// A* pathfinding on a single z-level. Returns steps from start (exclusive) to goal (inclusive).
 /// Only checks static tile walkability — dynamic entities are handled at execution time.
 /// Returns an empty deque when start == goal or no path exists.
@@ -259,12 +304,13 @@ pub fn enemy_ai(
   clock: Res<crate::Clock>,
   mut tb: ResMut<crate::TurnBasedWorldState>,
   mut log: ResMut<LogEntries>,
+  flow: Res<FlowField>,
   player: Single<
     (&crate::PlayerPos, &mut Stats, &PlayerEquipped),
     (With<crate::Player>, Without<Enemy>)
   >,
   mut enemy_q: Query<
-    (&mut Location, &mut TimeSinceAction, &Stats, Option<&Wearing>, Option<&Named>, &mut Path),
+    (&mut Location, &mut TimeSinceAction, &Stats, Option<&Wearing>, Option<&Named>),
     (With<Enemy>, Without<crate::Player>)
   >,
   collidable_q: Query<&Collidable>
@@ -274,9 +320,7 @@ pub fn enemy_ai(
 
   let mut claimed: HashSet<(i32, i32)> = HashSet::new();
 
-  for (mut location, mut timer, enemy_stats, enemy_wearing, enemy_named, mut path) in
-    enemy_q.iter_mut()
-  {
+  for (mut location, mut timer, enemy_stats, enemy_wearing, enemy_named) in enemy_q.iter_mut() {
     timer.0 = timer.0.saturating_add(1);
 
     if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location {
@@ -303,17 +347,11 @@ pub fn enemy_ai(
         timer.0 = 0;
       } else if ez == pz && timer.0 >= mov_fr {
         let level = current.0.level(ez);
-        let needs_recompute = path.steps.is_empty()
-          || path.cached_goal.map_or(true, |g| chebyshev(g, (px, py)) > 1);
-        if needs_recompute {
-          path.steps = astar((ex, ey), (px, py), level);
-          path.cached_goal = Some((px, py));
-        }
-        if let Some(&(nex, ney)) = path.steps.front() {
+        if let Some(&(nex, ney)) = flow.field.get(&(ex, ey)) {
           if !tile_blocked(level, nex, ney, ez, &index, &collidable_q)
             && !claimed.contains(&(nex, ney))
+            && (nex, ney) != (ex, ey)
           {
-            path.steps.pop_front();
             let below = ez
               .checked_sub(1)
               .map(|z1| current.0.level(z1).tiles[ney as usize][nex as usize]);
@@ -328,9 +366,6 @@ pub fn enemy_ai(
             *location = Location::xyz(nex, ney, nz);
             claimed.insert((nex, ney));
             timer.0 = 0;
-          } else {
-            // Dynamic obstacle blocks the next step — recompute next tick
-            path.steps.clear();
           }
         }
       }

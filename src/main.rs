@@ -25,8 +25,9 @@ mod npcs;
 mod utils;
 
 use {bevy::prelude::*,
-     combat::{TileEntityIndex, damage_cloud_tick, enemy_ai, follower_ai, grenade_thrower_ai,
-              maintain_tile_index, mushroom_spore_attack, npc_wander},
+     combat::{FlowField, TileEntityIndex, compute_flow_field, damage_cloud_tick, enemy_ai,
+              follower_ai, grenade_thrower_ai, maintain_tile_index, mushroom_spore_attack,
+              npc_wander},
      level::{FovGrid, Item, LocationType, Tile, ZONE_HEIGHT, ZONE_WIDTH, compute_fov},
      std::collections::{HashMap, HashSet},
      crate::entities::{AirlockDoor, BlocksSight, Collidable, Dialogue, DialogueNode,
@@ -593,6 +594,7 @@ fn main() {
     .insert_resource(UiState::default())
     .insert_resource(Fov(fov))
     .insert_resource(TileEntityIndex::default())
+    .init_resource::<FlowField>()
     .init_resource::<abilities::AbilityBarData>()
     .init_resource::<abilities::TargetingState>()
     .init_resource::<path_overlay::RangedPathOverlay>()
@@ -655,6 +657,7 @@ fn main() {
       (
         ApplyDeferred,
         enemy_death_check.in_set(SimStep),
+        compute_flow_field.in_set(SimStep).before(enemy_ai),
         enemy_ai.in_set(SimStep),
         mushroom_spore_attack.in_set(SimStep),
         grenade_thrower_ai.in_set(SimStep),
