@@ -274,6 +274,10 @@ pub struct TimeSinceAction(pub u32);
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Gravity;
 
+/// Per-move probability of stepping to a random walkable neighbor instead of toward the player.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct DriftChance(pub f32);
+
 /// NPC wander behavior: move to a random adjacent passable tile every `interval` sim steps.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct WalkAroundRandomly {
@@ -752,6 +756,7 @@ impl Object {
         flavor: "A fast-moving predator native to Xel-Nara IV. Moves in bursts. Closes distance before you can react."
       },
       Stats { hp: 5, max_hp: 5, attack: 3, move_speed: 12.0, attack_speed: 1.5 },
+      DriftChance(0.3),
       Wielding(None),
       Wearing(None),
       Glyph::palette_sprite(

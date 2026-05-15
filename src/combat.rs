@@ -310,7 +310,7 @@ pub fn enemy_ai(
     (With<crate::Player>, Without<Enemy>)
   >,
   mut enemy_q: Query<
-    (&mut Location, &mut TimeSinceAction, &Stats, Option<&Wearing>, Option<&Named>),
+    (&mut Location, &mut TimeSinceAction, &Stats, Option<&Wearing>, Option<&Named>, Option<&crate::entities::DriftChance>),
     (With<Enemy>, Without<crate::Player>)
   >,
   collidable_q: Query<&Collidable>
@@ -320,7 +320,8 @@ pub fn enemy_ai(
 
   let mut claimed: HashSet<(i32, i32)> = HashSet::new();
 
-  for (mut location, mut timer, enemy_stats, enemy_wearing, enemy_named) in enemy_q.iter_mut() {
+  let mut rng = rand::rng();
+  for (mut location, mut timer, enemy_stats, enemy_wearing, enemy_named, drift) in enemy_q.iter_mut() {
     timer.0 = timer.0.saturating_add(1);
 
     if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location {
@@ -347,26 +348,35 @@ pub fn enemy_ai(
         timer.0 = 0;
       } else if ez == pz && timer.0 >= mov_fr {
         let level = current.0.level(ez);
-        if let Some(&(nex, ney)) = flow.field.get(&(ex, ey)) {
-          if !tile_blocked(level, nex, ney, ez, &index, &collidable_q)
-            && !claimed.contains(&(nex, ney))
-            && (nex, ney) != (ex, ey)
+        let next = if drift.is_some_and(|d| rand::Rng::random::<f32>(&mut rng) < d.0) {
+          let mut dirs = NEIGHBOR_DIRS;
+          dirs.shuffle(&mut rng);
+          dirs.iter().find_map(|&(dx, dy)| {
+            let (nx, ny) = (ex + dx, ey + dy);
+            (!tile_blocked(level, nx, ny, ez, &index, &collidable_q)
+              && !claimed.contains(&(nx, ny)))
+            .then_some((nx, ny))
+          })
+        } else {
+          flow.field.get(&(ex, ey)).copied().filter(|&step| step != (ex, ey)
+            && !tile_blocked(level, step.0, step.1, ez, &index, &collidable_q)
+            && !claimed.contains(&step))
+        };
+        if let Some((nex, ney)) = next {
+          let below = ez
+            .checked_sub(1)
+            .map(|z1| current.0.level(z1).tiles[ney as usize][nex as usize]);
+          let nz = if (level.tiles[ney as usize][nex as usize].causes_falling()
+            || below.is_some_and(|t| t.causes_falling()))
+            && ez > 0
           {
-            let below = ez
-              .checked_sub(1)
-              .map(|z1| current.0.level(z1).tiles[ney as usize][nex as usize]);
-            let nz = if (level.tiles[ney as usize][nex as usize].causes_falling()
-              || below.is_some_and(|t| t.causes_falling()))
-              && ez > 0
-            {
-              ez - 1
-            } else {
-              ez
-            };
-            *location = Location::xyz(nex, ney, nz);
-            claimed.insert((nex, ney));
-            timer.0 = 0;
-          }
+            ez - 1
+          } else {
+            ez
+          };
+          *location = Location::xyz(nex, ney, nz);
+          claimed.insert((nex, ney));
+          timer.0 = 0;
         }
       }
     }
