@@ -45,6 +45,14 @@
         and click <em>Update</em> if offered.
       </p>
       <p>
+        <strong>Chromium (Linux)</strong><br>
+        1. Go to <code>chrome://flags/#enable-unsafe-webgpu</code>.<br>
+        2. Set <em>Unsafe WebGPU Support</em> to <strong>Enabled</strong>.<br>
+        3. Click <em>Relaunch</em>.<br>
+        If it still doesn't work, launch Chromium from a terminal with:<br>
+        <code>chromium --enable-unsafe-webgpu --enable-features=Vulkan</code>
+      </p>
+      <p>
         <strong>Firefox</strong><br>
         1. Type <code>about:config</code> in the address bar and press Enter.<br>
         2. Accept the warning.<br>
