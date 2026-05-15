@@ -147,7 +147,6 @@ pub fn handle_ability_click(
       let cd = targeting.cooldowns.get(&slot.kind).copied().unwrap_or(0);
       if cd > 0 {
         log_message(&mut log, format!("{} is on cooldown ({} turns).", slot.name, cd));
-        targeting.selected = None;
       } else if let Some(cursor) = window.cursor_position()
         && let Ok(world) = camera.viewport_to_world_2d(cam_transform, cursor)
       {
@@ -155,6 +154,12 @@ pub fn handle_ability_click(
         let (cursor_tx, cursor_ty) = crate::world_to_level_cell(world, level.width, level.height);
         let (tx, ty) = ray_cast_target(pos.x, pos.y, cursor_tx, cursor_ty, level);
         let max_cd = slot.max_cooldown;
+
+        // LoS check for laser: if the ray was clipped by a wall before reaching the cursor,
+        // the target tile is not visible — report it and keep the ability selected.
+        if matches!(slot.kind, AbilityKind::FireLaser) && (tx, ty) != (cursor_tx, cursor_ty) {
+          log_message(&mut log, "No LoS to target.".into());
+        } else {
 
         // Returns true if the ability was actually fired (spend turn + set cooldown).
         let fired = match &slot.kind {
@@ -173,11 +178,7 @@ pub fn handle_ability_click(
               }
             }
             log_message(&mut log, match hit_names.len() {
-              0 => if (tx, ty) != (cursor_tx, cursor_ty) {
-                "Your laser hits the wall.".into()
-              } else {
-                "Your laser hits nothing.".into()
-              },
+              0 => "Your laser hits nothing.".into(),
               1 => format!("Laser burns {} for {} damage!", hit_names[0], attack),
               n => format!("Laser burns {} enemies for {} damage each!", n, attack)
             });
@@ -244,6 +245,7 @@ pub fn handle_ability_click(
         if !fired {
           targeting.selected = None;
         }
+        } // end LoS else
       }
     }
   }
