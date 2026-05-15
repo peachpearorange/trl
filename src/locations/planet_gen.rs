@@ -181,6 +181,8 @@ pub fn generate(params: &PlanetParams) -> Location {
             tile!(rock,    scaled(rf, 5.0),  Tile::CaveWall);
             // Hunters: rare, WFC-placed on feature cells; underlying tile stays walkable
             tile!(feature, 0.4,              Tile::AlienSoil, Object::alien_runner);
+            // Crawlers: slower and tankier, spawn on ground
+            tile!(ground,  0.3,              Tile::AlienSoil, Object::crab_alien);
         }
         PlanetBiome::Arctic => {
             tile!(ground,  10.0,             Tile::IceFloor);

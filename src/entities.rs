@@ -768,6 +768,25 @@ impl Object {
     ))
   }
 
+  pub fn crab_alien() -> Self {
+    Self::enemy().add((
+      Named {
+        name: "Xel-Naran Crawler",
+        flavor: "A broad-shelled crustacean that lurks in alien undergrowth. Its claws can crush bone. Slow but armored."
+      },
+      Stats { hp: 10, max_hp: 10, attack: 4, move_speed: 3.5, attack_speed: 0.8 },
+      DriftChance(0.1),
+      Wielding(None),
+      Wearing(Some(Armor::Leather)),
+      Glyph::palette_sprite(
+        "textures/space_qud/crab alien.png",
+        'c',
+        Color::srgb(0.55, 0.18, 0.72),
+        Color::srgb(0.92, 0.72, 0.18)
+      ),
+    ))
+  }
+
   pub fn mushroom_creature() -> Self {
     Self::enemy().add((
       Named {
