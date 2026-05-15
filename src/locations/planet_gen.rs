@@ -9,6 +9,8 @@ use bevy_ghx_proc_gen::proc_gen::{
     ghx_grid::cartesian::{coordinates::Cartesian2D, grid::CartesianGrid},
 };
 
+use std::collections::VecDeque;
+
 use crate::{
     entities::Object,
     galaxy::{Location, LocationId},
@@ -127,12 +129,13 @@ pub fn generate(params: &PlanetParams) -> Location {
     // rock:    walls — ONLY borders itself or ground (forces solid rock masses)
     //
     // Lava-biome layered rock sockets (unused by other biomes):
-    // r_out:   rock outer shell — borders ground, other rock, and t_wall
+    // r_out:   rock outer shell — borders ground, r_out, r_in. Never borders t_wall directly,
+    //          so tunnels must always have r_in between them and the rock surface → min 2-tile walls.
     // r_in:    rock interior — NEVER borders ground; can only border r_out or r_in.
-    //          Very high weight creates thick, solid rock masses with no thin walls.
-    // t_open:  tunnel open side — borders ground or other t_open (tunnel interior / wide spot)
-    // t_wall:  tunnel wall side — borders r_out, r_in, or other t_wall; never borders ground.
-    //          Used on the constrained sides of tunnel tiles so they can only sit inside rock.
+    //          Very high weight fills rock masses thickly.
+    // t_open:  tunnel open side — borders ground or other t_open
+    // t_wall:  tunnel wall side — ONLY connects to t_wall or r_in (not r_out).
+    //          Tunnels are always at least 2 tiles deep in rock (r_in shell + r_out shell).
     let ground  = sockets.create();
     let feature = sockets.create();
     let shallow = sockets.create();
@@ -149,10 +152,10 @@ pub fn generate(params: &PlanetParams) -> Location {
         (shallow, vec![shallow, deep, ground]),
         (deep,    vec![deep, shallow]),
         (rock,    vec![rock, ground]),
-        (r_out,   vec![r_out, ground, r_in, t_wall]),
-        (r_in,    vec![r_in, r_out]),
-        (t_open,  vec![t_open, ground]),
-        (t_wall,  vec![t_wall, r_out, r_in]),
+        (r_out,   vec![r_out, ground, r_in, t_open]),
+        (r_in,    vec![r_in, r_out, t_wall]),
+        (t_open,  vec![t_open, ground, r_out]),
+        (t_wall,  vec![t_wall, r_in]),
     ]);
 
     let mut models = ModelCollection::<Cartesian2D>::new();
@@ -216,33 +219,26 @@ pub fn generate(params: &PlanetParams) -> Location {
             tile!(deep,    scaled(wc, 3.0),  Tile::DeepWater);
         }
         PlanetBiome::Lava => {
-            // Two-layer rock: r_out is the shell (can border ground), r_in is the interior
-            // (can never border ground directly). r_in at weight 40 fills rock masses thickly
-            // with no single-tile-wide walls, since a lone r_in tile would need r_out or r_in
-            // on every side — never a bare ground border.
-            tile!(ground,  8.0,              Tile::Ash);
-            tile!(r_out,   5.0,              Tile::CaveWall);
-            tile!(r_in,    40.0,             Tile::CaveWall);
+            // Ground is dominant so ash plains stay well-connected; rock formations cluster
+            // as islands rather than wall-to-wall solid. r_out borders ground, r_in is interior.
+            tile!(ground,  20.0,             Tile::Ash);
+            tile!(r_out,   6.0,              Tile::CaveWall);
+            tile!(r_in,    14.0,             Tile::CaveWall);
             tile!(shallow, scaled(wc, 3.0),  Tile::Lava);
             tile!(deep,    scaled(wc, 2.0),  Tile::CrimsonPool);
 
-            // Horizontal tunnel: t_open left/right (exits to ground), t_wall top/bottom
-            // (only valid where r_out or r_in is directly above and below).
+            // Tunnel corridors through rock outcroppings. High weight → long straight runs.
             models.create(SocketsCartesian2D::Simple {
                 x_pos: t_open, x_neg: t_open, y_pos: t_wall, y_neg: t_wall,
-            }).with_weight(6.0);
+            }).with_weight(12.0);
             tile_map.push((Tile::Ash, None));
 
-            // Vertical tunnel: t_open top/bottom, t_wall left/right.
             models.create(SocketsCartesian2D::Simple {
                 x_pos: t_wall, x_neg: t_wall, y_pos: t_open, y_neg: t_open,
-            }).with_weight(6.0);
+            }).with_weight(12.0);
             tile_map.push((Tile::Ash, None));
 
-            // Chamber tile: t_wall on all sides — fully enclosed by rock, connects to tunnel
-            // tiles on their t_wall sides. Multiple adjacent chambers create wider open spaces
-            // inside rock masses. t_wall never touches plain ground so chambers stay inside rock.
-            tile!(t_wall,  3.5,              Tile::Ash);
+            tile!(t_wall,  8.0,              Tile::Ash);
 
             tile!(ground,  0.35,             Tile::Ash, Object::lava_crab);
         }
@@ -300,27 +296,50 @@ pub fn generate(params: &PlanetParams) -> Location {
 }
 
 fn place_ship_dock(level: &mut Level, fill: Tile) {
-    let (cx, cy) = (PLANET_SIZE as i32 / 2, PLANET_SIZE as i32 / 2);
-    let max = PLANET_SIZE as i32 - 1;
+    let w = level.width as i32;
+    let h = level.height as i32;
+    let (cx, cy) = (w / 2, h / 2);
 
-    'dock: for r in 0..50_i32 {
-        for dy in -r..=r {
-            for dx in -r..=r {
-                if dx.abs().max(dy.abs()) == r {
-                    let (sx, sy) = (cx + dx, cy + dy);
-                    if level.walkable(sx, sy) && level.get(sx, sy).is_some_and(is_solid_ground) {
-                        for py in (sy - 1).max(0)..=(sy + 1).min(max) {
-                            for px in (sx - 1).max(0)..=(sx + 1).min(max) {
-                                if !level.walkable(px, py) {
-                                    level.set(px, py, fill);
-                                }
-                            }
-                        }
-                        level.set(sx, sy, Tile::ShipDock);
-                        break 'dock;
+    // Flood-fill every walkable component and find the largest one.
+    // The dock must land there so the player isn't isolated in a small pocket.
+    let mut visited = vec![vec![false; level.width]; level.height];
+    let mut best: Vec<(i32, i32)> = Vec::new();
+
+    for sy in 0..h {
+        for sx in 0..w {
+            if visited[sy as usize][sx as usize] || !level.walkable(sx, sy) { continue; }
+            let mut component = Vec::new();
+            let mut queue = VecDeque::new();
+            visited[sy as usize][sx as usize] = true;
+            queue.push_back((sx, sy));
+            while let Some((x, y)) = queue.pop_front() {
+                component.push((x, y));
+                for (dx, dy) in [(1i32,0),(-1,0),(0,1),(0,-1)] {
+                    let (nx, ny) = (x + dx, y + dy);
+                    if nx >= 0 && ny >= 0 && nx < w && ny < h
+                        && !visited[ny as usize][nx as usize]
+                        && level.walkable(nx, ny)
+                    {
+                        visited[ny as usize][nx as usize] = true;
+                        queue.push_back((nx, ny));
                     }
                 }
             }
+            if component.len() > best.len() { best = component; }
         }
     }
+
+    // Within the largest component, pick the solid-ground tile closest to map center.
+    let Some(&(sx, sy)) = best.iter()
+        .filter(|&&(x, y)| level.get(x, y).is_some_and(is_solid_ground))
+        .min_by_key(|&&(x, y)| (x - cx).abs() + (y - cy).abs())
+    else { return };
+
+    let max = PLANET_SIZE as i32 - 1;
+    for py in (sy - 1).max(0)..=(sy + 1).min(max) {
+        for px in (sx - 1).max(0)..=(sx + 1).min(max) {
+            if !level.walkable(px, py) { level.set(px, py, fill); }
+        }
+    }
+    level.set(sx, sy, Tile::ShipDock);
 }
