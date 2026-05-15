@@ -353,12 +353,14 @@ pub fn enemy_ai(
           dirs.shuffle(&mut rng);
           dirs.iter().find_map(|&(dx, dy)| {
             let (nx, ny) = (ex + dx, ey + dy);
-            (!tile_blocked(level, nx, ny, ez, &index, &collidable_q)
+            ((nx, ny) != (px, py)
+              && !tile_blocked(level, nx, ny, ez, &index, &collidable_q)
               && !claimed.contains(&(nx, ny)))
             .then_some((nx, ny))
           })
         } else {
           flow.field.get(&(ex, ey)).copied().filter(|&step| step != (ex, ey)
+            && step != (px, py)
             && !tile_blocked(level, step.0, step.1, ez, &index, &collidable_q)
             && !claimed.contains(&step))
         };
