@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use std::f32::consts::{FRAC_PI_2, PI};
 use crate::{
   CurrentZone, Player, PlayerPos, TILE_SIZE,
-  abilities::TargetingState,
+  abilities::{AbilityBarData, AbilityKind, TargetingState},
   sprites::{PaletteImageCache, palette_sprite_handle},
   game_pane_rect, tile_screen_pos, world_to_level_cell,
 };
@@ -33,6 +33,9 @@ pub struct RangedPathOverlay {
   pub tiles: Vec<(i32, i32)>,
   /// True if the path was cut short by a wall before reaching the cursor.
   pub blocked: bool,
+  /// For laser weapons: world-space start and end of the Euclidean aim line.
+  /// When Some, `render_ranged_path` draws a straight line instead of tile sprites.
+  pub laser_line: Option<(Vec3, Vec3)>,
 }
 
 // ---------------------------------------------------------------------------
@@ -243,36 +246,58 @@ pub fn update_ranged_path(
   windows: Query<&Window>,
   camera_q: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
   targeting: Res<TargetingState>,
+  bar: Res<AbilityBarData>,
   current: Res<CurrentZone>,
   player_q: Query<&PlayerPos, With<Player>>,
   mut overlay: ResMut<RangedPathOverlay>
 ) {
-  // None = leave as-is (query failures); Some(x) = write x.
   let new = if targeting.selected.is_none() {
     Some(RangedPathOverlay::default())
   } else if let Ok(window) = windows.single()
     && let Ok((camera, cam_transform)) = camera_q.single()
     && let Ok(pos) = player_q.single()
   {
+    let is_laser = targeting.selected
+      .and_then(|i| bar.slots.get(i))
+      .is_some_and(|s| s.kind == AbilityKind::FireLaser);
+
     let level = current.0.level(pos.z);
-    // No cursor or outside game pane → clear; failed projection → leave as-is.
+    let w = level.width;
+    let h = level.height;
+
     let inner = if let Some(cursor) = window.cursor_position()
       && game_pane_rect(window).contains(cursor)
       && let Ok(world) = camera.viewport_to_world_2d(cam_transform, cursor)
     {
-      let (tx, ty) = world_to_level_cell(world, level.width, level.height);
-      let all_tiles = bresenham_path(pos.x, pos.y, tx, ty);
-      let path_tiles = &all_tiles[1..];
-      let block_idx = path_tiles.iter().position(|&(x, y)| {
-        x < 0
-          || y < 0
-          || (x as usize) >= level.width
-          || (y as usize) >= level.height
-          || !level.walkable(x, y)
-      });
-      RangedPathOverlay {
-        tiles: path_tiles[..block_idx.unwrap_or(path_tiles.len())].to_vec(),
-        blocked: block_idx.is_some(),
+      let (tx, ty) = world_to_level_cell(world, w, h);
+
+      if is_laser {
+        let px = pos.x as f32 + 0.5;
+        let py = pos.y as f32 + 0.5;
+        // Tile-space → world-space for overlay z-layer
+        let tile_world = |x: f32, y: f32| Vec3::new(
+          (x - w as f32 / 2.0) * TILE_SIZE,
+          (h as f32 / 2.0 - y) * TILE_SIZE,
+          0.35,
+        );
+        let laser_line = euclidean_los_point(px, py, tx, ty, level)
+          .map(|(lx, ly)| (tile_world(px, py), tile_world(lx, ly)));
+        RangedPathOverlay { laser_line, ..default() }
+      } else {
+        let all_tiles = bresenham_path(pos.x, pos.y, tx, ty);
+        let path_tiles = &all_tiles[1..];
+        let block_idx = path_tiles.iter().position(|&(x, y)| {
+          x < 0
+            || y < 0
+            || (x as usize) >= w
+            || (y as usize) >= h
+            || !level.walkable(x, y)
+        });
+        RangedPathOverlay {
+          tiles: path_tiles[..block_idx.unwrap_or(path_tiles.len())].to_vec(),
+          blocked: block_idx.is_some(),
+          laser_line: None,
+        }
       }
     } else {
       RangedPathOverlay::default()
@@ -283,7 +308,8 @@ pub fn update_ranged_path(
   };
 
   if let Some(new) = new
-    && (overlay.tiles != new.tiles || overlay.blocked != new.blocked)
+    && (overlay.tiles != new.tiles || overlay.blocked != new.blocked
+        || overlay.laser_line != new.laser_line)
   {
     *overlay = new;
   }
@@ -315,6 +341,9 @@ fn spawn_path_tile(
   ));
 }
 
+const LASER_LINE_WIDTH: f32 = TILE_SIZE * 0.12;
+const LASER_LINE_COLOR: Color = Color::srgb(0.0, 0.88, 1.0);
+
 /// Spawns/despawns path overlay tile entities whenever `RangedPathOverlay` changes.
 pub fn render_ranged_path(
   overlay: Res<RangedPathOverlay>,
@@ -322,12 +351,33 @@ pub fn render_ranged_path(
   current: Res<CurrentZone>,
   existing: Query<Entity, With<PathOverlayTile>>,
   mut commands: Commands,
+  mut meshes: ResMut<Assets<Mesh>>,
+  mut materials: ResMut<Assets<ColorMaterial>>,
   mut palette_cache: ResMut<PaletteImageCache>,
   mut images: ResMut<Assets<Image>>
 ) {
   for entity in &existing {
     commands.entity(entity).despawn();
   }
+
+  // Laser targeting: draw a single straight Euclidean line.
+  if let Some((start, end)) = overlay.laser_line {
+    let diff = end - start;
+    let length = diff.truncate().length();
+    if length > 0.1 {
+      let angle = diff.y.atan2(diff.x);
+      let mid = (start + end) * 0.5;
+      commands.spawn((
+        PathOverlayTile,
+        Mesh2d(meshes.add(Rectangle::new(length, LASER_LINE_WIDTH))),
+        MeshMaterial2d(materials.add(ColorMaterial::from_color(LASER_LINE_COLOR))),
+        Transform::from_translation(mid.with_z(0.35))
+          .with_rotation(Quat::from_rotation_z(angle)),
+      ));
+    }
+    return;
+  }
+
   if overlay.tiles.is_empty() { return; }
 
   let w = current.0.width;

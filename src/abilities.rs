@@ -6,7 +6,8 @@ use {std::collections::HashMap,
      crate::{Clock, CurrentZone, Inventory, Player, PlayerPos, TimeMode, TurnBasedWorldState, UiState,
              entities::{Enemy, Location, Named, Object, PlayerEquipped, Stats},
              level::Item,
-             particles::{ParticleEffects, spawn_bullet_trail, spawn_explosion_burst, spawn_laser_beam},
+             particles::{ParticleEffects, spawn_bullet_trail, spawn_explosion_burst, spawn_laser_beam,
+                         tile_to_world},
              path_overlay::{bresenham_path, dda_cells, euclidean_los_point, ray_cast_target},
              ui::{LogEntries, log_message}}};
 
@@ -202,7 +203,9 @@ pub fn handle_ability_click(
     AbilityKind::FireLaser => {
       let (los_x, los_y) = los_point.unwrap();
       let cells = dda_cells(px, py, los_x, los_y);
-      spawn_laser_beam(&mut commands, &effects, &cells, level.width, level.height);
+      let beam_start = tile_to_world(px, py, level.width, level.height);
+      let beam_end = tile_to_world(los_x, los_y, level.width, level.height);
+      spawn_laser_beam(&mut commands, &effects, beam_start, beam_end);
       let attack = equipped.weapon.map(|w| w.attack_bonus()).unwrap_or(0) + 5;
       let mut hit_names: Vec<&str> = vec![];
       for &(cx, cy) in cells.iter().skip(1) {

@@ -55,6 +55,15 @@ pub fn grid_world(x: i32, y: i32, w: usize, h: usize) -> Vec3 {
   )
 }
 
+/// Like `grid_world` but accepts continuous tile-space coordinates, e.g. (3.7, 5.1).
+pub fn tile_to_world(x: f32, y: f32, w: usize, h: usize) -> Vec3 {
+  Vec3::new(
+    (x - w as f32 / 2.0) * TILE_SIZE,
+    (h as f32 / 2.0 - y) * TILE_SIZE,
+    5.0,
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Startup: build effect assets
 // ---------------------------------------------------------------------------
@@ -222,18 +231,23 @@ pub fn spawn_bullet_trail(
   }
 }
 
-/// Spawn a cyan laser beam flash along the full path (skipping the shooter tile).
+/// Spawn a cyan laser beam flash as a straight Euclidean line from `start` to `end`
+/// (world-space positions). Emitters are placed every half-tile along the line.
 pub fn spawn_laser_beam(
   commands: &mut Commands,
   effects: &ParticleEffects,
-  path: &[(i32, i32)],
-  level_w: usize,
-  level_h: usize
+  start: Vec3,
+  end: Vec3
 ) {
-  for &(x, y) in path.iter().skip(1) {
+  let diff = end - start;
+  let length = diff.truncate().length();
+  let steps = ((length / (TILE_SIZE * 0.5)).ceil() as usize).max(1);
+  for i in 0..=steps {
+    let t = i as f32 / steps as f32;
+    let pos = start.lerp(end, t);
     commands.spawn((
       ParticleEffect::new(effects.laser_beam.clone()),
-      Transform::from_translation(grid_world(x, y, level_w, level_h)),
+      Transform::from_translation(pos),
       EffectLifetime(Timer::from_seconds(0.5, TimerMode::Once)),
     ));
   }
