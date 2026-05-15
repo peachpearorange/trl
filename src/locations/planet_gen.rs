@@ -9,8 +9,6 @@ use bevy_ghx_proc_gen::proc_gen::{
     ghx_grid::cartesian::{coordinates::Cartesian2D, grid::CartesianGrid},
 };
 
-use std::collections::VecDeque;
-
 use crate::{
     entities::Object,
     galaxy::{Location, LocationId},
@@ -122,23 +120,39 @@ fn scaled(param: f32, scale: f32) -> f32 { (param * scale).max(0.05) }
 
 pub fn generate(params: &PlanetParams) -> Location {
     let mut sockets = SocketCollection::new();
-    // ground:  base walkable terrain — borders other ground, features, fluid, rock
+    // ground:  base walkable terrain — borders other ground, features, fluid, rock, t_open
     // feature: vegetation/special clusters — ONLY borders itself or ground (forces patches)
     // shallow: fluid edge — borders ground, itself, and deep
     // deep:    deep fluid — enclosed by shallow
     // rock:    walls — ONLY borders itself or ground (forces solid rock masses)
+    //
+    // Lava-biome layered rock sockets (unused by other biomes):
+    // r_out:   rock outer shell — borders ground, other rock, and t_wall
+    // r_in:    rock interior — NEVER borders ground; can only border r_out or r_in.
+    //          Very high weight creates thick, solid rock masses with no thin walls.
+    // t_open:  tunnel open side — borders ground or other t_open (tunnel interior / wide spot)
+    // t_wall:  tunnel wall side — borders r_out, r_in, or other t_wall; never borders ground.
+    //          Used on the constrained sides of tunnel tiles so they can only sit inside rock.
     let ground  = sockets.create();
     let feature = sockets.create();
     let shallow = sockets.create();
     let deep    = sockets.create();
     let rock    = sockets.create();
+    let r_out   = sockets.create();
+    let r_in    = sockets.create();
+    let t_open  = sockets.create();
+    let t_wall  = sockets.create();
 
     sockets.add_connections([
-        (ground,  vec![ground, feature, shallow, rock]),
+        (ground,  vec![ground, feature, shallow, rock, r_out, t_open]),
         (feature, vec![feature, ground]),
         (shallow, vec![shallow, deep, ground]),
         (deep,    vec![deep, shallow]),
         (rock,    vec![rock, ground]),
+        (r_out,   vec![r_out, ground, r_in, t_wall]),
+        (r_in,    vec![r_in, r_out]),
+        (t_open,  vec![t_open, ground]),
+        (t_wall,  vec![t_wall, r_out, r_in]),
     ]);
 
     let mut models = ModelCollection::<Cartesian2D>::new();
@@ -202,12 +216,34 @@ pub fn generate(params: &PlanetParams) -> Location {
             tile!(deep,    scaled(wc, 3.0),  Tile::DeepWater);
         }
         PlanetBiome::Lava => {
-            // Rock weight dominates heavily so WFC forms large solid masses.
-            // Wide straight tunnels are carved by post-processing, not WFC.
-            tile!(ground,  10.0,             Tile::Ash);
-            tile!(rock,    scaled(rf, 80.0), Tile::CaveWall);
+            // Two-layer rock: r_out is the shell (can border ground), r_in is the interior
+            // (can never border ground directly). r_in at weight 40 fills rock masses thickly
+            // with no single-tile-wide walls, since a lone r_in tile would need r_out or r_in
+            // on every side — never a bare ground border.
+            tile!(ground,  8.0,              Tile::Ash);
+            tile!(r_out,   5.0,              Tile::CaveWall);
+            tile!(r_in,    40.0,             Tile::CaveWall);
             tile!(shallow, scaled(wc, 3.0),  Tile::Lava);
             tile!(deep,    scaled(wc, 2.0),  Tile::CrimsonPool);
+
+            // Horizontal tunnel: t_open left/right (exits to ground), t_wall top/bottom
+            // (only valid where r_out or r_in is directly above and below).
+            models.create(SocketsCartesian2D::Simple {
+                x_pos: t_open, x_neg: t_open, y_pos: t_wall, y_neg: t_wall,
+            }).with_weight(6.0);
+            tile_map.push((Tile::Ash, None));
+
+            // Vertical tunnel: t_open top/bottom, t_wall left/right.
+            models.create(SocketsCartesian2D::Simple {
+                x_pos: t_wall, x_neg: t_wall, y_pos: t_open, y_neg: t_open,
+            }).with_weight(6.0);
+            tile_map.push((Tile::Ash, None));
+
+            // Chamber tile: t_wall on all sides — fully enclosed by rock, connects to tunnel
+            // tiles on their t_wall sides. Multiple adjacent chambers create wider open spaces
+            // inside rock masses. t_wall never touches plain ground so chambers stay inside rock.
+            tile!(t_wall,  3.5,              Tile::Ash);
+
             tile!(ground,  0.35,             Tile::Ash, Object::lava_crab);
         }
     }
@@ -249,13 +285,6 @@ pub fn generate(params: &PlanetParams) -> Location {
             }
         }
         place_ship_dock(level, fill);
-        if matches!(params.biome, PlanetBiome::Lava) {
-            // Find the ship dock and tunnel from it so the whole map is navigable
-            let dock = (0..PLANET_SIZE as i32).flat_map(|y| (0..PLANET_SIZE as i32).map(move |x| (x, y)))
-                .find(|&(x, y)| level.get(x, y) == Some(Tile::ShipDock))
-                .unwrap_or((PLANET_SIZE as i32 / 2, PLANET_SIZE as i32 / 2));
-            carve_tunnels(level, dock.0, dock.1, fill);
-        }
     }
 
     for y in 0..PLANET_SIZE as u32 {
@@ -268,80 +297,6 @@ pub fn generate(params: &PlanetParams) -> Location {
     }
 
     loc
-}
-
-/// Carves 2-wide corridors through rock until all walkable tiles are reachable from (ox, oy).
-/// Prefers anchors that share a row/column with the target (straight shot, zero bends).
-/// When a bend is unavoidable, the longer axis runs first so the turn is at the shorter end.
-fn carve_tunnels(level: &mut Level, ox: i32, oy: i32, ground: Tile) {
-    let w = level.width as i32;
-    let h = level.height as i32;
-
-    let set2h = |level: &mut Level, x: i32, y: i32| {
-        level.set(x, y, ground);
-        if y + 1 < h { level.set(x, y + 1, ground); }
-    };
-    let set2v = |level: &mut Level, x: i32, y: i32| {
-        level.set(x, y, ground);
-        if x + 1 < w { level.set(x + 1, y, ground); }
-    };
-
-    loop {
-        let mut reachable = vec![vec![false; level.width]; level.height];
-        let mut queue = VecDeque::new();
-        if level.walkable(ox, oy) {
-            reachable[oy as usize][ox as usize] = true;
-            queue.push_back((ox, oy));
-        }
-        while let Some((x, y)) = queue.pop_front() {
-            for (dx, dy) in [(1i32,0i32),(-1,0),(0,1),(0,-1)] {
-                let (nx, ny) = (x + dx, y + dy);
-                if nx >= 0 && ny >= 0 && nx < w && ny < h
-                    && !reachable[ny as usize][nx as usize]
-                    && level.walkable(nx, ny)
-                {
-                    reachable[ny as usize][nx as usize] = true;
-                    queue.push_back((nx, ny));
-                }
-            }
-        }
-
-        let Some((tx, ty)) = (0..h).flat_map(|y| (0..w).map(move |x| (x, y)))
-            .filter(|&(x, y)| level.walkable(x, y) && !reachable[y as usize][x as usize])
-            .min_by_key(|&(x, y)| (x - ox).abs() + (y - oy).abs())
-        else { break };
-
-        // Prefer anchors in the same row or column as the target — straight shot, no bend.
-        let (ax, ay) = (0..h).flat_map(|y| (0..w).map(move |x| (x, y)))
-            .filter(|&(x, y)| reachable[y as usize][x as usize])
-            .min_by_key(|&(x, y)| {
-                let dist = (x - tx).abs() + (y - ty).abs();
-                let bend = if x == tx || y == ty { 0 } else { 10_000 };
-                dist + bend
-            })
-            .unwrap_or((ox, oy));
-
-        let (dx, dy) = (tx - ax, ty - ay);
-        if dx.abs() >= dy.abs() {
-            // Horizontal segment first (longer), then short vertical bend
-            let xstep = if dx > 0 { 1 } else { -1 };
-            let mut cx = ax;
-            while cx != tx { set2h(level, cx, ay); cx += xstep; }
-            let ystep = if dy > 0 { 1 } else { -1 };
-            let mut cy = ay;
-            while cy != ty { set2v(level, tx, cy); cy += ystep; }
-        } else {
-            // Vertical segment first (longer), then short horizontal bend
-            let ystep = if dy > 0 { 1 } else { -1 };
-            let mut cy = ay;
-            while cy != ty { set2v(level, ax, cy); cy += ystep; }
-            let xstep = if dx > 0 { 1 } else { -1 };
-            let mut cx = ax;
-            while cx != tx { set2h(level, cx, ty); cx += xstep; }
-        }
-        set2h(level, tx, ty);
-        set2v(level, tx, ty);
-    }
 }
 
 fn place_ship_dock(level: &mut Level, fill: Tile) {
