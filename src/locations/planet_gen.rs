@@ -9,10 +9,12 @@ use bevy_ghx_proc_gen::proc_gen::{
     ghx_grid::cartesian::{coordinates::Cartesian2D, grid::CartesianGrid},
 };
 
+use std::collections::VecDeque;
+
 use crate::{
     entities::Object,
     galaxy::{Location, LocationId},
-    level::{LocationType, Tile},
+    level::{Level, LocationType, Tile},
 };
 
 pub const ID_ALIEN_JUNGLE: LocationId  = (4, 0, 0);
@@ -246,6 +248,13 @@ pub fn generate(params: &PlanetParams) -> Location {
             }
         }
         place_ship_dock(level, fill);
+        if matches!(params.biome, PlanetBiome::Lava) {
+            // Find the ship dock and tunnel from it so the whole map is navigable
+            let dock = (0..PLANET_SIZE as i32).flat_map(|y| (0..PLANET_SIZE as i32).map(move |x| (x, y)))
+                .find(|&(x, y)| level.get(x, y) == Some(Tile::ShipDock))
+                .unwrap_or((PLANET_SIZE as i32 / 2, PLANET_SIZE as i32 / 2));
+            carve_tunnels(level, dock.0, dock.1, fill);
+        }
     }
 
     for y in 0..PLANET_SIZE as u32 {
@@ -260,7 +269,58 @@ pub fn generate(params: &PlanetParams) -> Location {
     loc
 }
 
-fn place_ship_dock(level: &mut crate::level::Level, fill: Tile) {
+/// Carves ash corridors through rock until all walkable tiles are reachable from (ox, oy).
+/// Finds the nearest stranded walkable tile each pass and digs an L-shaped path to it.
+fn carve_tunnels(level: &mut Level, ox: i32, oy: i32, ground: Tile) {
+    let w = level.width as i32;
+    let h = level.height as i32;
+
+    loop {
+        // BFS to find all tiles reachable from origin
+        let mut reachable = vec![vec![false; level.width]; level.height];
+        let mut queue = VecDeque::new();
+        if level.walkable(ox, oy) {
+            reachable[oy as usize][ox as usize] = true;
+            queue.push_back((ox, oy));
+        }
+        while let Some((x, y)) = queue.pop_front() {
+            for (dx, dy) in [(1,0),(-1,0),(0,1),(0,-1)] {
+                let (nx, ny) = (x + dx, y + dy);
+                if nx >= 0 && ny >= 0 && nx < w && ny < h
+                    && !reachable[ny as usize][nx as usize]
+                    && level.walkable(nx, ny)
+                {
+                    reachable[ny as usize][nx as usize] = true;
+                    queue.push_back((nx, ny));
+                }
+            }
+        }
+
+        // Find nearest stranded walkable tile (manhattan distance from origin)
+        let target = (0..h).flat_map(|y| (0..w).map(move |x| (x, y)))
+            .filter(|&(x, y)| level.walkable(x, y) && !reachable[y as usize][x as usize])
+            .min_by_key(|&(x, y)| (x - ox).abs() + (y - oy).abs());
+
+        let Some((tx, ty)) = target else { break };
+
+        // Find closest reachable tile to the target to anchor the corridor
+        let (ax, ay) = (0..h).flat_map(|y| (0..w).map(move |x| (x, y)))
+            .filter(|&(x, y)| reachable[y as usize][x as usize])
+            .min_by_key(|&(x, y)| (x - tx).abs() + (y - ty).abs())
+            .unwrap_or((ox, oy));
+
+        // Dig L-shaped corridor: horizontal then vertical
+        let xstep = if tx > ax { 1 } else { -1 };
+        let mut cx = ax;
+        while cx != tx { level.set(cx, ay, ground); cx += xstep; }
+        let ystep = if ty > ay { 1 } else { -1 };
+        let mut cy = ay;
+        while cy != ty { level.set(tx, cy, ground); cy += ystep; }
+        level.set(tx, ty, ground);
+    }
+}
+
+fn place_ship_dock(level: &mut Level, fill: Tile) {
     let (cx, cy) = (PLANET_SIZE as i32 / 2, PLANET_SIZE as i32 / 2);
     let max = PLANET_SIZE as i32 - 1;
 
