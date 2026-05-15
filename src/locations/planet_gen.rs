@@ -227,18 +227,20 @@ pub fn generate(params: &PlanetParams) -> Location {
             tile!(shallow, scaled(wc, 3.0),  Tile::Lava);
             tile!(deep,    scaled(wc, 2.0),  Tile::CrimsonPool);
 
-            // Tunnel corridors through rock outcroppings. High weight → long straight runs.
+            // Tunnel corridors. Weight 90 vs ground 20 → ~82% chance of continuing straight
+            // at each step, giving average run length of ~5 tiles before exiting to open ground.
             models.create(SocketsCartesian2D::Simple {
                 x_pos: t_open, x_neg: t_open, y_pos: t_wall, y_neg: t_wall,
-            }).with_weight(12.0);
+            }).with_weight(90.0);
             tile_map.push((Tile::Ash, None));
 
             models.create(SocketsCartesian2D::Simple {
                 x_pos: t_wall, x_neg: t_wall, y_pos: t_open, y_neg: t_open,
-            }).with_weight(12.0);
+            }).with_weight(90.0);
             tile_map.push((Tile::Ash, None));
 
-            tile!(t_wall,  8.0,              Tile::Ash);
+            // Low chamber weight keeps open pockets rare so they don't look like tunnel bends.
+            tile!(t_wall,  3.0,              Tile::Ash);
 
             tile!(ground,  0.35,             Tile::Ash, Object::lava_crab);
         }
