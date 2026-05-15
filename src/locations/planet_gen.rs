@@ -202,23 +202,12 @@ pub fn generate(params: &PlanetParams) -> Location {
             tile!(deep,    scaled(wc, 3.0),  Tile::DeepWater);
         }
         PlanetBiome::Lava => {
-            tile!(ground,  14.0,             Tile::Ash);
-            tile!(rock,    scaled(rf, 18.0), Tile::CaveWall);
+            // Rock weight dominates heavily so WFC forms large solid masses.
+            // Wide straight tunnels are carved by post-processing, not WFC.
+            tile!(ground,  10.0,             Tile::Ash);
+            tile!(rock,    scaled(rf, 80.0), Tile::CaveWall);
             tile!(shallow, scaled(wc, 3.0),  Tile::Lava);
             tile!(deep,    scaled(wc, 2.0),  Tile::CrimsonPool);
-            // Tunnel tiles: ash corridors forced through rock by directional socket constraints.
-            // tunnel_h can only sit where rock is above AND below, ground left AND right.
-            // tunnel_v is the vertical flip. WFC places these wherever those constraints are met,
-            // carving natural-looking corridors through rock masses.
-            models.create(SocketsCartesian2D::Simple {
-                x_pos: ground, x_neg: ground, y_pos: rock, y_neg: rock,
-            }).with_weight(4.0);
-            tile_map.push((Tile::Ash, None));
-            models.create(SocketsCartesian2D::Simple {
-                x_pos: rock, x_neg: rock, y_pos: ground, y_neg: ground,
-            }).with_weight(4.0);
-            tile_map.push((Tile::Ash, None));
-            // Scorch Crawlers: lava-adapted crabs, patrol open ash ground
             tile!(ground,  0.35,             Tile::Ash, Object::lava_crab);
         }
     }
@@ -281,14 +270,23 @@ pub fn generate(params: &PlanetParams) -> Location {
     loc
 }
 
-/// Carves ash corridors through rock until all walkable tiles are reachable from (ox, oy).
-/// Finds the nearest stranded walkable tile each pass and digs an L-shaped path to it.
+/// Carves 2-wide corridors through rock until all walkable tiles are reachable from (ox, oy).
+/// Prefers anchors that share a row/column with the target (straight shot, zero bends).
+/// When a bend is unavoidable, the longer axis runs first so the turn is at the shorter end.
 fn carve_tunnels(level: &mut Level, ox: i32, oy: i32, ground: Tile) {
     let w = level.width as i32;
     let h = level.height as i32;
 
+    let set2h = |level: &mut Level, x: i32, y: i32| {
+        level.set(x, y, ground);
+        if y + 1 < h { level.set(x, y + 1, ground); }
+    };
+    let set2v = |level: &mut Level, x: i32, y: i32| {
+        level.set(x, y, ground);
+        if x + 1 < w { level.set(x + 1, y, ground); }
+    };
+
     loop {
-        // BFS to find all tiles reachable from origin
         let mut reachable = vec![vec![false; level.width]; level.height];
         let mut queue = VecDeque::new();
         if level.walkable(ox, oy) {
@@ -296,7 +294,7 @@ fn carve_tunnels(level: &mut Level, ox: i32, oy: i32, ground: Tile) {
             queue.push_back((ox, oy));
         }
         while let Some((x, y)) = queue.pop_front() {
-            for (dx, dy) in [(1,0),(-1,0),(0,1),(0,-1)] {
+            for (dx, dy) in [(1i32,0i32),(-1,0),(0,1),(0,-1)] {
                 let (nx, ny) = (x + dx, y + dy);
                 if nx >= 0 && ny >= 0 && nx < w && ny < h
                     && !reachable[ny as usize][nx as usize]
@@ -308,27 +306,41 @@ fn carve_tunnels(level: &mut Level, ox: i32, oy: i32, ground: Tile) {
             }
         }
 
-        // Find nearest stranded walkable tile (manhattan distance from origin)
-        let target = (0..h).flat_map(|y| (0..w).map(move |x| (x, y)))
+        let Some((tx, ty)) = (0..h).flat_map(|y| (0..w).map(move |x| (x, y)))
             .filter(|&(x, y)| level.walkable(x, y) && !reachable[y as usize][x as usize])
-            .min_by_key(|&(x, y)| (x - ox).abs() + (y - oy).abs());
+            .min_by_key(|&(x, y)| (x - ox).abs() + (y - oy).abs())
+        else { break };
 
-        let Some((tx, ty)) = target else { break };
-
-        // Find closest reachable tile to the target to anchor the corridor
+        // Prefer anchors in the same row or column as the target — straight shot, no bend.
         let (ax, ay) = (0..h).flat_map(|y| (0..w).map(move |x| (x, y)))
             .filter(|&(x, y)| reachable[y as usize][x as usize])
-            .min_by_key(|&(x, y)| (x - tx).abs() + (y - ty).abs())
+            .min_by_key(|&(x, y)| {
+                let dist = (x - tx).abs() + (y - ty).abs();
+                let bend = if x == tx || y == ty { 0 } else { 10_000 };
+                dist + bend
+            })
             .unwrap_or((ox, oy));
 
-        // Dig L-shaped corridor: horizontal then vertical
-        let xstep = if tx > ax { 1 } else { -1 };
-        let mut cx = ax;
-        while cx != tx { level.set(cx, ay, ground); cx += xstep; }
-        let ystep = if ty > ay { 1 } else { -1 };
-        let mut cy = ay;
-        while cy != ty { level.set(tx, cy, ground); cy += ystep; }
-        level.set(tx, ty, ground);
+        let (dx, dy) = (tx - ax, ty - ay);
+        if dx.abs() >= dy.abs() {
+            // Horizontal segment first (longer), then short vertical bend
+            let xstep = if dx > 0 { 1 } else { -1 };
+            let mut cx = ax;
+            while cx != tx { set2h(level, cx, ay); cx += xstep; }
+            let ystep = if dy > 0 { 1 } else { -1 };
+            let mut cy = ay;
+            while cy != ty { set2v(level, tx, cy); cy += ystep; }
+        } else {
+            // Vertical segment first (longer), then short horizontal bend
+            let ystep = if dy > 0 { 1 } else { -1 };
+            let mut cy = ay;
+            while cy != ty { set2v(level, ax, cy); cy += ystep; }
+            let xstep = if dx > 0 { 1 } else { -1 };
+            let mut cx = ax;
+            while cx != tx { set2h(level, cx, ty); cx += xstep; }
+        }
+        set2h(level, tx, ty);
+        set2v(level, tx, ty);
     }
 }
 
