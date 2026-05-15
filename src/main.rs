@@ -665,7 +665,8 @@ fn main() {
         npc_wander.in_set(SimStep),
         follower_ai.in_set(SimStep),
         update_fov.in_set(SimStep),
-        abilities::tick_cooldowns.in_set(SimStep)
+        abilities::tick_cooldowns.in_set(SimStep),
+        abilities::advance_pending_fire.in_set(SimStep)
       )
         .chain()
     )

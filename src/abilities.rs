@@ -3,11 +3,11 @@
 
 use {std::collections::HashMap,
      bevy::prelude::*,
-     crate::{Clock, CurrentZone, Inventory, Player, PlayerPos, TurnBasedWorldState, UiState,
+     crate::{Clock, CurrentZone, Inventory, Player, PlayerPos, TimeMode, TurnBasedWorldState, UiState,
              entities::{Enemy, Location, Named, Object, PlayerEquipped, Stats},
              level::Item,
              particles::{ParticleEffects, spawn_bullet_trail, spawn_explosion_burst, spawn_laser_beam},
-             path_overlay::ray_cast_target,
+             path_overlay::{bresenham_path, dda_cells, euclidean_los_point, ray_cast_target},
              ui::{LogEntries, log_message}}};
 
 const EXPLOSION_OFFSETS: [(i32, i32); 13] = [
@@ -48,7 +48,10 @@ pub struct AbilityBarData {
 pub struct TargetingState {
   pub selected: Option<usize>,
   /// Remaining cooldown turns, keyed by ability kind.
-  pub cooldowns: HashMap<AbilityKind, u32>
+  pub cooldowns: HashMap<AbilityKind, u32>,
+  /// Queued fire: fires automatically once the cooldown expires.
+  /// Stores the ability kind and the cursor tile the player aimed at.
+  pub pending_fire: Option<(AbilityKind, (i32, i32))>
 }
 
 // ---------------------------------------------------------------------------
@@ -118,7 +121,8 @@ pub fn handle_ability_keys(
   }
 }
 
-/// When targeting and the player left-clicks, fire the selected ability at that tile.
+/// Fire the selected ability, or auto-fire a pending ability once its cooldown expires.
+/// If the player clicks while on cooldown the shot is queued and fires automatically.
 pub fn handle_ability_click(
   mouse: Res<ButtonInput<MouseButton>>,
   windows: Query<&Window>,
@@ -135,119 +139,161 @@ pub fn handle_ability_click(
   effects: Res<ParticleEffects>
 ) {
   let (pos, ref mut inventory, ref mut equipped) = player.into_inner();
-  if let Some(slot_idx) = targeting.selected
-    && mouse.just_pressed(MouseButton::Left)
-    && let Ok(window) = windows.single()
-    && let Ok((camera, cam_transform)) = camera_q.single()
-  {
-    if bar.slots.get(slot_idx).is_none() {
-      targeting.selected = None;
-    } else {
-      let slot = &bar.slots[slot_idx];
-      let cd = targeting.cooldowns.get(&slot.kind).copied().unwrap_or(0);
-      if cd > 0 {
-        log_message(&mut log, format!("{} is on cooldown ({} turns).", slot.name, cd));
-      } else if let Some(cursor) = window.cursor_position()
-        && let Ok(world) = camera.viewport_to_world_2d(cam_transform, cursor)
-      {
+
+  // Determine what to fire this frame — either a queued shot whose cooldown just hit 0,
+  // or a fresh click. Produces (kind, cursor_tx, cursor_ty, max_cd) or None.
+  let fire_now: Option<(AbilityKind, i32, i32, u32)> =
+    if let Some((ref kind, (ptx, pty))) = targeting.pending_fire.clone()
+      && targeting.cooldowns.get(kind).copied().unwrap_or(0) == 0
+    {
+      targeting.pending_fire = None;
+      let max_cd = bar.slots.iter()
+        .find(|s| s.kind == *kind)
+        .map(|s| s.max_cooldown)
+        .unwrap_or(3);
+      Some((kind.clone(), ptx, pty, max_cd))
+    } else if let Some(slot_idx) = targeting.selected
+      && mouse.just_pressed(MouseButton::Left)
+      && let Ok(window) = windows.single()
+      && let Ok((camera, cam_transform)) = camera_q.single()
+      && let Some(cursor) = window.cursor_position()
+      && let Ok(world) = camera.viewport_to_world_2d(cam_transform, cursor)
+    {
+      if bar.slots.get(slot_idx).is_none() {
+        targeting.selected = None;
+        None
+      } else {
+        let slot = &bar.slots[slot_idx];
         let level = current.0.level(pos.z);
         let (cursor_tx, cursor_ty) = crate::world_to_level_cell(world, level.width, level.height);
-        let (tx, ty) = ray_cast_target(pos.x, pos.y, cursor_tx, cursor_ty, level);
-        let max_cd = slot.max_cooldown;
-
-        // LoS check for laser: if the ray was clipped by a wall before reaching the cursor,
-        // the target tile is not visible — report it and keep the ability selected.
-        if matches!(slot.kind, AbilityKind::FireLaser) && (tx, ty) != (cursor_tx, cursor_ty) {
-          log_message(&mut log, "No LoS to target.".into());
-        } else {
-
-        // Returns true if the ability was actually fired (spend turn + set cooldown).
-        let fired = match &slot.kind {
-          AbilityKind::FireLaser => {
-            use crate::path_overlay::bresenham_path;
-            let path = bresenham_path(pos.x, pos.y, tx, ty);
-            spawn_laser_beam(&mut commands, &effects, &path, level.width, level.height);
-            let attack = equipped.weapon.map(|w| w.attack_bonus()).unwrap_or(0) + 5;
-            let mut hit_names: Vec<&str> = vec![];
-            for &(px, py) in path.iter().skip(1) {
-              if let Some((_, mut stats, named)) = enemy_q.iter_mut().find(|(loc, _, _)| {
-                matches!(loc, Location::Coords { x, y, z, .. } if *x == px && *y == py && *z == pos.z)
-              }) {
-                stats.hp -= attack;
-                hit_names.push(named.map(|n| n.name).unwrap_or("Enemy"));
-              }
-            }
-            log_message(&mut log, match hit_names.len() {
-              0 => "Your laser hits nothing.".into(),
-              1 => format!("Laser burns {} for {} damage!", hit_names[0], attack),
-              n => format!("Laser burns {} enemies for {} damage each!", n, attack)
-            });
-            true
-          }
-          AbilityKind::FireGun => {
-            use crate::path_overlay::bresenham_path;
-            let path = bresenham_path(pos.x, pos.y, tx, ty);
-            let hit_pos = path.iter().skip(1).find(|&&(px, py)| {
-              enemy_q.iter().any(|(loc, _, _)| {
-                matches!(loc, Location::Coords { x, y, z, .. } if *x == px && *y == py && *z == pos.z)
-              })
-            }).copied();
-            // Trail ends at the hit enemy tile or the ray endpoint.
-            let trail_end = hit_pos.unwrap_or((tx, ty));
-            let trail_path = bresenham_path(pos.x, pos.y, trail_end.0, trail_end.1);
-            spawn_bullet_trail(&mut commands, &effects, &trail_path, level.width, level.height);
-            if let Some((hx, hy)) = hit_pos
-              && let Some((_, mut stats, named)) = enemy_q.iter_mut().find(|(loc, _, _)| {
-                matches!(loc, Location::Coords { x, y, z, .. } if *x == hx && *y == hy && *z == pos.z)
-              })
-            {
-              let attack = equipped.weapon.map(|w| w.attack_bonus()).unwrap_or(0) + 5;
-              stats.hp -= attack;
-              let name = named.map(|n| n.name).unwrap_or("Enemy");
-              log_message(&mut log, format!("You shoot {} for {} damage!", name, attack));
-            } else {
-              log_message(&mut log, if (tx, ty) != (cursor_tx, cursor_ty) {
-                "Your shot hit the wall."
-              } else {
-                "Your shot hits nothing."
-              }.into());
-            }
-            true
-          }
-          &AbilityKind::ThrowGrenade { slot: grenade_slot, item } => {
-            if inventory.0.get(&item).copied().unwrap_or(0) == 0 {
-              log_message(&mut log, format!("No {} in inventory.", item.name()));
-              false
-            } else {
-              let entry = inventory.0.entry(item).or_insert(0);
-              *entry = entry.saturating_sub(1);
-              if *entry == 0 {
-                inventory.0.remove(&item);
-                equipped.grenades[grenade_slot] = None;
-              }
-              for &(dx, dy) in &EXPLOSION_OFFSETS {
-                let (ex, ey) = (tx + dx, ty + dy);
-                if level.walkable(ex, ey) {
-                  Object::explosion_cloud().spawn_at(&mut commands, ex, ey, pos.z);
-                }
-              }
-              spawn_explosion_burst(&mut commands, &effects, (tx, ty), level.width, level.height);
-              log_message(&mut log, format!("You throw a {}!", item.name()));
-              true
-            }
-          }
-        };
-
-        if fired {
-          targeting.cooldowns.insert(slot.kind.clone(), max_cd);
+        let cd = targeting.cooldowns.get(&slot.kind).copied().unwrap_or(0);
+        if cd > 0 {
+          targeting.pending_fire = Some((slot.kind.clone(), (cursor_tx, cursor_ty)));
           clock.spend_turn(&mut tb);
+          None
+        } else {
+          Some((slot.kind.clone(), cursor_tx, cursor_ty, slot.max_cooldown))
         }
-        if !fired {
-          targeting.selected = None;
+      }
+    } else {
+      None
+    };
+
+  let Some((kind, cursor_tx, cursor_ty, max_cd)) = fire_now else { return };
+  let level = current.0.level(pos.z);
+  let px = pos.x as f32 + 0.5;
+  let py = pos.y as f32 + 0.5;
+
+  // Laser uses Euclidean LoS; None means no clear line to any part of the target tile.
+  let los_point = if matches!(kind, AbilityKind::FireLaser) {
+    euclidean_los_point(px, py, cursor_tx, cursor_ty, level)
+  } else {
+    None
+  };
+
+  if matches!(kind, AbilityKind::FireLaser) && los_point.is_none() {
+    log_message(&mut log, "No LoS to target.".into());
+    return; // keep ability selected
+  }
+
+  let (tx, ty) = ray_cast_target(pos.x, pos.y, cursor_tx, cursor_ty, level);
+
+  let fired = match &kind {
+    AbilityKind::FireLaser => {
+      let (los_x, los_y) = los_point.unwrap();
+      let cells = dda_cells(px, py, los_x, los_y);
+      spawn_laser_beam(&mut commands, &effects, &cells, level.width, level.height);
+      let attack = equipped.weapon.map(|w| w.attack_bonus()).unwrap_or(0) + 5;
+      let mut hit_names: Vec<&str> = vec![];
+      for &(cx, cy) in cells.iter().skip(1) {
+        if let Some((_, mut stats, named)) = enemy_q.iter_mut().find(|(loc, _, _)| {
+          matches!(loc, Location::Coords { x, y, z, .. } if *x == cx && *y == cy && *z == pos.z)
+        }) {
+          stats.hp -= attack;
+          hit_names.push(named.map(|n| n.name).unwrap_or("Enemy"));
         }
-        } // end LoS else
+      }
+      log_message(&mut log, match hit_names.len() {
+        0 => "Your laser hits nothing.".into(),
+        1 => format!("Laser burns {} for {} damage!", hit_names[0], attack),
+        n => format!("Laser burns {} enemies for {} damage each!", n, attack)
+      });
+      true
+    }
+    AbilityKind::FireGun => {
+      let path = bresenham_path(pos.x, pos.y, tx, ty);
+      let hit_pos = path.iter().skip(1).find(|&&(px, py)| {
+        enemy_q.iter().any(|(loc, _, _)| {
+          matches!(loc, Location::Coords { x, y, z, .. } if *x == px && *y == py && *z == pos.z)
+        })
+      }).copied();
+      let trail_end = hit_pos.unwrap_or((tx, ty));
+      let trail_path = bresenham_path(pos.x, pos.y, trail_end.0, trail_end.1);
+      spawn_bullet_trail(&mut commands, &effects, &trail_path, level.width, level.height);
+      if let Some((hx, hy)) = hit_pos
+        && let Some((_, mut stats, named)) = enemy_q.iter_mut().find(|(loc, _, _)| {
+          matches!(loc, Location::Coords { x, y, z, .. } if *x == hx && *y == hy && *z == pos.z)
+        })
+      {
+        let attack = equipped.weapon.map(|w| w.attack_bonus()).unwrap_or(0) + 5;
+        stats.hp -= attack;
+        let name = named.map(|n| n.name).unwrap_or("Enemy");
+        log_message(&mut log, format!("You shoot {} for {} damage!", name, attack));
+      } else {
+        log_message(&mut log, if (tx, ty) != (cursor_tx, cursor_ty) {
+          "Your shot hit the wall."
+        } else {
+          "Your shot hits nothing."
+        }.into());
+      }
+      true
+    }
+    AbilityKind::ThrowGrenade { slot: grenade_slot, item } => {
+      let (grenade_slot, item) = (*grenade_slot, *item);
+      if inventory.0.get(&item).copied().unwrap_or(0) == 0 {
+        log_message(&mut log, format!("No {} in inventory.", item.name()));
+        false
+      } else {
+        let entry = inventory.0.entry(item).or_insert(0);
+        *entry = entry.saturating_sub(1);
+        if *entry == 0 {
+          inventory.0.remove(&item);
+          equipped.grenades[grenade_slot] = None;
+        }
+        for &(dx, dy) in &EXPLOSION_OFFSETS {
+          let (ex, ey) = (tx + dx, ty + dy);
+          if level.walkable(ex, ey) {
+            Object::explosion_cloud().spawn_at(&mut commands, ex, ey, pos.z);
+          }
+        }
+        spawn_explosion_burst(&mut commands, &effects, (tx, ty), level.width, level.height);
+        log_message(&mut log, format!("You throw a {}!", item.name()));
+        true
       }
     }
+  };
+
+  if fired {
+    targeting.cooldowns.insert(kind, max_cd);
+    clock.spend_turn(&mut tb);
+  }
+  if !fired {
+    targeting.selected = None;
+  }
+}
+
+/// In turn-based mode, keep spending turns while a pending fire is waiting on cooldown,
+/// so the world keeps ticking without player input.
+pub fn advance_pending_fire(
+  targeting: Res<TargetingState>,
+  mut clock: ResMut<Clock>,
+  mut tb: ResMut<TurnBasedWorldState>
+) {
+  if clock.mode == TimeMode::TurnBased
+    && targeting.pending_fire.as_ref()
+      .is_some_and(|(kind, _)| targeting.cooldowns.get(kind).copied().unwrap_or(0) > 0)
+  {
+    clock.spend_turn(&mut tb);
   }
 }
 

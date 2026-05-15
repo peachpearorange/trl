@@ -39,6 +39,78 @@ pub struct RangedPathOverlay {
 // Path math
 // ---------------------------------------------------------------------------
 
+/// Enumerate every grid cell a line from (x0,y0) to (x1,y1) passes through,
+/// using the Amanatides & Woo DDA algorithm. Both endpoint cells are included.
+/// Coordinates are in continuous tile-space: center of cell (i,j) is (i+0.5, j+0.5).
+pub fn dda_cells(x0: f32, y0: f32, x1: f32, y1: f32) -> Vec<(i32, i32)> {
+  let mut cells = Vec::new();
+  let mut cx = x0.floor() as i32;
+  let mut cy = y0.floor() as i32;
+  let end_cx = x1.floor() as i32;
+  let end_cy = y1.floor() as i32;
+  cells.push((cx, cy));
+  if cx == end_cx && cy == end_cy { return cells; }
+
+  let dx = x1 - x0;
+  let dy = y1 - y0;
+  let step_x = dx.signum() as i32;
+  let step_y = dy.signum() as i32;
+  let t_delta_x = if dx.abs() < 1e-9 { f32::INFINITY } else { 1.0 / dx.abs() };
+  let t_delta_y = if dy.abs() < 1e-9 { f32::INFINITY } else { 1.0 / dy.abs() };
+  let mut t_max_x = if dx > 1e-9 {
+    ((cx + 1) as f32 - x0) / dx
+  } else if dx < -1e-9 {
+    (cx as f32 - x0) / dx
+  } else {
+    f32::INFINITY
+  };
+  let mut t_max_y = if dy > 1e-9 {
+    ((cy + 1) as f32 - y0) / dy
+  } else if dy < -1e-9 {
+    (cy as f32 - y0) / dy
+  } else {
+    f32::INFINITY
+  };
+
+  loop {
+    if t_max_x < t_max_y { cx += step_x; t_max_x += t_delta_x; }
+    else                  { cy += step_y; t_max_y += t_delta_y; }
+    cells.push((cx, cy));
+    if cx == end_cx && cy == end_cy { break; }
+  }
+  cells
+}
+
+/// Find a point on tile (tx, ty) that has a clear Euclidean line-of-sight from (px, py)
+/// (continuous tile-space coordinates). Tries center, corners, and edge midpoints in that order.
+/// All cells between start and end (exclusive of the player cell, the target tile is allowed)
+/// must be walkable. Returns `None` if no point on the tile is visible.
+pub fn euclidean_los_point(
+  px: f32,
+  py: f32,
+  tx: i32,
+  ty: i32,
+  level: &crate::level::Level
+) -> Option<(f32, f32)> {
+  let candidates = [
+    (tx as f32 + 0.5, ty as f32 + 0.5),  // center first
+    (tx as f32 + 0.1, ty as f32 + 0.1),
+    (tx as f32 + 0.9, ty as f32 + 0.1),
+    (tx as f32 + 0.1, ty as f32 + 0.9),
+    (tx as f32 + 0.9, ty as f32 + 0.9),
+    (tx as f32 + 0.5, ty as f32 + 0.1),
+    (tx as f32 + 0.5, ty as f32 + 0.9),
+    (tx as f32 + 0.1, ty as f32 + 0.5),
+    (tx as f32 + 0.9, ty as f32 + 0.5),
+  ];
+  candidates.into_iter().find(|&(cx, cy)| {
+    dda_cells(px, py, cx, cy)
+      .into_iter()
+      .skip(1)  // skip player's cell
+      .all(|(gx, gy)| (gx, gy) == (tx, ty) || level.walkable(gx, gy))
+  })
+}
+
 /// All grid tiles on the Bresenham line from (x0,y0) to (x1,y1), inclusive of both ends.
 pub fn bresenham_path(x0: i32, y0: i32, x1: i32, y1: i32) -> Vec<(i32, i32)> {
   let mut tiles = vec![(x0, y0)];
