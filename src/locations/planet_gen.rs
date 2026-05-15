@@ -19,6 +19,7 @@ pub const ID_ALIEN_JUNGLE: LocationId  = (4, 0, 0);
 pub const ID_CRYSTAL_CAVES: LocationId = (5, 0, 0);
 pub const ID_ARCTIC_WASTE: LocationId  = (6, 0, 0);
 pub const ID_DESERT_WORLD: LocationId  = (1, 1, 0);
+pub const ID_LAVA_WORLD: LocationId    = (7, 0, 0);
 
 pub fn all() -> Vec<(LocationId, Location)> {
     vec![
@@ -49,6 +50,12 @@ pub fn all() -> Vec<(LocationId, Location)> {
                 .with_water(0.08)
                 .with_rocks(0.35)
                 .with_seed(0xCAFE_BABE)),
+        ),
+        (
+            ID_LAVA_WORLD,
+            generate(&PlanetParams::lava("Pyros Maw")
+                .with_rocks(0.5)
+                .with_seed(0xF1A3_BA11)),
         ),
     ]
 }
@@ -197,6 +204,8 @@ pub fn generate(params: &PlanetParams) -> Location {
             tile!(rock,    scaled(rf, 10.0), Tile::CaveWall);
             tile!(shallow, 8.0,              Tile::Lava);
             tile!(deep,    scaled(wc, 6.0),  Tile::CrimsonPool);
+            // Scorch Crawlers: lava-adapted crabs, patrol open ash ground
+            tile!(ground,  0.35,             Tile::Ash, Object::lava_crab);
         }
     }
 

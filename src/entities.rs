@@ -768,6 +768,25 @@ impl Object {
     ))
   }
 
+  pub fn lava_crab() -> Self {
+    Self::enemy().add((
+      Named {
+        name: "Scorch Crawler",
+        flavor: "A heat-adapted crustacean from Pyros Maw. Its shell has fused with volcanic rock over generations. Barely slowed by flame."
+      },
+      Stats { hp: 14, max_hp: 14, attack: 5, move_speed: 4.0, attack_speed: 0.9 },
+      DriftChance(0.05),
+      Wielding(None),
+      Wearing(Some(Armor::Plate)),
+      Glyph::palette_sprite(
+        "textures/space_qud/crab alien.png",
+        'c',
+        Color::srgb(0.85, 0.25, 0.05),
+        Color::srgb(1.0, 0.55, 0.0)
+      ),
+    ))
+  }
+
   pub fn mantis_alien() -> Self {
     Self::enemy().add((
       Named {
