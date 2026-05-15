@@ -751,7 +751,7 @@ impl Object {
         name: "Xel-Naran Hunter",
         flavor: "A fast-moving predator native to Xel-Nara IV. Moves in bursts. Closes distance before you can react."
       },
-      Stats { hp: 5, max_hp: 5, attack: 3, move_speed: 4.0, attack_speed: 1.5 },
+      Stats { hp: 5, max_hp: 5, attack: 3, move_speed: 12.0, attack_speed: 1.5 },
       Wielding(None),
       Wearing(None),
       Glyph::palette_sprite(
