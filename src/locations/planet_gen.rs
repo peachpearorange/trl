@@ -200,10 +200,10 @@ pub fn generate(params: &PlanetParams) -> Location {
             tile!(deep,    scaled(wc, 3.0),  Tile::DeepWater);
         }
         PlanetBiome::Lava => {
-            tile!(ground,  8.0,              Tile::Ash);
-            tile!(rock,    scaled(rf, 10.0), Tile::CaveWall);
-            tile!(shallow, 8.0,              Tile::Lava);
-            tile!(deep,    scaled(wc, 6.0),  Tile::CrimsonPool);
+            tile!(ground,  14.0,             Tile::Ash);       // high weight = wide ash plains
+            tile!(rock,    scaled(rf, 18.0), Tile::CaveWall);  // boosted to force dense rock masses
+            tile!(shallow, scaled(wc, 3.0),  Tile::Lava);      // narrow rivers leave more ash space
+            tile!(deep,    scaled(wc, 2.0),  Tile::CrimsonPool);
             // Scorch Crawlers: lava-adapted crabs, patrol open ash ground
             tile!(ground,  0.35,             Tile::Ash, Object::lava_crab);
         }
