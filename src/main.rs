@@ -753,7 +753,7 @@ fn white_pixel_image(images: &mut Assets<Image>) -> Handle<Image> {
 
 fn update_tile_hover_highlight(
   windows: Query<&Window>,
-  camera_q: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
+  camera_q: Query<(&Camera, &GlobalTransform), With<post_process::GameCamera>>,
   current: Res<CurrentZone>,
   fov: Res<Fov>,
   player_pos: Single<&PlayerPos, With<Player>>,
@@ -2386,10 +2386,11 @@ fn setup(
   mut palette_cache: ResMut<PaletteImageCache>,
   mut log: ResMut<LogEntries>,
   mut clock: ResMut<Clock>,
-  mut tb: ResMut<TurnBasedWorldState>
+  mut tb: ResMut<TurnBasedWorldState>,
+  render_target: Res<post_process::GameRenderTarget>,
 ) {
   clock.spend_turn(&mut tb);
-  commands.spawn((Camera2d, Msaa::Off));
+  commands.spawn((Camera2d, Msaa::Off, post_process::GameCamera, post_process::game_render_target(&render_target)));
 
   let tileset_info = sprites::build_tileset(&mut images);
   let tileset_handle = tileset_info.handle.clone();
@@ -2513,7 +2514,7 @@ fn spawn_item_glyphs(commands: &mut Commands, zone: &active_zone::ActiveZone) {
 fn camera_follow(
   vis: Single<&Visuals, With<Player>>,
   current: Res<CurrentZone>,
-  mut cam_q: Query<&mut Transform, With<Camera2d>>,
+  mut cam_q: Query<&mut Transform, With<post_process::GameCamera>>,
   windows: Query<&Window>
 ) {
   if let Ok(mut cam_tf) = cam_q.single_mut()
