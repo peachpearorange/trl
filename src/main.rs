@@ -752,8 +752,8 @@ fn white_pixel_image(images: &mut Assets<Image>) -> Handle<Image> {
 }
 
 fn update_tile_hover_highlight(
-  windows: Query<&Window>,
-  camera_q: Query<(&Camera, &GlobalTransform), With<post_process::GameCamera>>,
+  window: Single<&Window>,
+  camera: Single<(&Camera, &GlobalTransform), With<post_process::GameCamera>>,
   current: Res<CurrentZone>,
   fov: Res<Fov>,
   player_pos: Single<&PlayerPos, With<Player>>,
@@ -761,8 +761,7 @@ fn update_tile_hover_highlight(
 ) {
   if let Ok((mut transform, mut vis)) = q.single_mut() {
     *vis = Visibility::Hidden;
-    if let Ok(window) = windows.single()
-      && let Ok((camera, cam_transform)) = camera_q.single()
+    let (camera, cam_transform) = *camera;
     {
       let level = current.0.level(player_pos.z);
       let pick = |w: &Window,
@@ -782,7 +781,7 @@ fn update_tile_hover_highlight(
           })
       };
       if let Some((tx, ty)) =
-        pick(window, camera, cam_transform, level.width, level.height)
+        pick(&*window, camera, cam_transform, level.width, level.height)
       {
         let visible = fov.0.is_visible(tx as usize, ty as usize);
         let revealed = fov.0.is_revealed(tx as usize, ty as usize);
@@ -2514,28 +2513,23 @@ fn spawn_item_glyphs(commands: &mut Commands, zone: &active_zone::ActiveZone) {
 fn camera_follow(
   vis: Single<&Visuals, With<Player>>,
   current: Res<CurrentZone>,
-  mut cam_q: Query<&mut Transform, With<post_process::GameCamera>>,
-  windows: Query<&Window>
+  mut cam_tf: Single<&mut Transform, With<post_process::GameCamera>>,
+  win: Single<&Window>,
 ) {
-  if let Ok(mut cam_tf) = cam_q.single_mut()
-    && let Ok(win) = windows.single()
-  {
-    let w = win.resolution.width();
-    let h = win.resolution.height();
-    let screen_center = Vec2::new(w / 2.0, h / 2.0);
-    let viewport_center = Vec2::new(w * 0.35, (h - STATUS_BAR_HEIGHT) / 2.0);
-    let offset = viewport_center - screen_center;
-
-    let local = vis.display;
-    let world_pos = Vec2::new(
-      (local.x - current.0.width as f32 / 2.0) * TILE_SIZE,
-      (current.0.height as f32 / 2.0 - local.y) * TILE_SIZE
-    );
-    let mut t = (world_pos - offset).extend(0.0);
-    t.x = t.x.round();
-    t.y = t.y.round();
-    cam_tf.translation = t;
-  }
+  let w = win.resolution.width();
+  let h = win.resolution.height();
+  let screen_center = Vec2::new(w / 2.0, h / 2.0);
+  let viewport_center = Vec2::new(w * 0.35, (h - STATUS_BAR_HEIGHT) / 2.0);
+  let offset = viewport_center - screen_center;
+  let local = vis.display;
+  let world_pos = Vec2::new(
+    (local.x - current.0.width as f32 / 2.0) * TILE_SIZE,
+    (current.0.height as f32 / 2.0 - local.y) * TILE_SIZE
+  );
+  let mut t = (world_pos - offset).extend(0.0);
+  t.x = t.x.round();
+  t.y = t.y.round();
+  cam_tf.translation = t;
 }
 
 fn player_input(
