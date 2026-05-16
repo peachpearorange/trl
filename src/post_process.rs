@@ -1,35 +1,54 @@
 use bevy::{
+    asset::RenderAssetUsages,
     camera::{RenderTarget, visibility::RenderLayers},
     prelude::*,
     reflect::TypePath,
-    render::render_resource::{AsBindGroup, TextureFormat},
-    shader::ShaderRef,
+    render::{
+        Render, RenderApp, RenderStartup, RenderSystems,
+        extract_resource::{ExtractResource, ExtractResourcePlugin},
+        render_asset::RenderAssets,
+        render_graph::{self, RenderGraph, RenderLabel},
+        render_resource::{
+            binding_types::{storage_buffer_sized, texture_2d, texture_storage_2d, uniform_buffer},
+            *,
+        },
+        renderer::{RenderContext, RenderDevice, RenderQueue},
+        texture::GpuImage,
+    },
+    shader::{PipelineCacheError, ShaderRef},
     sprite_render::{Material2d, Material2dPlugin},
     window::WindowResized,
 };
+use std::borrow::Cow;
 
-/// Render target the game camera writes into; sampled by the display pass.
-#[derive(Resource)]
+const WORKGROUP_SIZE: u32 = 8;
+const LAYER_DISPLAY: usize = 1;
+const ORDER_DISPLAY: isize = 10;
+
+#[derive(Resource, Clone, ExtractResource)]
 pub struct GameRenderTarget(pub Handle<Image>);
 
-/// Marks the game-world camera (renders to texture).
+#[derive(Resource, Clone, ExtractResource)]
+pub struct OutputImage(pub Handle<Image>);
+
 #[derive(Component)]
 pub struct GameCamera;
 
-/// Marks the fullscreen display mesh.
+#[derive(Component)]
+struct DisplayCam;
+
 #[derive(Component)]
 struct DisplayMesh;
+
+#[derive(Resource)]
+struct DisplayHandle(Handle<DisplayMaterial>);
 
 #[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
 pub struct DisplayMaterial {
     #[texture(0)]
     #[sampler(1)]
     screen: Handle<Image>,
-    /// xy = game camera world position; zw unused (Vec4 for alignment).
-    #[uniform(2)]
-    cam_pos: Vec4,
 }
-
 impl Material2d for DisplayMaterial {
     fn fragment_shader() -> ShaderRef {
         "shaders/display.wgsl".into()
@@ -40,105 +59,302 @@ pub struct PostProcessPlugin;
 
 impl Plugin for PostProcessPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(Material2dPlugin::<DisplayMaterial>::default())
-           .add_systems(PreStartup, create_render_target)
-           .add_systems(PostStartup, setup_display)
-           .add_systems(Update, sync_camera_pos)
-           .add_systems(Update, on_window_resized);
+        app.add_plugins((
+            Material2dPlugin::<DisplayMaterial>::default(),
+            ExtractResourcePlugin::<GameRenderTarget>::default(),
+            ExtractResourcePlugin::<OutputImage>::default(),
+        ))
+        .add_systems(PreStartup, create_render_targets)
+        .add_systems(PostStartup, setup_display)
+        .add_systems(Update, on_window_resized);
+
+        let render_app = app.sub_app_mut(RenderApp);
+        render_app
+            .add_systems(RenderStartup, init_ccl_pipeline)
+            .add_systems(Render, prepare_bind_group.in_set(RenderSystems::PrepareBindGroups));
+
+        let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();
+        render_graph.add_node(CclLabel, CclNode::default());
+        render_graph.add_node_edge(CclLabel, bevy::render::graph::CameraDriverLabel);
     }
 }
 
-fn create_render_target(
+fn make_game_image(w: u32, h: u32) -> Image {
+    Image::new_target_texture(w, h, TextureFormat::bevy_default(), None)
+}
+
+fn make_output_image(w: u32, h: u32) -> Image {
+    let mut image = Image::new_target_texture(w, h, TextureFormat::Rgba8Unorm, None);
+    image.asset_usage = RenderAssetUsages::RENDER_WORLD;
+    image.texture_descriptor.usage =
+        TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST;
+    image
+}
+
+fn create_render_targets(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     windows: Single<&Window>,
 ) {
-    let image = Image::new_target_texture(
-        windows.physical_width(),
-        windows.physical_height(),
-        TextureFormat::bevy_default(),
-        None,
-    );
-    commands.insert_resource(GameRenderTarget(images.add(image)));
+    let (w, h) = (windows.physical_width(), windows.physical_height());
+    commands.insert_resource(GameRenderTarget(images.add(make_game_image(w, h))));
+    commands.insert_resource(OutputImage(images.add(make_output_image(w, h))));
 }
 
 fn setup_display(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<DisplayMaterial>>,
-    render_target: Res<GameRenderTarget>,
+    mut display_mats: ResMut<Assets<DisplayMaterial>>,
+    output: Res<OutputImage>,
     windows: Single<&Window>,
 ) {
     let (w, h) = (windows.width(), windows.height());
-
-    // Unit rectangle scaled via Transform so resizing only needs a Transform update.
+    let quad = meshes.add(Rectangle::new(1.0, 1.0));
+    let display_mat = display_mats.add(DisplayMaterial { screen: output.0.clone() });
     commands.spawn((
-        Mesh2d(meshes.add(Rectangle::new(1.0, 1.0))),
-        MeshMaterial2d(materials.add(DisplayMaterial {
-            screen: render_target.0.clone(),
-            cam_pos: Vec4::ZERO,
-        })),
+        Mesh2d(quad),
+        MeshMaterial2d(display_mat.clone()),
         Transform::from_scale(Vec3::new(w, h, 1.0)),
-        RenderLayers::layer(1),
+        RenderLayers::layer(LAYER_DISPLAY),
         DisplayMesh,
     ));
-
     commands.spawn((
         Camera2d,
-        Camera { order: 1, clear_color: ClearColorConfig::Custom(Color::BLACK), ..default() },
-        RenderLayers::layer(1),
+        DisplayCam,
+        RenderLayers::layer(LAYER_DISPLAY),
         IsDefaultUiCamera,
         Msaa::Off,
+        Camera {
+            order: ORDER_DISPLAY,
+            clear_color: ClearColorConfig::Custom(Color::BLACK),
+            ..default()
+        },
     ));
-}
-
-fn sync_camera_pos(
-    cam_tf: Single<&Transform, With<GameCamera>>,
-    mut materials: ResMut<Assets<DisplayMaterial>>,
-    q: Query<&MeshMaterial2d<DisplayMaterial>>,
-) {
-    for handle in &q {
-        if let Some(mat) = materials.get_mut(handle) {
-            mat.cam_pos = cam_tf.translation.extend(0.0);
-        }
-    }
+    commands.insert_resource(DisplayHandle(display_mat));
 }
 
 fn on_window_resized(
     mut events: MessageReader<WindowResized>,
     mut images: ResMut<Assets<Image>>,
-    mut render_target: ResMut<GameRenderTarget>,
-    mut game_cam_rt: Query<&mut RenderTarget, With<GameCamera>>,
-    display_mat_q: Query<&MeshMaterial2d<DisplayMaterial>>,
-    mut materials: ResMut<Assets<DisplayMaterial>>,
-    mut mesh_tf: Single<&mut Transform, With<DisplayMesh>>,
+    mut game_rt: ResMut<GameRenderTarget>,
+    mut output: ResMut<OutputImage>,
+    handle: Res<DisplayHandle>,
+    mut display_mats: ResMut<Assets<DisplayMaterial>>,
+    mut game_cam_rt: Query<&mut RenderTarget, (With<GameCamera>, Without<DisplayCam>)>,
+    mut mesh_tfs: Query<&mut Transform, With<DisplayMesh>>,
     windows: Single<&Window>,
 ) {
-    let Some(_) = events.read().last() else { return };
-
-    let new_image = Image::new_target_texture(
-        windows.physical_width(),
-        windows.physical_height(),
-        TextureFormat::bevy_default(),
-        None,
-    );
-    let new_handle = images.add(new_image);
-    render_target.0 = new_handle.clone();
-
-    if let Ok(mut rt) = game_cam_rt.single_mut() {
-        *rt = RenderTarget::Image(new_handle.clone().into());
+    if events.read().last().is_none() {
+        return;
     }
-
-    for handle in &display_mat_q {
-        if let Some(mat) = materials.get_mut(handle) {
-            mat.screen = new_handle.clone();
-        }
-    }
-
+    let (pw, ph) = (windows.physical_width(), windows.physical_height());
     let (w, h) = (windows.width(), windows.height());
-    mesh_tf.scale = Vec3::new(w, h, 1.0);
+    let new_game = images.add(make_game_image(pw, ph));
+    let new_output = images.add(make_output_image(pw, ph));
+    game_rt.0 = new_game.clone();
+    output.0 = new_output.clone();
+    if let Ok(mut rt) = game_cam_rt.single_mut() {
+        *rt = RenderTarget::Image(new_game.into());
+    }
+    if let Some(m) = display_mats.get_mut(&handle.0) {
+        m.screen = new_output;
+    }
+    let scale = Vec3::new(w, h, 1.0);
+    for mut tf in &mut mesh_tfs {
+        tf.scale = scale;
+    }
 }
 
 pub fn game_render_target(render_target: &GameRenderTarget) -> RenderTarget {
     RenderTarget::Image(render_target.0.clone().into())
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
+struct CclLabel;
+
+#[derive(ShaderType, Clone, Copy)]
+struct CclParams {
+    size: UVec2,
+    seed: u32,
+    _pad: u32,
+}
+
+#[derive(Resource)]
+struct CclPipeline {
+    layout: BindGroupLayoutDescriptor,
+    init: CachedComputePipelineId,
+    union: CachedComputePipelineId,
+    compress: CachedComputePipelineId,
+    recolor: CachedComputePipelineId,
+}
+
+#[derive(Resource)]
+struct CclResources {
+    bind_group: BindGroup,
+    parents_buffer: Buffer,
+    parents_capacity: u64,
+    size: UVec2,
+}
+
+fn init_ccl_pipeline(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    pipeline_cache: Res<PipelineCache>,
+) {
+    let layout = BindGroupLayoutDescriptor::new(
+        "CclLayout",
+        &BindGroupLayoutEntries::sequential(
+            ShaderStages::COMPUTE,
+            (
+                texture_2d(TextureSampleType::Float { filterable: false }),
+                storage_buffer_sized(false, None),
+                texture_storage_2d(TextureFormat::Rgba8Unorm, StorageTextureAccess::WriteOnly),
+                uniform_buffer::<CclParams>(false),
+            ),
+        ),
+    );
+    let shader = asset_server.load("shaders/ccl.wgsl");
+    let make_pipeline = |entry: &'static str| {
+        pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+            layout: vec![layout.clone()],
+            shader: shader.clone(),
+            entry_point: Some(Cow::from(entry)),
+            ..default()
+        })
+    };
+    commands.insert_resource(CclPipeline {
+        init: make_pipeline("init_components"),
+        union: make_pipeline("union_components"),
+        compress: make_pipeline("compress_components"),
+        recolor: make_pipeline("recolor_components"),
+        layout,
+    });
+}
+
+fn prepare_bind_group(
+    mut commands: Commands,
+    pipeline: Res<CclPipeline>,
+    pipeline_cache: Res<PipelineCache>,
+    gpu_images: Res<RenderAssets<GpuImage>>,
+    game_rt: Res<GameRenderTarget>,
+    output: Res<OutputImage>,
+    render_device: Res<RenderDevice>,
+    queue: Res<RenderQueue>,
+    existing: Option<Res<CclResources>>,
+    frame: Res<bevy::diagnostic::FrameCount>,
+) {
+    let (Some(src), Some(dst)) = (gpu_images.get(&game_rt.0), gpu_images.get(&output.0)) else {
+        return;
+    };
+    let size = UVec2::new(src.size.width, src.size.height);
+    if size.x == 0 || size.y == 0 {
+        return;
+    }
+    let needed = (size.x as u64) * (size.y as u64) * 4;
+    let reuse_buffer = existing.as_ref().is_some_and(|r| r.parents_capacity >= needed && r.size == size);
+    let parents_buffer = if reuse_buffer {
+        existing.as_ref().unwrap().parents_buffer.clone()
+    } else {
+        render_device.create_buffer(&BufferDescriptor {
+            label: Some("ccl_parents"),
+            size: needed,
+            usage: BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        })
+    };
+
+    let mut params_buffer = UniformBuffer::from(CclParams {
+        size,
+        seed: frame.0,
+        _pad: 0,
+    });
+    params_buffer.write_buffer(&render_device, &queue);
+
+    let bind_group = render_device.create_bind_group(
+        Some("ccl_bind_group"),
+        &pipeline_cache.get_bind_group_layout(&pipeline.layout),
+        &BindGroupEntries::sequential((
+            &src.texture_view,
+            parents_buffer.as_entire_binding(),
+            &dst.texture_view,
+            &params_buffer,
+        )),
+    );
+
+    commands.insert_resource(CclResources {
+        bind_group,
+        parents_buffer,
+        parents_capacity: needed,
+        size,
+    });
+}
+
+enum CclState {
+    Loading,
+    Ready,
+}
+
+struct CclNode {
+    state: CclState,
+}
+
+impl Default for CclNode {
+    fn default() -> Self {
+        Self { state: CclState::Loading }
+    }
+}
+
+impl render_graph::Node for CclNode {
+    fn update(&mut self, world: &mut World) {
+        let pipeline = world.resource::<CclPipeline>();
+        let cache = world.resource::<PipelineCache>();
+        if matches!(self.state, CclState::Loading) {
+            let all_ready = [pipeline.init, pipeline.union, pipeline.compress, pipeline.recolor]
+                .iter()
+                .all(|id| match cache.get_compute_pipeline_state(*id) {
+                    CachedPipelineState::Ok(_) => true,
+                    CachedPipelineState::Err(PipelineCacheError::ShaderNotLoaded(_)) => false,
+                    CachedPipelineState::Err(err) => panic!("ccl pipeline: {err}"),
+                    _ => false,
+                });
+            if all_ready {
+                self.state = CclState::Ready;
+            }
+        }
+    }
+
+    fn run(
+        &self,
+        _graph: &mut render_graph::RenderGraphContext,
+        render_context: &mut RenderContext,
+        world: &World,
+    ) -> Result<(), render_graph::NodeRunError> {
+        if !matches!(self.state, CclState::Ready) {
+            return Ok(());
+        }
+        let Some(res) = world.get_resource::<CclResources>() else {
+            return Ok(());
+        };
+        let pipeline = world.resource::<CclPipeline>();
+        let cache = world.resource::<PipelineCache>();
+        let (Some(init), Some(union), Some(compress), Some(recolor)) = (
+            cache.get_compute_pipeline(pipeline.init),
+            cache.get_compute_pipeline(pipeline.union),
+            cache.get_compute_pipeline(pipeline.compress),
+            cache.get_compute_pipeline(pipeline.recolor),
+        ) else {
+            return Ok(());
+        };
+        let gx = res.size.x.div_ceil(WORKGROUP_SIZE);
+        let gy = res.size.y.div_ceil(WORKGROUP_SIZE);
+        let mut pass = render_context
+            .command_encoder()
+            .begin_compute_pass(&ComputePassDescriptor::default());
+        pass.set_bind_group(0, &res.bind_group, &[]);
+        for pl in [init, union, compress, recolor] {
+            pass.set_pipeline(pl);
+            pass.dispatch_workgroups(gx, gy, 1);
+        }
+        Ok(())
+    }
 }
