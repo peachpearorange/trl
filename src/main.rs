@@ -2389,7 +2389,13 @@ fn setup(
   render_target: Res<post_process::GameRenderTarget>,
 ) {
   clock.spend_turn(&mut tb);
-  commands.spawn((Camera2d, Msaa::Off, post_process::GameCamera, post_process::game_render_target(&render_target)));
+  commands.spawn((
+    Camera2d,
+    Msaa::Off,
+    post_process::GameCamera,
+    post_process::game_render_target(&render_target),
+    Camera { clear_color: ClearColorConfig::Custom(Color::srgba(0.0, 0.0, 0.0, 0.0)), ..default() },
+  ));
 
   let tileset_info = sprites::build_tileset(&mut images);
   let tileset_handle = tileset_info.handle.clone();

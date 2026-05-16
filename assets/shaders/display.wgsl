@@ -16,24 +16,28 @@ fn noise3(pixel: vec2<f32>) -> vec3<f32> {
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var color = textureSample(screen_texture, screen_sampler, in.uv);
 
+    // Background pixels (camera cleared to alpha=0) pass through untouched.
+    if color.a < 0.5 {
+        return color;
+    }
+
     // Scanlines: darken alternating pairs of pixel rows (matches 2x game pixel scale).
     if (i32(in.position.y) / 2 % 2) == 0 {
-        color = color * 0.78;
+        color = color * 0.88;
     }
 
     // World-space noise — sticks to sprites as the camera moves.
     // Camera2d: 1 world unit = 1 screen pixel; each game texel = 2 screen pixels.
     let dims = vec2<f32>(textureDimensions(screen_texture));
-    let screen_center = dims * 0.5;
-    let offset = in.position.xy - screen_center;
+    let offset = in.position.xy - dims * 0.5;
     // Y is flipped: screen Y-down vs world Y-up.
     let world_pos = cam_pos.xy + vec2(offset.x, -offset.y);
     // Quantise to game-texel grid (2×2 screen pixels per texel).
     let noise = noise3(floor(world_pos / 2.0));
     color = vec4(
-        clamp(color.r + noise.r * 0.04, 0.0, 1.0),
-        clamp(color.g + noise.g * 0.04, 0.0, 1.0),
-        clamp(color.b + noise.b * 0.04, 0.0, 1.0),
+        clamp(color.r + noise.r * 0.02, 0.0, 1.0),
+        clamp(color.g + noise.g * 0.02, 0.0, 1.0),
+        clamp(color.b + noise.b * 0.02, 0.0, 1.0),
         color.a,
     );
 
