@@ -180,40 +180,66 @@ fn all_orientations(img: &RgbaImage) -> [RgbaImage; 8] {
   [r0, r90, r180, r270, fh, fh90, fh180, fh270]
 }
 
-/// For each of the 16 neighbor masks, the source shape index (0=iso, 1=end,
-/// 2=straight, 3=L, 4=T, 5=cross) and the number of 90° CW rotations to apply
-/// to its base orientation.
+/// Symmetry transform applied to a connected-wall base texture.
 ///
-/// Mask bits: 0 = N (y-1), 1 = E (x+1), 2 = S (y+1), 3 = W (x-1). Base
-/// orientations: end→S, straight→E+W, L→N+E, T→N+E+W, cross→all, iso→none.
-/// Rotating CW maps directions N→E→S→W→N.
-const CONNECTED_LOOKUP: [(usize, u8); 16] = [
-  /* 0000        */ (0, 0), // iso
-  /* 0001 N      */ (1, 3),
-  /* 0010 E      */ (1, 0),
-  /* 0011 N+E    */ (3, 0), // L
-  /* 0100 S      */ (1, 1),
-  /* 0101 N+S    */ (2, 1), // straight rotated
-  /* 0110 E+S    */ (3, 1),
-  /* 0111 N+E+S  */ (4, 1), // T missing W
-  /* 1000 W      */ (1, 2),
-  /* 1001 N+W    */ (3, 3),
-  /* 1010 E+W    */ (2, 0),
-  /* 1011 N+E+W  */ (4, 0),
-  /* 1100 S+W    */ (3, 2),
-  /* 1101 N+S+W  */ (4, 3),
-  /* 1110 E+S+W  */ (4, 2),
-  /* 1111 all    */ (5, 0)  // cross
-];
+/// For even-sided textures with an internal checkerboard pattern, parity is
+/// preserved by exactly four of the eight square symmetries: identity, R180,
+/// transpose, and antitranspose. Plain R90/R270 invert the checkerboard
+/// (visible as a seam between neighboring tiles) and are reserved for the
+/// L/T orientations that aren't in any parity orbit.
+#[derive(Clone, Copy)]
+enum Transform {
+  Identity,
+  R180,
+  /// R90 followed by horizontal flip — diagonal mirror.
+  Transpose,
+  /// R270 followed by horizontal flip — anti-diagonal mirror.
+  AntiTranspose
+}
 
-fn rotate_cw(img: &RgbaImage, times: u8) -> RgbaImage {
-  match times % 4 {
-    0 => img.clone(),
-    1 => imageops::rotate90(img),
-    2 => imageops::rotate180(img),
-    _ => imageops::rotate270(img)
+fn apply_transform(img: &RgbaImage, t: Transform) -> RgbaImage {
+  match t {
+    Transform::Identity => img.clone(),
+    Transform::R180 => imageops::rotate180(img),
+    Transform::Transpose => imageops::flip_horizontal(&imageops::rotate90(img)),
+    Transform::AntiTranspose => imageops::flip_horizontal(&imageops::rotate270(img))
   }
 }
+
+/// For each of the 16 neighbor masks, the source shape index (0=iso, 1=end,
+/// 2=straight, 3=L, 4=T, 5=cross, 6=reverse_L) and the parity-preserving
+/// transform that orients the base to match that mask.
+///
+/// Mask bits: 0 = N (y-1), 1 = E (x+1), 2 = S (y+1), 3 = W (x-1). Base
+/// orientations: end→S, straight→E+W, L→N+E, T→N+E+W, cross→all, iso→none,
+/// reverse_L→N+W.
+///
+/// Direction effects of each transform:
+///   Identity: no change.
+///   R180:          N↔S, E↔W (center-symmetric).
+///   Transpose:     N↔W, E↔S (main-diagonal mirror).
+///   AntiTranspose: N↔E, S↔W (anti-diagonal mirror).
+///
+/// Every entry uses a parity-preserving transform; reverse_L exists to fill
+/// the two L corners (masks 6 and 9) that are unreachable from L's orbit.
+const CONNECTED_LOOKUP: [(usize, Transform); 16] = [
+  /* 0000        */ (0, Transform::Identity),       // iso
+  /* 0001 N      */ (1, Transform::R180),           // end:        S→N
+  /* 0010 E      */ (1, Transform::Transpose),      // end:        S→E
+  /* 0011 N+E    */ (3, Transform::Identity),       // L
+  /* 0100 S      */ (1, Transform::Identity),       // end
+  /* 0101 N+S    */ (2, Transform::Transpose),      // straight:   E+W → N+S
+  /* 0110 E+S    */ (6, Transform::R180),           // reverse_L:  N+W → S+E
+  /* 0111 N+E+S  */ (4, Transform::AntiTranspose),  // T:          N+E+W → N+E+S
+  /* 1000 W      */ (1, Transform::AntiTranspose),  // end:        S→W
+  /* 1001 N+W    */ (6, Transform::Identity),       // reverse_L
+  /* 1010 E+W    */ (2, Transform::Identity),       // straight
+  /* 1011 N+E+W  */ (4, Transform::Identity),       // T (missing S)
+  /* 1100 S+W    */ (3, Transform::R180),           // L:          N+E → S+W
+  /* 1101 N+S+W  */ (4, Transform::Transpose),      // T:          N+E+W → N+S+W
+  /* 1110 E+S+W  */ (4, Transform::R180),           // T (missing N)
+  /* 1111 all    */ (5, Transform::Identity)        // cross
+];
 
 /// Build a 2D array image with one layer per tile variant.
 /// `SpritePackRandom` tiles expand to paths × 8 orientation layers each;
@@ -282,8 +308,8 @@ pub fn build_tileset(images: &mut Assets<Image>) -> TilesetInfo {
               .unwrap_or_else(|e| panic!("build_tileset: failed to decode {p}: {e}"))
               .to_rgba8()
           }).collect();
-          for &(shape_idx, rotations) in &CONNECTED_LOOKUP {
-            let oriented = rotate_cw(&shapes[shape_idx], rotations);
+          for &(shape_idx, transform) in &CONNECTED_LOOKUP {
+            let oriented = apply_transform(&shapes[shape_idx], transform);
             data.extend_from_slice(&bake_palette_png(&oriented, prim, sec_col));
             current_layer += 1;
           }

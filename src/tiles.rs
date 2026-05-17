@@ -8,13 +8,16 @@ pub enum TileRenderMode {
   /// All 8 flipped/rotated variants of each texture in the pack are added to the
   /// tileset as separate layers, and one is picked per-tile by position hash.
   SpritePackRandom(&'static [&'static str], [f32; 3], [f32; 3]),
-  /// Connected wall tileset: six base textures `[iso, end, straight, L, T, cross]`
-  /// in their canonical orientations (iso: no neighbors; end: connects south;
-  /// straight: connects east+west; L: connects north+east; T: connects N+E+W;
-  /// cross: connects all). The baker expands these into 16 layers, one per
-  /// 4-bit cardinal-neighbor mask (bit 0 = N (y-1), 1 = E (x+1), 2 = S (y+1),
-  /// 3 = W (x-1)); the renderer picks the layer matching same-tile neighbors.
-  ConnectedSprite(&'static [&'static str; 6], [f32; 3], [f32; 3])
+  /// Connected wall tileset: seven base textures
+  /// `[iso, end, straight, L, T, cross, reverse_L]` in their canonical
+  /// orientations (iso: no neighbors; end: connects south; straight: connects
+  /// east+west; L: connects north+east; T: connects N+E+W; cross: connects
+  /// all; reverse_L: connects N+W — the mirror of L, needed because L's
+  /// parity-preserving orbit only covers two of the four diagonal corners).
+  /// The baker expands these into 16 layers, one per 4-bit cardinal-neighbor
+  /// mask (bit 0 = N (y-1), 1 = E (x+1), 2 = S (y+1), 3 = W (x-1)); the
+  /// renderer picks the layer matching same-tile neighbors.
+  ConnectedSprite(&'static [&'static str; 7], [f32; 3], [f32; 3])
 }
 
 #[derive(Assoc, Clone, Copy, PartialEq, Eq, Debug, TryFromPrimitive)]
@@ -92,6 +95,7 @@ pub enum Tile {
     "textures/space_qud/wall2 L.png",
     "textures/space_qud/wall2 T.png",
     "textures/space_qud/wall2 cross.png",
+    "textures/space_qud/wall2 reverse L.png",
   ], [0.30, 0.32, 0.36], [0.55, 0.60, 0.68]))]
   ShipWall,
   #[assoc(glyph = ".", color = [0.35, 0.33, 0.3], walkable = true, name = "Derelict Floor", render_mode = TileRenderMode::Sprite("textures/space_qud/floor2.png", [0.28, 0.26, 0.22], [0.42, 0.38, 0.32]))]
