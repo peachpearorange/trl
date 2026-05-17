@@ -2,6 +2,8 @@ struct Params {
     size: vec2<u32>,
     seed: u32,
     _pad: u32,
+    world_offset: vec2<i32>,
+    _pad2: vec2<i32>,
 };
 
 @group(0) @binding(0) var src_tex: texture_2d<f32>;
@@ -34,24 +36,26 @@ fn hash32(v: u32) -> u32 {
 
 fn find_root(id: u32) -> u32 {
     var x = id;
+    var result = id;
     loop {
         let p = atomicLoad(&parents[x]);
         let gp = atomicLoad(&parents[p]);
-        if p == gp { return p; }
+        if p == gp { result = p; break; }
         _ = atomicMin(&parents[x], gp);
         x = gp;
     }
+    return result;
 }
 
 fn union_ids(a: u32, b: u32) {
     loop {
         let ra = find_root(a);
         let rb = find_root(b);
-        if ra == rb { return; }
+        if ra == rb { break; }
         let hi = max(ra, rb);
         let lo = min(ra, rb);
         let result = atomicCompareExchangeWeak(&parents[hi], hi, lo);
-        if result.exchanged { return; }
+        if result.exchanged { break; }
     }
 }
 
@@ -112,8 +116,16 @@ fn recolor_components(@builtin(global_invocation_id) gid: vec3<u32>) {
         return;
     }
     let root = find_root(pixel_id(xy));
-    let h = f32(hash32(root ^ params.seed) & 0xFFFFFFu) / 16777216.0 * 2.0 - 1.0;
-    var hsv = rgb_to_hsv(src.rgb);
-    hsv.x = fract(hsv.x + h * 0.15);
-    textureStore(dst_tex, vec2<i32>(xy), vec4<f32>(hsv_to_rgb(hsv), src.a));
+    let rx = i32(root % params.size.x) + params.world_offset.x;
+    let ry = i32(root / params.size.x) + params.world_offset.y;
+    let world_key = u32(rx) ^ (u32(ry) * 0x9e3779b9u);
+    let hr = hash32(world_key ^ params.seed);
+    let hg = hash32(hr);
+    let hb = hash32(hg);
+    let amp = 0.04;
+    let dr = (f32(hr & 0xFFFFu) / 65535.0 * 2.0 - 1.0) * amp;
+    let dg = (f32(hg & 0xFFFFu) / 65535.0 * 2.0 - 1.0) * amp;
+    let db = (f32(hb & 0xFFFFu) / 65535.0 * 2.0 - 1.0) * amp;
+    let rgb = clamp(src.rgb + vec3<f32>(dr, dg, db), vec3<f32>(0.0), vec3<f32>(1.0));
+    textureStore(dst_tex, vec2<i32>(xy), vec4<f32>(rgb, src.a));
 }

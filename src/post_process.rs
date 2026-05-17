@@ -31,6 +31,9 @@ pub struct GameRenderTarget(pub Handle<Image>);
 #[derive(Resource, Clone, ExtractResource)]
 pub struct OutputImage(pub Handle<Image>);
 
+#[derive(Resource, Clone, Copy, Default, ExtractResource)]
+pub struct CameraWorldOffset(pub IVec2);
+
 #[derive(Component)]
 pub struct GameCamera;
 
@@ -63,10 +66,12 @@ impl Plugin for PostProcessPlugin {
             Material2dPlugin::<DisplayMaterial>::default(),
             ExtractResourcePlugin::<GameRenderTarget>::default(),
             ExtractResourcePlugin::<OutputImage>::default(),
+            ExtractResourcePlugin::<CameraWorldOffset>::default(),
         ))
+        .init_resource::<CameraWorldOffset>()
         .add_systems(PreStartup, create_render_targets)
         .add_systems(PostStartup, setup_display)
-        .add_systems(Update, on_window_resized);
+        .add_systems(Update, (on_window_resized, update_camera_world_offset));
 
         let render_app = app.sub_app_mut(RenderApp);
         render_app
@@ -165,6 +170,20 @@ fn on_window_resized(
     }
 }
 
+fn update_camera_world_offset(
+    cam: Query<&GlobalTransform, With<GameCamera>>,
+    windows: Single<&Window>,
+    mut offset: ResMut<CameraWorldOffset>,
+) {
+    let Ok(tf) = cam.single() else { return };
+    let scale = windows.scale_factor();
+    let (pw, ph) = (windows.physical_width() as f32, windows.physical_height() as f32);
+    let t = tf.translation();
+    let cx = (t.x * scale).round() - pw * 0.5;
+    let cy = -((t.y * scale).round() + ph * 0.5);
+    offset.0 = IVec2::new(cx as i32, cy as i32);
+}
+
 pub fn game_render_target(render_target: &GameRenderTarget) -> RenderTarget {
     RenderTarget::Image(render_target.0.clone().into())
 }
@@ -177,6 +196,8 @@ struct CclParams {
     size: UVec2,
     seed: u32,
     _pad: u32,
+    world_offset: IVec2,
+    _pad2: IVec2,
 }
 
 #[derive(Resource)]
@@ -241,7 +262,7 @@ fn prepare_bind_group(
     render_device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     existing: Option<Res<CclResources>>,
-    frame: Res<bevy::diagnostic::FrameCount>,
+    cam_offset: Res<CameraWorldOffset>,
 ) {
     let (Some(src), Some(dst)) = (gpu_images.get(&game_rt.0), gpu_images.get(&output.0)) else {
         return;
@@ -265,8 +286,10 @@ fn prepare_bind_group(
 
     let mut params_buffer = UniformBuffer::from(CclParams {
         size,
-        seed: frame.0,
+        seed: 0,
         _pad: 0,
+        world_offset: cam_offset.0,
+        _pad2: IVec2::ZERO,
     });
     params_buffer.write_buffer(&render_device, &queue);
 
@@ -351,10 +374,16 @@ impl render_graph::Node for CclNode {
             .command_encoder()
             .begin_compute_pass(&ComputePassDescriptor::default());
         pass.set_bind_group(0, &res.bind_group, &[]);
-        for pl in [init, union, compress, recolor] {
-            pass.set_pipeline(pl);
+        pass.set_pipeline(init);
+        pass.dispatch_workgroups(gx, gy, 1);
+        for _ in 0..4 {
+            pass.set_pipeline(union);
+            pass.dispatch_workgroups(gx, gy, 1);
+            pass.set_pipeline(compress);
             pass.dispatch_workgroups(gx, gy, 1);
         }
+        pass.set_pipeline(recolor);
+        pass.dispatch_workgroups(gx, gy, 1);
         Ok(())
     }
 }
