@@ -224,14 +224,14 @@ fn apply_transform(img: &RgbaImage, t: Transform) -> RgbaImage {
 /// the two L corners (masks 6 and 9) that are unreachable from L's orbit.
 const CONNECTED_LOOKUP: [(usize, Transform); 16] = [
   /* 0000        */ (0, Transform::Identity),       // iso
-  /* 0001 N      */ (1, Transform::R180),           // end:        S→N
-  /* 0010 E      */ (1, Transform::Transpose),      // end:        S→E
+  /* 0001 N      */ (1, Transform::AntiTranspose),  // end (transposed)
+  /* 0010 E      */ (1, Transform::Identity),       // end (transposed)
   /* 0011 N+E    */ (3, Transform::Identity),       // L
-  /* 0100 S      */ (1, Transform::Identity),       // end
+  /* 0100 S      */ (1, Transform::Transpose),      // end (transposed)
   /* 0101 N+S    */ (2, Transform::Transpose),      // straight:   E+W → N+S
   /* 0110 E+S    */ (6, Transform::R180),           // reverse_L:  N+W → S+E
   /* 0111 N+E+S  */ (4, Transform::AntiTranspose),  // T:          N+E+W → N+E+S
-  /* 1000 W      */ (1, Transform::AntiTranspose),  // end:        S→W
+  /* 1000 W      */ (1, Transform::R180),           // end (transposed)
   /* 1001 N+W    */ (6, Transform::Identity),       // reverse_L
   /* 1010 E+W    */ (2, Transform::Identity),       // straight
   /* 1011 N+E+W  */ (4, Transform::Identity),       // T (missing S)
