@@ -4,19 +4,14 @@
 use {std::collections::HashMap,
      bevy::prelude::*,
      crate::{Clock, CurrentZone, Inventory, Player, PlayerPos, TimeMode, TurnBasedWorldState, UiState,
-             entities::{Enemy, Location, Named, Object, PlayerEquipped, Stats},
+             entities::{Enemy, Glyph, GrenadeInFlight, Location, Named, PlayerEquipped, Stats},
              level::Item,
-             particles::{ParticleEffects, spawn_bullet_trail, spawn_explosion_burst, spawn_laser_beam,
-                         tile_to_world},
+             particles::{ParticleEffects, spawn_bullet_trail, spawn_laser_beam, tile_to_world},
              path_overlay::{bresenham_path, dda_cells, euclidean_los_point, ray_cast_target},
              ui::{LogEntries, log_message}}};
 
-const EXPLOSION_OFFSETS: [(i32, i32); 13] = [
-  (0, 0),
-  (-1, 0), (1, 0), (0, -1), (0, 1),
-  (-2, 0), (2, 0), (0, -2), (0, 2),
-  (-1, -1), (1, -1), (-1, 1), (1, 1)
-];
+/// Grenade flight speed: tiles traversed per sim turn before detonation.
+const GRENADE_TILES_PER_TURN: usize = 4;
 
 /// What each ability slot does.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -127,7 +122,7 @@ pub fn handle_ability_keys(
 pub fn handle_ability_click(
   mouse: Res<ButtonInput<MouseButton>>,
   windows: Query<&Window>,
-  camera_q: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
+  camera_q: Query<(&Camera, &GlobalTransform), With<crate::post_process::GameCamera>>,
   current: Res<CurrentZone>,
   mut targeting: ResMut<TargetingState>,
   bar: Res<AbilityBarData>,
@@ -185,14 +180,11 @@ pub fn handle_ability_click(
   let px = pos.x as f32 + 0.5;
   let py = pos.y as f32 + 0.5;
 
-  // Laser uses Euclidean LoS; None means no clear line to any part of the target tile.
-  let los_point = if matches!(kind, AbilityKind::FireLaser) {
-    euclidean_los_point(px, py, cursor_tx, cursor_ty, level)
-  } else {
-    None
-  };
+  // Laser and grenades both require Euclidean LoS to the target tile.
+  let needs_los = matches!(kind, AbilityKind::FireLaser | AbilityKind::ThrowGrenade { .. });
+  let los_point = needs_los.then(|| euclidean_los_point(px, py, cursor_tx, cursor_ty, level)).flatten();
 
-  if matches!(kind, AbilityKind::FireLaser) && los_point.is_none() {
+  if needs_los && los_point.is_none() {
     log_message(&mut log, "No LoS to target.".into());
     return; // keep ability selected
   }
@@ -263,14 +255,23 @@ pub fn handle_ability_click(
           inventory.0.remove(&item);
           equipped.grenades[grenade_slot] = None;
         }
-        for &(dx, dy) in &EXPLOSION_OFFSETS {
-          let (ex, ey) = (tx + dx, ty + dy);
-          if level.walkable(ex, ey) {
-            Object::explosion_cloud().spawn_at(&mut commands, ex, ey, pos.z);
+        let path = bresenham_path(pos.x, pos.y, tx, ty);
+        commands.spawn((
+          Glyph::palette_sprite(
+            "textures/space_qud/grenade.png",
+            'o',
+            Color::srgb(0.85, 0.50, 0.10),
+            Color::srgb(0.30, 0.20, 0.10)
+          ),
+          Location::xyz(pos.x, pos.y, pos.z),
+          GrenadeInFlight {
+            path,
+            step: 0,
+            tiles_per_turn: GRENADE_TILES_PER_TURN,
+            z: pos.z
           }
-        }
-        spawn_explosion_burst(&mut commands, &effects, (tx, ty), level.width, level.height);
-        log_message(&mut log, format!("You throw a {}!", item.name()));
+        ));
+        log_message(&mut log, format!("You hurl a {}!", item.name()));
         true
       }
     }

@@ -350,6 +350,17 @@ pub struct GrenadeThrowComp {
   pub min_range: i32
 }
 
+/// A grenade lobbed by the player, traveling tile-by-tile toward its target.
+/// On each sim step it advances `tiles_per_turn` along `path`; when it reaches the end
+/// it detonates (spawns an explosion at the final tile) and despawns.
+#[derive(Component, Debug)]
+pub struct GrenadeInFlight {
+  pub path: Vec<(i32, i32)>,
+  pub step: usize,
+  pub tiles_per_turn: usize,
+  pub z: usize
+}
+
 /// Smooth visual interpolation state for moving entities.
 /// Stores the previous position (at move start) and computes a weighted average
 /// toward the current logical Location each frame, producing fluid tile-to-tile sliding.

@@ -244,7 +244,7 @@ fn half_sprite(arm_dir: (i32, i32)) -> (&'static str, f32, bool) {
 /// Returns `None` when system queries fail (overlay unchanged); `Some(x)` to write `x`.
 pub fn update_ranged_path(
   windows: Query<&Window>,
-  camera_q: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
+  camera_q: Query<(&Camera, &GlobalTransform), With<crate::post_process::GameCamera>>,
   targeting: Res<TargetingState>,
   bar: Res<AbilityBarData>,
   current: Res<CurrentZone>,

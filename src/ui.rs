@@ -853,7 +853,7 @@ fn sync_ui(
   index: Res<crate::combat::TileEntityIndex>,
   named_q: Query<(&Named, Option<&Stats>)>,
   windows: Query<&Window>,
-  camera_q: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
+  camera_q: Query<(&Camera, &GlobalTransform), With<crate::post_process::GameCamera>>,
   mut clock_data: ResMut<ClockData>,
   mut player_data: ResMut<PlayerData>,
   mut hover_info: ResMut<HoverInfo>,
@@ -942,7 +942,7 @@ fn sync_ui(
 
 fn compute_hover_info(
   windows: &Query<&Window>,
-  camera_q: &Query<(&Camera, &GlobalTransform), With<Camera2d>>,
+  camera_q: &Query<(&Camera, &GlobalTransform), With<crate::post_process::GameCamera>>,
   current: &crate::CurrentZone,
   player_q: Query<(&crate::PlayerPos, &Stats, &crate::Inventory, &PlayerEquipped), With<crate::Player>>,
   fov: &crate::Fov,

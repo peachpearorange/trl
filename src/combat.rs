@@ -3,8 +3,9 @@ use {bevy::prelude::*,
      std::collections::{BinaryHeap, HashMap, HashSet, VecDeque},
      std::cmp::Reverse,
      crate::{entities::{Collidable, DamageCloud, Enemy, FollowerData, FollowerState,
-                        GrenadeThrowComp, Location, Named, Object, Path, PlayerEquipped,
-                        SporeEmitter, Stats, TimeSinceAction, WalkAroundRandomly, Wearing},
+                        GrenadeInFlight, GrenadeThrowComp, Location, Named, Object, Path,
+                        PlayerEquipped, SporeEmitter, Stats, TimeSinceAction, WalkAroundRandomly,
+                        Wearing},
              particles::{ParticleEffects, spawn_explosion_burst},
              ui::{LogEntries, log_message}}};
 
@@ -464,6 +465,47 @@ pub fn grenade_thrower_ai(
       log_message(&mut log, format!("{name} hurls a grenade!"));
       spawn_cloud_area(&mut commands, px, py, pz, Object::explosion_cloud(), &EXPLOSION_OFFSETS);
       spawn_explosion_burst(&mut commands, &effects, (px, py), level.width, level.height);
+    }
+  }
+}
+
+/// Detonate a grenade at (cx, cy, z): scatter explosion-cloud tiles on the walkable
+/// portion of [`EXPLOSION_OFFSETS`] and play a particle burst.
+fn detonate_grenade(
+  commands: &mut Commands,
+  effects: &ParticleEffects,
+  level: &crate::level::Level,
+  cx: i32,
+  cy: i32,
+  z: usize
+) {
+  for &(dx, dy) in &EXPLOSION_OFFSETS {
+    let (ex, ey) = (cx + dx, cy + dy);
+    if level.walkable(ex, ey) {
+      Object::explosion_cloud().spawn_at(commands, ex, ey, z);
+    }
+  }
+  spawn_explosion_burst(commands, effects, (cx, cy), level.width, level.height);
+}
+
+/// Each sim step: advance every [`GrenadeInFlight`] along its path by `tiles_per_turn`.
+/// When a grenade reaches the end of its path it detonates and despawns.
+pub fn tick_grenade_in_flight(
+  mut commands: Commands,
+  current: Res<crate::CurrentZone>,
+  effects: Res<ParticleEffects>,
+  mut grenade_q: Query<(Entity, &mut GrenadeInFlight, &mut Location)>
+) {
+  for (entity, mut grenade, mut location) in grenade_q.iter_mut() {
+    let last_idx = grenade.path.len().saturating_sub(1);
+    let next_step = (grenade.step + grenade.tiles_per_turn).min(last_idx);
+    let &(nx, ny) = &grenade.path[next_step];
+    *location = Location::xyz(nx, ny, grenade.z);
+    grenade.step = next_step;
+    if next_step >= last_idx {
+      let level = current.0.level(grenade.z);
+      detonate_grenade(&mut commands, &effects, level, nx, ny, grenade.z);
+      commands.entity(entity).despawn();
     }
   }
 }
