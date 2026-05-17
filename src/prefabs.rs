@@ -205,7 +205,7 @@ impl Prefab {
                        ##a##
 "
     )
-    .assoc('#', (Tile::Bulkhead, []))
+    .assoc('#', (Tile::ShipWall, []))
     .assoc('.', (Tile::DeckPlate, []))
     .assoc(',', (Tile::WoodTile, []))
     .assoc('W', (Tile::Window, []))
@@ -360,8 +360,8 @@ aa
     // conduit column (cols 5-8 of rows 6-8)
     assert_eq!(stamped.get(5, 6),   Some(Tile::Conduit));
     assert_eq!(stamped.get(5, 8),   Some(Tile::Conduit));
-    // bulkhead outer hull
-    assert_eq!(stamped.get(0, 6),   Some(Tile::Bulkhead));
-    assert_eq!(stamped.get(0, 8),   Some(Tile::Bulkhead));
+    // ship wall outer hull
+    assert_eq!(stamped.get(0, 6),   Some(Tile::ShipWall));
+    assert_eq!(stamped.get(0, 8),   Some(Tile::ShipWall));
   }
 }

@@ -360,26 +360,11 @@ struct TileHoverHighlight;
 // Glyph rendering systems
 // ---------------------------------------------------------------------------
 
-/// `true` if `a` and `b` are the same or orthogonally/diagonally adjacent on the grid.
-/// If the logical local tile jumps further (e.g. zone wrap: 0 → 47), a lerp would cross the
-/// whole zone; we treat that as a **snap** instead of a slide.
-fn is_adjacent_or_same_local(a: Vec2, b: Vec2) -> bool {
-  let d = (a - b).abs();
-  d.x <= 1.0 && d.y <= 1.0
-}
-
 fn apply_visuals_move(vis: &mut Visuals, f: u64, local: Vec2) {
-  if is_adjacent_or_same_local(local, vis.last_pos) {
-    if (local - vis.last_pos).length_squared() > 0.5 {
-      vis.prev = vis.display;
-      vis.last_move_start_frame = Some(f);
-      vis.last_pos = local;
-    }
-  } else {
-    vis.prev = local;
-    vis.display = local;
+  if (local - vis.last_pos).length_squared() > 0.5 {
+    vis.prev = vis.display;
+    vis.last_move_start_frame = Some(f);
     vis.last_pos = local;
-    vis.last_move_start_frame = None;
   }
 }
 
@@ -832,16 +817,25 @@ fn update_fov_visuals(
           tile_data.0[chunk_idx] = if tile == Tile::Air || tile == Tile::Blank {
             None
           } else {
-            let (base, count) = tileset.0.layer_range[tile as usize];
-            let tileset_index = if count == 1 {
-              base
-            } else {
-              // SplitMix64 finalizer on (x, y) packed into 64 bits — no correlation between positions.
-              let h: u64 = (x as u64) | ((y as u64) << 32);
-              let h = (h ^ (h >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
-              let h = (h ^ (h >> 27)).wrapping_mul(0x94d049bb133111eb);
-              let h = h ^ (h >> 31);
-              base + (h as u16) % count
+            let info = tileset.0.layer_range[tile as usize];
+            let tileset_index = match info.select {
+              sprites::TileSelect::Single => info.base,
+              sprites::TileSelect::RandomHash => {
+                // SplitMix64 finalizer on (x, y) packed into 64 bits — no correlation between positions.
+                let h: u64 = (x as u64) | ((y as u64) << 32);
+                let h = (h ^ (h >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+                let h = (h ^ (h >> 27)).wrapping_mul(0x94d049bb133111eb);
+                let h = h ^ (h >> 31);
+                info.base + (h as u16) % info.count
+              }
+              sprites::TileSelect::Connected => {
+                let same = |dx: i32, dy: i32| level.get(x as i32 + dx, y as i32 + dy) == Some(tile);
+                let mask = (same(0, -1) as u16)
+                  | ((same(1, 0) as u16) << 1)
+                  | ((same(0, 1) as u16) << 2)
+                  | ((same(-1, 0) as u16) << 3);
+                info.base + mask
+              }
             };
             if fov.0.is_visible(x, y) {
               Some(TileData { tileset_index, color: Color::WHITE, visible: true })

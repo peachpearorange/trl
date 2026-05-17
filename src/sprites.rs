@@ -32,12 +32,30 @@ use {bevy::{asset::RenderAssetUsages,
             }},
      image::{imageops, RgbaImage}};
 
+/// How the renderer picks a layer for a tile at a given position.
+#[derive(Clone, Copy)]
+pub enum TileSelect {
+  /// One layer; always render `base`.
+  Single,
+  /// Pick from `count` layers via a position hash.
+  RandomHash,
+  /// 16 layers indexed by a 4-bit same-tile neighbor mask
+  /// (bit 0 = N (y-1), 1 = E (x+1), 2 = S (y+1), 3 = W (x-1)).
+  Connected
+}
+
+#[derive(Clone, Copy)]
+pub struct TileLayer {
+  pub base: u16,
+  pub count: u16,
+  pub select: TileSelect
+}
+
 /// Handle and per-tile layer-range data for the baked tileset.
 pub struct TilesetInfo {
   pub handle: Handle<Image>,
-  /// Indexed by `Tile as usize`. Each entry is (first_layer, layer_count).
-  /// Single-sprite tiles have count=1; SpritePackRandom tiles have count = paths * 8.
-  pub layer_range: Vec<(u16, u16)>
+  /// Indexed by `Tile as usize`.
+  pub layer_range: Vec<TileLayer>
 }
 
 /// Cache key for baked palette sprites (path + instance colors).
@@ -162,23 +180,60 @@ fn all_orientations(img: &RgbaImage) -> [RgbaImage; 8] {
   [r0, r90, r180, r270, fh, fh90, fh180, fh270]
 }
 
+/// For each of the 16 neighbor masks, the source shape index (0=iso, 1=end,
+/// 2=straight, 3=L, 4=T, 5=cross) and the number of 90° CW rotations to apply
+/// to its base orientation.
+///
+/// Mask bits: 0 = N (y-1), 1 = E (x+1), 2 = S (y+1), 3 = W (x-1). Base
+/// orientations: end→S, straight→E+W, L→N+E, T→N+E+W, cross→all, iso→none.
+/// Rotating CW maps directions N→E→S→W→N.
+const CONNECTED_LOOKUP: [(usize, u8); 16] = [
+  /* 0000        */ (0, 0), // iso
+  /* 0001 N      */ (1, 2),
+  /* 0010 E      */ (1, 3),
+  /* 0011 N+E    */ (3, 0), // L
+  /* 0100 S      */ (1, 0),
+  /* 0101 N+S    */ (2, 1), // straight rotated
+  /* 0110 E+S    */ (3, 1),
+  /* 0111 N+E+S  */ (4, 1), // T missing W
+  /* 1000 W      */ (1, 1),
+  /* 1001 N+W    */ (3, 3),
+  /* 1010 E+W    */ (2, 0),
+  /* 1011 N+E+W  */ (4, 0),
+  /* 1100 S+W    */ (3, 2),
+  /* 1101 N+S+W  */ (4, 3),
+  /* 1110 E+S+W  */ (4, 2),
+  /* 1111 all    */ (5, 0)  // cross
+];
+
+fn rotate_cw(img: &RgbaImage, times: u8) -> RgbaImage {
+  match times % 4 {
+    0 => img.clone(),
+    1 => imageops::rotate90(img),
+    2 => imageops::rotate180(img),
+    _ => imageops::rotate270(img)
+  }
+}
+
 /// Build a 2D array image with one layer per tile variant.
-/// `SpritePackRandom` tiles expand to paths × 8 orientation layers each.
-/// Returns `TilesetInfo` with the image handle and a per-tile (base_layer, count) index.
+/// `SpritePackRandom` tiles expand to paths × 8 orientation layers each;
+/// `ConnectedSprite` tiles expand to 16 layers indexed by neighbor mask.
+/// Returns `TilesetInfo` with the image handle and a per-tile layer index.
 pub fn build_tileset(images: &mut Assets<Image>) -> TilesetInfo {
   use crate::tiles::{Tile, TileRenderMode};
   let s = crate::SPRITE_TEXELS as u32;
   let layer_bytes = (s * s * 4) as usize;
   let tiles: Vec<Tile> = Tile::all().collect();
   let mut data: Vec<u8> = Vec::new();
-  let mut layer_range: Vec<(u16, u16)> = Vec::with_capacity(tiles.len());
+  let mut layer_range: Vec<TileLayer> = Vec::with_capacity(tiles.len());
   let mut current_layer: u16 = 0;
 
   for tile in tiles {
     let base = current_layer;
-    if tile == Tile::Air || tile == Tile::Blank {
+    let select = if tile == Tile::Air || tile == Tile::Blank {
       data.extend(std::iter::repeat(0u8).take(layer_bytes));
       current_layer += 1;
+      TileSelect::Single
     } else {
       match tile.render_mode() {
         TileRenderMode::SolidColor => {
@@ -188,6 +243,7 @@ pub fn build_tileset(images: &mut Assets<Image>) -> TilesetInfo {
             data.extend_from_slice(&px);
           }
           current_layer += 1;
+          TileSelect::Single
         }
         TileRenderMode::Sprite(path, pri, sec) => {
           let bytes = load_asset_bytes(path);
@@ -200,6 +256,7 @@ pub fn build_tileset(images: &mut Assets<Image>) -> TilesetInfo {
             Color::srgb(sec[0], sec[1], sec[2])
           ));
           current_layer += 1;
+          TileSelect::Single
         }
         TileRenderMode::SpritePackRandom(paths, pri, sec) => {
           let prim = Color::srgb(pri[0], pri[1], pri[2]);
@@ -214,10 +271,27 @@ pub fn build_tileset(images: &mut Assets<Image>) -> TilesetInfo {
               current_layer += 1;
             }
           }
+          TileSelect::RandomHash
+        }
+        TileRenderMode::ConnectedSprite(paths, pri, sec) => {
+          let prim = Color::srgb(pri[0], pri[1], pri[2]);
+          let sec_col = Color::srgb(sec[0], sec[1], sec[2]);
+          let shapes: Vec<RgbaImage> = paths.iter().map(|p| {
+            let bytes = load_asset_bytes(p);
+            image::load_from_memory(&bytes)
+              .unwrap_or_else(|e| panic!("build_tileset: failed to decode {p}: {e}"))
+              .to_rgba8()
+          }).collect();
+          for &(shape_idx, rotations) in &CONNECTED_LOOKUP {
+            let oriented = rotate_cw(&shapes[shape_idx], rotations);
+            data.extend_from_slice(&bake_palette_png(&oriented, prim, sec_col));
+            current_layer += 1;
+          }
+          TileSelect::Connected
         }
       }
-    }
-    layer_range.push((base, current_layer - base));
+    };
+    layer_range.push(TileLayer { base, count: current_layer - base, select });
   }
 
   let n = current_layer as u32;
