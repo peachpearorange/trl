@@ -980,14 +980,9 @@ fn compute_hover_info(
     };
     if let Some((tx, ty)) = pick(window, camera, cam_tf, level.width, level.height) {
       let visible = fov.0.is_visible(tx as usize, ty as usize);
-      let revealed = fov.0.is_revealed(tx as usize, ty as usize);
-      if visible || revealed {
+      if visible {
         let tile = level.tiles[ty as usize][tx as usize];
-        let tile_name = if revealed && !visible {
-          format!("{} (remembered)", tile.name())
-        } else {
-          tile.name().into()
-        };
+        let tile_name = tile.name().to_string();
 
         // Look for entity on this tile
         let (entity_name, entity_hp, flavor) = if visible {

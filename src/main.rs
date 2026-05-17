@@ -64,7 +64,6 @@ pub const RENDER_FRAMES_PER_SIM_STEP: u32 = 5;
 /// How many sim steps run per real-time second (= assumed display Hz / render frames per step).
 pub const SIM_STEPS_PER_SEC: f32 = 60.0 / RENDER_FRAMES_PER_SIM_STEP as f32;
 const FOV_RADIUS: i32 = 99;
-const DIM_FACTOR: f32 = 0.3;
 /// Haalka layout: game view is left of the sidebar (`GAME_VIEWPORT_WIDTH_FRAC`); sidebar is
 /// `SIDEBAR_WIDTH_FRAC`. Status bar is `STATUS_BAR_HEIGHT` along the bottom.
 pub const GAME_VIEWPORT_WIDTH_FRAC: f32 = 0.70;
@@ -771,8 +770,7 @@ fn update_tile_hover_highlight(
         pick(&*window, camera, cam_transform, level.width, level.height)
       {
         let visible = fov.0.is_visible(tx as usize, ty as usize);
-        let revealed = fov.0.is_revealed(tx as usize, ty as usize);
-        if visible || revealed {
+        if visible {
           *vis = Visibility::Visible;
           transform.translation =
             tile_screen_pos(tx as f32, ty as f32, current.0.width, current.0.height)
@@ -839,8 +837,6 @@ fn update_fov_visuals(
             };
             if fov.0.is_visible(x, y) {
               Some(TileData { tileset_index, color: Color::WHITE, visible: true })
-            } else if fov.0.is_revealed(x, y) {
-              Some(TileData { tileset_index, color: Color::srgb(DIM_FACTOR, DIM_FACTOR, DIM_FACTOR), visible: true })
             } else {
               None
             }
@@ -908,14 +904,11 @@ fn update_fov_visuals(
     }
     for (entity, item, mut color, mut vis) in item_q.iter_mut() {
       let visible_in_fov = item.z == pos.z && fov.0.is_visible(item.x, item.y);
-      let revealed = item.z == pos.z && fov.0.is_revealed(item.x, item.y);
       let item_kind = level.items[item.y][item.x];
       *color = item_kind.map_or(TextColor(Color::NONE), |item_kind| {
         let [r, g, b] = item_kind.color();
         if visible_in_fov {
           TextColor(Color::srgb(r, g, b))
-        } else if revealed {
-          TextColor(Color::srgb(r * DIM_FACTOR, g * DIM_FACTOR, b * DIM_FACTOR))
         } else {
           TextColor(Color::NONE)
         }

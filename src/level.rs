@@ -430,7 +430,6 @@ pub const ZONE_HEIGHT: usize = 48;
 
 pub struct FovGrid {
   pub visible: Vec<Vec<bool>>,
-  pub revealed: Vec<Vec<bool>>,
   pub width: usize,
   pub height: usize
 }
@@ -439,7 +438,6 @@ impl FovGrid {
   pub fn new(width: usize, height: usize) -> Self {
     FovGrid {
       visible: vec![vec![false; width]; height],
-      revealed: vec![vec![false; width]; height],
       width,
       height
     }
@@ -456,16 +454,11 @@ impl FovGrid {
   pub fn mark_visible(&mut self, x: usize, y: usize) {
     if x < self.width && y < self.height {
       self.visible[y][x] = true;
-      self.revealed[y][x] = true;
     }
   }
 
   pub fn is_visible(&self, x: usize, y: usize) -> bool {
     x < self.width && y < self.height && self.visible[y][x]
-  }
-
-  pub fn is_revealed(&self, x: usize, y: usize) -> bool {
-    x < self.width && y < self.height && self.revealed[y][x]
   }
 }
 
