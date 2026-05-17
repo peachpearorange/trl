@@ -189,14 +189,14 @@ fn all_orientations(img: &RgbaImage) -> [RgbaImage; 8] {
 /// Rotating CW maps directions N→E→S→W→N.
 const CONNECTED_LOOKUP: [(usize, u8); 16] = [
   /* 0000        */ (0, 0), // iso
-  /* 0001 N      */ (1, 2),
-  /* 0010 E      */ (1, 3),
+  /* 0001 N      */ (1, 3),
+  /* 0010 E      */ (1, 0),
   /* 0011 N+E    */ (3, 0), // L
-  /* 0100 S      */ (1, 0),
+  /* 0100 S      */ (1, 1),
   /* 0101 N+S    */ (2, 1), // straight rotated
   /* 0110 E+S    */ (3, 1),
   /* 0111 N+E+S  */ (4, 1), // T missing W
-  /* 1000 W      */ (1, 1),
+  /* 1000 W      */ (1, 2),
   /* 1001 N+W    */ (3, 3),
   /* 1010 E+W    */ (2, 0),
   /* 1011 N+E+W  */ (4, 0),
