@@ -35,8 +35,9 @@ BTN_FONT          = ("Helvetica", 10)
 BTN_FONT_SELECTED = ("Helvetica", 10, "bold")
 SWATCH_SZ  = 36
 
-TOOLS = ["pencil", "rect", "move", "fill"]
-TOOL_LABELS = {"pencil": "Pencil (Q)", "rect": "Rect (R)", "move": "Move (M)", "fill": "Fill (F)"}
+TOOLS = ["pencil", "rect", "move", "copy", "fill"]
+TOOL_LABELS = {"pencil": "Pencil (Q)", "rect": "Rect (R)", "move": "Move (M)",
+               "copy": "Copy (C)", "fill": "Fill (F)"}
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +128,7 @@ class Spryte:
         self._move_offset: tuple = (0, 0)       # (dc, dr) applied to lifted pixels
         self._move_grab: tuple | None = None    # grid cell where drag started
         self._move_grab_offset: tuple = (0, 0) # offset at grab time
+        self._move_is_copy: bool = False        # true while floating a copy (not a move)
 
         self._build_ui()
         self._update_title()
@@ -156,6 +158,7 @@ class Spryte:
         self.root.bind("q", lambda e: self._select_tool("pencil"))
         self.root.bind("r", lambda e: self._select_tool("rect"))
         self.root.bind("m", lambda e: self._select_tool("move"))
+        self.root.bind("c", lambda e: self._select_tool("copy"))
         self.root.bind("f", lambda e: self._select_tool("fill"))
         self.root.bind("<Escape>", lambda e: self._cancel_tool())
         self.root.bind("u", lambda e: self._undo())
@@ -351,7 +354,7 @@ class Spryte:
                 fill = hex_c if hex_c else (CHECK_A if (col + row) % 2 == 0 else CHECK_B)
                 self.canvas.create_rectangle(x0, y0, x1, y1, fill=fill, outline="", tags="overlay")
 
-        elif self._tool == "move":
+        elif self._tool == "move" or self._tool == "copy":
             if self._move_phase == "select" and self._move_sel_start and self._move_sel_end:
                 c0, r0 = self._move_sel_start
                 c1, r1 = self._move_sel_end
@@ -394,6 +397,7 @@ class Spryte:
     def _select_tool(self, tool: str):
         self._cancel_tool()
         self._tool = tool
+        self._move_is_copy = tool == "copy"
         self._refresh_tool_buttons()
 
     def _refresh_tool_buttons(self):
@@ -405,7 +409,7 @@ class Spryte:
             )
 
     def _cancel_tool(self):
-        if self._tool == "move" and self._move_phase == "floating":
+        if self._tool == "move" and self._move_phase == "floating" and not self._move_is_copy:
             self._move_restore()
         self._rect_start = self._rect_end = None
         self._move_phase = "select"
@@ -429,7 +433,7 @@ class Spryte:
             self._rect_start = pos
             self._rect_end = pos
             self._draw_overlay()
-        elif self._tool == "move":
+        elif self._tool == "move" or self._tool == "copy":
             self._on_move_down(pos)
         elif self._tool == "fill":
             if pos:
@@ -451,7 +455,7 @@ class Spryte:
             if pos:
                 self._rect_end = pos
                 self._draw_overlay()
-        elif self._tool == "move":
+        elif self._tool == "move" or self._tool == "copy":
             self._on_move_drag(pos)
 
     def _on_lmb_up(self, event):
@@ -459,7 +463,7 @@ class Spryte:
         pos = self._canvas_to_grid(event.x, event.y)
         if self._tool == "rect":
             self._commit_rect()
-        elif self._tool == "move":
+        elif self._tool == "move" or self._tool == "copy":
             self._on_move_up(pos)
 
     def _on_rmb(self, event):
@@ -544,9 +548,10 @@ class Spryte:
                 [self.pixels[row][col] for col in range(nc0, nc1 + 1)]
                 for row in range(nr0, nr1 + 1)
             ]
-            for row in range(nr0, nr1 + 1):
-                for col in range(nc0, nc1 + 1):
-                    self.pixels[row][col] = TRANSPARENT
+            if not self._move_is_copy:
+                for row in range(nr0, nr1 + 1):
+                    for col in range(nc0, nc1 + 1):
+                        self.pixels[row][col] = TRANSPARENT
             self._move_offset = (0, 0)
             self._move_grab = None
             self._move_phase = "floating"
@@ -583,8 +588,9 @@ class Spryte:
         for row in range(mr0, mr1 + 1):
             for col in range(mc0, mc1 + 1):
                 nc, nr = col + dc, row + dr
-                if 0 <= nc < GRID and 0 <= nr < GRID:
-                    self.pixels[nr][nc] = self._move_lifted[row - mr0][col - mc0]
+                px = self._move_lifted[row - mr0][col - mc0]
+                if 0 <= nc < GRID and 0 <= nr < GRID and (not self._move_is_copy or px[3] > 0):
+                    self.pixels[nr][nc] = px
         self.dirty = True
         self._move_phase = "select"
         self._move_rect = self._move_lifted = None
