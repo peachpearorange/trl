@@ -125,8 +125,7 @@ pub fn unit7() -> Object {
       flavor: "A dented robot sparking intermittently. One eye glows brighter than the other."
     },
     Stats { hp: 20, max_hp: 20, attack: 4, move_speed: 2.0, attack_speed: 0.8 },
-    None,
-    None,
+    Loadout::default(),
     npc_robo_glyph('R', Color::srgb(0.22, 0.78, 0.88), Color::srgb(0.55, 0.95, 0.98)),
     &DIALOGUE
   )

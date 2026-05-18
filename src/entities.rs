@@ -89,32 +89,183 @@ impl Location {
   }
 }
 
-// ============ VALUE TYPES ============
+// ============ GEAR / LOADOUT ============
 
-/// Items that can be picked up and used.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Item {
-  Sword,
-  Coin,
-  Potion,
-  Key,
-  Spear
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Gear {
+  Weapon(crate::level::Item),
+  Armor(crate::level::Item),
+  Grenade(crate::level::Item),
+  InnateGun { damage: i32 },
+  InnateGrenadeThrow { min_range: i32 },
+  InnateSporeEmit,
+  NaturalArmor { dr: i32 },
 }
 
-/// Armor types that can be worn.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Armor {
-  Leather,
-  Chain,
-  Plate
+impl Gear {
+  pub fn is_weapon(self) -> bool { matches!(self, Gear::Weapon(_)) }
+  pub fn is_armor(self) -> bool { matches!(self, Gear::Armor(_) | Gear::NaturalArmor { .. }) }
+  pub fn is_grenade(self) -> bool { matches!(self, Gear::Grenade(_)) }
+  pub fn is_ability(self) -> bool {
+    matches!(self, Gear::InnateGun { .. } | Gear::InnateGrenadeThrow { .. } | Gear::InnateSporeEmit)
+  }
+
+  pub fn weapon_capacity_bonus(self) -> u32 { 0 }
+  pub fn grenade_capacity_bonus(self) -> u32 { 0 }
 }
 
-impl Armor {
-  pub fn dr(self) -> i32 {
-    match self {
-      Armor::Leather => 1,
-      Armor::Chain => 2,
-      Armor::Plate => 3
+#[derive(Clone, Copy, Debug)]
+pub struct GearSlot {
+  pub gear: Gear,
+  pub count: u32,
+  pub cooldown: u32,
+  pub timer: u32,
+}
+
+impl GearSlot {
+  pub fn passive(gear: Gear) -> Self {
+    Self { gear, count: 1, cooldown: 0, timer: 0 }
+  }
+
+  pub fn ability(gear: Gear, cooldown: u32) -> Self {
+    Self { gear, count: 1, cooldown, timer: 0 }
+  }
+
+  pub fn stacked(gear: Gear, count: u32) -> Self {
+    Self { gear, count, cooldown: 0, timer: 0 }
+  }
+}
+
+#[derive(Component, Clone, Debug, Default)]
+pub struct Loadout {
+  pub gear: Vec<GearSlot>,
+}
+
+impl Loadout {
+  pub fn new(gear: Vec<GearSlot>) -> Self { Self { gear } }
+
+  pub fn weapon(&self) -> Option<crate::level::Item> {
+    self.gear.iter().find_map(|s| match s.gear {
+      Gear::Weapon(item) => Some(item),
+      _ => None
+    })
+  }
+
+  pub fn weapon_attack_bonus(&self) -> i32 {
+    self.weapon().map(|w| w.attack_bonus()).unwrap_or(0)
+  }
+
+  pub fn armor_item(&self) -> Option<crate::level::Item> {
+    self.gear.iter().find_map(|s| match s.gear {
+      Gear::Armor(item) => Some(item),
+      _ => None
+    })
+  }
+
+  pub fn armor_dr(&self) -> i32 {
+    self.gear.iter().map(|s| match s.gear {
+      Gear::Armor(item) => item.defense_bonus(),
+      Gear::NaturalArmor { dr } => dr,
+      _ => 0
+    }).sum()
+  }
+
+  pub fn grenade_slots(&self) -> Vec<(usize, crate::level::Item)> {
+    self.gear.iter().enumerate().filter_map(|(i, s)| match s.gear {
+      Gear::Grenade(item) => Some((i, item)),
+      _ => None
+    }).collect()
+  }
+
+  pub fn grenade_at(&self, idx: usize) -> Option<crate::level::Item> {
+    self.grenade_slots().get(idx).map(|&(_, item)| item)
+  }
+
+  pub fn gun_mut(&mut self) -> Option<&mut GearSlot> {
+    self.gear.iter_mut().find(|s| matches!(s.gear, Gear::InnateGun { .. }))
+  }
+
+  pub fn grenade_throw_mut(&mut self) -> Option<&mut GearSlot> {
+    self.gear.iter_mut().find(|s| matches!(s.gear, Gear::InnateGrenadeThrow { .. }))
+  }
+
+  pub fn spore_mut(&mut self) -> Option<&mut GearSlot> {
+    self.gear.iter_mut().find(|s| matches!(s.gear, Gear::InnateSporeEmit))
+  }
+
+  pub fn weapon_count(&self) -> u32 {
+    self.gear.iter().filter(|s| s.gear.is_weapon()).count() as u32
+  }
+
+  pub fn grenade_count(&self) -> u32 {
+    self.gear.iter().filter(|s| s.gear.is_grenade()).map(|s| s.count).sum()
+  }
+
+  pub fn max_weapons(&self) -> u32 {
+    1 + self.gear.iter().map(|s| s.gear.weapon_capacity_bonus()).sum::<u32>()
+  }
+
+  pub fn max_grenades(&self) -> u32 {
+    3 + self.gear.iter().map(|s| s.gear.grenade_capacity_bonus()).sum::<u32>()
+  }
+
+  pub fn is_valid(&self) -> bool {
+    self.weapon_count() <= self.max_weapons()
+      && self.grenade_count() <= self.max_grenades()
+  }
+
+  pub fn can_add(&self, gear: Gear) -> bool {
+    match gear {
+      Gear::Weapon(_) => self.weapon_count() < self.max_weapons(),
+      Gear::Grenade(_) => self.grenade_count() < self.max_grenades(),
+      _ => true
+    }
+  }
+
+  pub fn equip_weapon(&mut self, item: crate::level::Item) {
+    self.gear.retain(|s| !s.gear.is_weapon());
+    self.gear.push(GearSlot::passive(Gear::Weapon(item)));
+  }
+
+  pub fn unequip_weapon(&mut self) -> Option<crate::level::Item> {
+    let w = self.weapon();
+    self.gear.retain(|s| !s.gear.is_weapon());
+    w
+  }
+
+  pub fn equip_armor(&mut self, item: crate::level::Item) {
+    self.gear.retain(|s| !matches!(s.gear, Gear::Armor(_)));
+    self.gear.push(GearSlot::passive(Gear::Armor(item)));
+  }
+
+  pub fn unequip_armor(&mut self) -> Option<crate::level::Item> {
+    let a = self.armor_item();
+    self.gear.retain(|s| !matches!(s.gear, Gear::Armor(_)));
+    a
+  }
+
+  pub fn equip_grenade(&mut self, item: crate::level::Item) {
+    self.gear.push(GearSlot::passive(Gear::Grenade(item)));
+  }
+
+  pub fn unequip_grenade_at(&mut self, slot_idx: usize) -> Option<crate::level::Item> {
+    let slots: Vec<usize> = self.gear.iter().enumerate()
+      .filter(|(_, s)| s.gear.is_grenade())
+      .map(|(i, _)| i)
+      .collect();
+    slots.get(slot_idx).map(|&real_idx| {
+      let item = match self.gear[real_idx].gear {
+        Gear::Grenade(item) => item,
+        _ => unreachable!()
+      };
+      self.gear.remove(real_idx);
+      item
+    })
+  }
+
+  pub fn remove_grenade_by_item(&mut self, item: crate::level::Item) {
+    if let Some(idx) = self.gear.iter().position(|s| s.gear == Gear::Grenade(item)) {
+      self.gear.remove(idx);
     }
   }
 }
@@ -141,7 +292,7 @@ pub struct LightSource {
 
 /// An item sitting on the ground.
 #[derive(Component, Clone, Copy)]
-pub struct GroundItem(pub Item);
+pub struct GroundItem(pub crate::level::Item);
 
 /// A door that can be opened/closed.
 #[derive(Component, Clone)]
@@ -258,13 +409,6 @@ pub struct Stats {
   pub attack_speed: f32
 }
 
-/// What an entity is holding. None = unarmed (has hands, holds nothing).
-#[derive(Component, Clone, Debug)]
-pub struct Wielding(pub Option<Item>);
-
-/// Armor being worn. None = unarmored.
-#[derive(Component, Clone, Debug)]
-pub struct Wearing(pub Option<Armor>);
 
 /// Tracks display frames since the entity last acted. Used by enemy AI.
 #[derive(Component, Clone, Copy, Debug, Default)]
@@ -317,13 +461,6 @@ pub struct FlightConsole;
 #[derive(Component, Clone, Copy)]
 pub struct LoadoutConsole;
 
-/// Equipment the player has chosen to use (drawn from their inventory).
-#[derive(Component, Clone, Default, Debug)]
-pub struct PlayerEquipped {
-  pub weapon: Option<crate::level::Item>,
-  pub armor: Option<crate::level::Item>,
-  pub grenades: [Option<crate::level::Item>; 3]
-}
 
 /// Lingering area-of-effect cloud that damages the player each tick while they share a tile.
 /// Used by both spore clouds and explosion clouds.
@@ -335,29 +472,6 @@ pub struct DamageCloud {
   pub tick_timer: u32
 }
 
-/// Gives a mushroom enemy a high-cooldown spore-emit attack.
-#[derive(Component, Clone, Copy, Debug)]
-pub struct SporeEmitter {
-  pub cooldown: u32,
-  pub timer: u32
-}
-
-pub struct Loadout { pub _todo: () }
-
-#[derive(Component, Clone, Copy, Debug)]
-pub struct GunComp {
-  pub cooldown: u32,
-  pub timer: u32,
-  pub damage: i32
-}
-
-/// Gives an enemy a ranged grenade throw when far enough from the player.
-#[derive(Component, Clone, Copy, Debug)]
-pub struct GrenadeThrowComp {
-  pub cooldown: u32,
-  pub timer: u32,
-  pub min_range: i32
-}
 
 /// A grenade lobbed by the player, traveling tile-by-tile toward its target.
 /// On each sim step it advances `tiles_per_turn` along `path`; when it reaches the end
@@ -454,16 +568,14 @@ impl Object {
   pub fn defined_npc(
     named: Named,
     stats: Stats,
-    wielding: Option<Item>,
-    wearing: Option<Armor>,
+    loadout: Loadout,
     glyph: Glyph,
     dialogue: &'static DialogueTree
   ) -> Self {
     Self::npc()
       .add(named)
       .add(stats)
-      .add(Wielding(wielding))
-      .add(Wearing(wearing))
+      .add(loadout)
       .add(glyph)
       .add(Dialogue(dialogue))
   }
@@ -601,7 +713,7 @@ impl Object {
         crate::AIRLOCK_SEC
       ))
   }
-  pub fn ground_item(item: Item) -> Self { Self::new(GroundItem(item)) }
+  pub fn ground_item(item: crate::level::Item) -> Self { Self::new(GroundItem(item)) }
   pub fn torch(radius: u32) -> Self { Self::new(LightSource { radius }) }
 
   pub fn rat_soldier() -> Self {
@@ -612,8 +724,7 @@ impl Object {
           flavor: "A wiry rat-person clutching a crude spear. Smells like wet fur and old iron.",
         },
         Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 2.1, attack_speed: 1.0 },
-        Wielding(Some(Item::Spear)),
-        Wearing(None),
+        Loadout::new(vec![GearSlot::passive(Gear::Weapon(crate::level::Item::CombatSpear))]),
         Glyph::palette_sprite(
           "textures/space_qud/gunman .png",
           'r',
@@ -631,8 +742,10 @@ impl Object {
           flavor: "A rat-person in battered leather armor, gripping a crude spear. The hide smells worse than the iron.",
         },
         Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 1.9, attack_speed: 1.0 },
-        Wielding(Some(Item::Spear)),
-        Wearing(Some(Armor::Leather)),
+        Loadout::new(vec![
+          GearSlot::passive(Gear::Weapon(crate::level::Item::CombatSpear)),
+          GearSlot::passive(Gear::NaturalArmor { dr: 1 }),
+        ]),
         Glyph::palette_sprite(
           "textures/space_qud/mogussy.png",
           'r',
@@ -740,8 +853,7 @@ impl Object {
         flavor: "A damaged security robot. Its threat-response routines are still very much active."
       },
       Stats { hp: 15, max_hp: 15, attack: 4, move_speed: 2.0, attack_speed: 0.8 },
-      Wielding(None),
-      Wearing(None),
+      Loadout::default(),
       Glyph::palette_sprite(
         "textures/space_qud/robo.png",
         'R',
@@ -758,8 +870,7 @@ impl Object {
         flavor: "A repurposed salvage drone running corrupted directives. Approaches everything as scrap."
       },
       Stats { hp: 8, max_hp: 8, attack: 3, move_speed: 2.3, attack_speed: 1.2 },
-      Wielding(None),
-      Wearing(None),
+      Loadout::default(),
       Glyph::palette_sprite(
         "textures/space_qud/wack robo.png",
         'R',
@@ -777,8 +888,7 @@ impl Object {
       },
       Stats { hp: 5, max_hp: 5, attack: 3, move_speed: 12.0, attack_speed: 1.5 },
       DriftChance(0.3),
-      Wielding(None),
-      Wearing(None),
+      Loadout::default(),
       Glyph::palette_sprite(
         "textures/space_qud/alien1.png",
         'x',
@@ -796,8 +906,7 @@ impl Object {
       },
       Stats { hp: 14, max_hp: 14, attack: 5, move_speed: 4.0, attack_speed: 0.9 },
       DriftChance(0.05),
-      Wielding(None),
-      Wearing(Some(Armor::Plate)),
+      Loadout::new(vec![GearSlot::passive(Gear::NaturalArmor { dr: 3 })]),
       Glyph::palette_sprite(
         "textures/space_qud/crab alien.png",
         'c',
@@ -815,8 +924,7 @@ impl Object {
       },
       Stats { hp: 6, max_hp: 6, attack: 5, move_speed: 10.0, attack_speed: 2.0 },
       DriftChance(0.5),
-      Wielding(None),
-      Wearing(None),
+      Loadout::default(),
       Glyph::palette_sprite(
         "textures/space_qud/mantis alien.png",
         'M',
@@ -834,8 +942,7 @@ impl Object {
       },
       Stats { hp: 10, max_hp: 10, attack: 4, move_speed: 3.5, attack_speed: 0.8 },
       DriftChance(0.1),
-      Wielding(None),
-      Wearing(Some(Armor::Leather)),
+      Loadout::new(vec![GearSlot::passive(Gear::NaturalArmor { dr: 1 })]),
       Glyph::palette_sprite(
         "textures/space_qud/crab alien.png",
         'c',
@@ -852,15 +959,13 @@ impl Object {
         flavor: "An ambulatory fungal mass. Moves with unsettling purpose. Its gills swell with spores."
       },
       Stats { hp: 6, max_hp: 6, attack: 2, move_speed: 2.0, attack_speed: 0.6 },
-      Wielding(None),
-      Wearing(None),
+      Loadout::new(vec![GearSlot::ability(Gear::InnateSporeEmit, 40)]),
       Glyph::palette_sprite(
         "textures/space_qud/mushroom.png",
         'm',
         Color::srgb(0.42, 0.28, 0.18),
         Color::srgb(0.82, 0.72, 0.55)
       ),
-      SporeEmitter { cooldown: 40, timer: 0 }
     ))
   }
 
@@ -915,15 +1020,13 @@ impl Object {
         flavor: "A wiry soldier bristling with grenades. Keeps its distance."
       },
       Stats { hp: 8, max_hp: 8, attack: 2, move_speed: 2.0, attack_speed: 0.8 },
-      Wielding(None),
-      Wearing(None),
+      Loadout::new(vec![GearSlot::ability(Gear::InnateGrenadeThrow { min_range: 3 }, 25)]),
       Glyph::palette_sprite(
         "textures/space_qud/gunman .png",
         'g',
         Color::srgb(0.22, 0.48, 0.22),
         Color::srgb(0.60, 0.78, 0.42)
       ),
-      GrenadeThrowComp { cooldown: 25, timer: 0, min_range: 3 }
     ))
   }
 
@@ -934,15 +1037,13 @@ impl Object {
         flavor: "A sharp-eyed mercenary with a revolver. Shoots first."
       },
       Stats { hp: 8, max_hp: 8, attack: 3, move_speed: 2.0, attack_speed: 1.0 },
-      Wielding(None),
-      Wearing(None),
+      Loadout::new(vec![GearSlot::ability(Gear::InnateGun { damage: 4 }, 15)]),
       Glyph::palette_sprite(
         "textures/space_qud/gunman .png",
         'g',
         Color::srgb(0.42, 0.52, 0.68),
         Color::srgb(0.72, 0.82, 0.92)
       ),
-      GunComp { cooldown: 15, timer: 0, damage: 4 }
     ))
   }
 

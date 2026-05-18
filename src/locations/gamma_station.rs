@@ -220,8 +220,7 @@ pub fn dock_master() -> Object {
       flavor: "A stern docking authority unit permanently bolted to the approach console. Blinking amber status lights."
     },
     Stats { hp: 25, max_hp: 25, attack: 3, move_speed: 1.0, attack_speed: 0.5 },
-    None,
-    None,
+    Loadout::default(),
     npc_robo_glyph('D', Color::srgb(0.55, 0.60, 0.65), Color::srgb(0.80, 0.85, 0.90)),
     &DOCK_MASTER_DIALOGUE
   )
@@ -234,8 +233,7 @@ pub fn hub1() -> Object {
       flavor: "A slender coordination unit at the atrium centre, its display cycling station-wide status feeds."
     },
     Stats { hp: 18, max_hp: 18, attack: 2, move_speed: 2.5, attack_speed: 0.6 },
-    None,
-    None,
+    Loadout::default(),
     npc_robo_glyph('H', Color::srgb(0.40, 0.70, 0.55), Color::srgb(0.70, 0.90, 0.78)),
     &HUB1_DIALOGUE
   )
@@ -248,8 +246,7 @@ pub fn medic2() -> Object {
       flavor: "A compact medical unit, its diagnostic arm held at the ready. The medbay gleams."
     },
     Stats { hp: 20, max_hp: 20, attack: 2, move_speed: 2.0, attack_speed: 0.7 },
-    None,
-    None,
+    Loadout::default(),
     npc_robo_glyph('M', Color::srgb(0.75, 0.30, 0.30), Color::srgb(0.95, 0.70, 0.70)),
     &MEDIC2_DIALOGUE
   )
@@ -262,8 +259,7 @@ pub fn engineer5() -> Object {
       flavor: "A heavyset engineering unit trailing a bundle of diagnostic cables. Smells faintly of ozone."
     },
     Stats { hp: 22, max_hp: 22, attack: 3, move_speed: 2.0, attack_speed: 0.6 },
-    None,
-    None,
+    Loadout::default(),
     npc_robo_glyph('E', Color::srgb(0.35, 0.55, 0.80), Color::srgb(0.65, 0.80, 0.95)),
     &ENGINEER5_DIALOGUE
   )
@@ -276,8 +272,7 @@ pub fn guard3() -> Object {
       flavor: "A security unit with a dented chassis and an active stun baton. It watches you."
     },
     Stats { hp: 30, max_hp: 30, attack: 5, move_speed: 3.0, attack_speed: 0.8 },
-    None,
-    None,
+    Loadout::default(),
     npc_robo_glyph('G', Color::srgb(0.30, 0.35, 0.55), Color::srgb(0.55, 0.60, 0.80)),
     &GUARD3_DIALOGUE
   )
@@ -290,8 +285,7 @@ pub fn analyst4() -> Object {
       flavor: "A research unit surrounded by floating holographic spectrographs. It's annotating something."
     },
     Stats { hp: 15, max_hp: 15, attack: 1, move_speed: 2.5, attack_speed: 0.4 },
-    None,
-    None,
+    Loadout::default(),
     npc_robo_glyph('A', Color::srgb(0.50, 0.40, 0.70), Color::srgb(0.75, 0.65, 0.90)),
     &ANALYST4_DIALOGUE
   )
@@ -304,8 +298,7 @@ pub fn steward6() -> Object {
       flavor: "A crew welfare unit with a calm demeanor and a tray of coffee bulbs clipped to its chassis."
     },
     Stats { hp: 16, max_hp: 16, attack: 2, move_speed: 2.5, attack_speed: 0.5 },
-    None,
-    None,
+    Loadout::default(),
     npc_robo_glyph('S', Color::srgb(0.55, 0.55, 0.40), Color::srgb(0.80, 0.80, 0.60)),
     &STEWARD6_DIALOGUE
   )
@@ -318,8 +311,7 @@ pub fn cargo8() -> Object {
       flavor: "A squat cargo management unit with a barcode scanner fused to its left forearm."
     },
     Stats { hp: 20, max_hp: 20, attack: 3, move_speed: 1.5, attack_speed: 0.5 },
-    None,
-    None,
+    Loadout::default(),
     npc_robo_glyph('C', Color::srgb(0.45, 0.38, 0.30), Color::srgb(0.72, 0.62, 0.50)),
     &CARGO8_DIALOGUE
   )
@@ -332,8 +324,7 @@ pub fn reactor7() -> Object {
       flavor: "A heavy reactor technician unit running noticeably hot. Radiation insignia on both pauldrons."
     },
     Stats { hp: 28, max_hp: 28, attack: 4, move_speed: 1.5, attack_speed: 0.5 },
-    None,
-    None,
+    Loadout::default(),
     npc_robo_glyph('R', Color::srgb(0.60, 0.45, 0.20), Color::srgb(0.85, 0.70, 0.40)),
     &REACTOR7_DIALOGUE
   )

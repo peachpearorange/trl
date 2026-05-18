@@ -4,7 +4,7 @@
 use {std::collections::HashMap,
      bevy::prelude::*,
      crate::{Clock, CurrentZone, Inventory, Player, PlayerPos, TimeMode, TurnBasedWorldState, UiState,
-             entities::{Enemy, Glyph, GrenadeInFlight, Location, Named, PlayerEquipped, Stats},
+             entities::{Enemy, Glyph, GrenadeInFlight, Loadout, Location, Named, Stats},
              level::Item,
              particles::{ParticleEffects, spawn_bullet_trail, spawn_laser_beam, tile_to_world},
              path_overlay::{bresenham_path, dda_cells, euclidean_los_point, ray_cast_target},
@@ -57,13 +57,13 @@ pub struct TargetingState {
 /// Rebuild the ability bar from equipped items each frame, preserving existing cooldowns.
 /// Only writes to [`AbilityBarData`] when the displayed data actually changes.
 pub fn sync_ability_bar(
-  equipped: Single<&PlayerEquipped, With<Player>>,
+  loadout: Single<&Loadout, With<Player>>,
   targeting: Res<TargetingState>,
   mut bar: ResMut<AbilityBarData>
 ) {
   let mut new_slots = Vec::new();
 
-  if let Some(weapon) = equipped.weapon
+  if let Some(weapon) = loadout.weapon()
     && weapon.is_ranged()
   {
     let (kind, name, max_cd) = if weapon.is_laser() {
@@ -75,17 +75,15 @@ pub fn sync_ability_bar(
     new_slots.push(AbilitySlot { kind, name: name.into(), cooldown: cd, max_cooldown: max_cd });
   }
 
-  for slot in 0..3usize {
-    if let Some(item) = equipped.grenades[slot] {
-      let kind = AbilityKind::ThrowGrenade { slot, item };
-      let cd = targeting.cooldowns.get(&kind).copied().unwrap_or(0);
-      new_slots.push(AbilitySlot {
-        kind,
-        name: format!("Throw {}", item.name()),
-        cooldown: cd,
-        max_cooldown: 5
-      });
-    }
+  for (slot, item) in loadout.grenade_slots() {
+    let kind = AbilityKind::ThrowGrenade { slot, item };
+    let cd = targeting.cooldowns.get(&kind).copied().unwrap_or(0);
+    new_slots.push(AbilitySlot {
+      kind,
+      name: format!("Throw {}", item.name()),
+      cooldown: cd,
+      max_cooldown: 5
+    });
   }
 
   let new_selected = targeting.selected;
@@ -126,7 +124,7 @@ pub fn handle_ability_click(
   current: Res<CurrentZone>,
   mut targeting: ResMut<TargetingState>,
   bar: Res<AbilityBarData>,
-  player: Single<(&PlayerPos, &mut Inventory, &mut PlayerEquipped), With<Player>>,
+  player: Single<(&PlayerPos, &mut Inventory, &mut Loadout), With<Player>>,
   mut enemy_q: Query<(&Location, &mut Stats, Option<&Named>), With<Enemy>>,
   mut commands: Commands,
   mut log: ResMut<LogEntries>,
@@ -134,7 +132,7 @@ pub fn handle_ability_click(
   mut tb: ResMut<TurnBasedWorldState>,
   effects: Res<ParticleEffects>
 ) {
-  let (pos, ref mut inventory, ref mut equipped) = player.into_inner();
+  let (pos, ref mut inventory, ref mut loadout) = player.into_inner();
 
   // Determine what to fire this frame — either a queued shot whose cooldown just hit 0,
   // or a fresh click. Produces (kind, cursor_tx, cursor_ty, max_cd) or None.
@@ -198,7 +196,7 @@ pub fn handle_ability_click(
       let beam_start = tile_to_world(px, py, level.width, level.height);
       let beam_end = tile_to_world(los_x, los_y, level.width, level.height);
       spawn_laser_beam(&mut commands, &effects, beam_start, beam_end);
-      let attack = equipped.weapon.map(|w| w.attack_bonus()).unwrap_or(0) + 5;
+      let attack = loadout.weapon_attack_bonus() + 5;
       let mut hit_names: Vec<&str> = vec![];
       for &(cx, cy) in cells.iter().skip(1) {
         if let Some((_, mut stats, named)) = enemy_q.iter_mut().find(|(loc, _, _)| {
@@ -230,7 +228,7 @@ pub fn handle_ability_click(
           matches!(loc, Location::Coords { x, y, z, .. } if *x == hx && *y == hy && *z == pos.z)
         })
       {
-        let attack = equipped.weapon.map(|w| w.attack_bonus()).unwrap_or(0) + 5;
+        let attack = loadout.weapon_attack_bonus() + 5;
         stats.hp -= attack;
         let name = named.map(|n| n.name).unwrap_or("Enemy");
         log_message(&mut log, format!("You shoot {} for {} damage!", name, attack));
@@ -244,7 +242,7 @@ pub fn handle_ability_click(
       true
     }
     AbilityKind::ThrowGrenade { slot: grenade_slot, item } => {
-      let (grenade_slot, item) = (*grenade_slot, *item);
+      let (_grenade_slot, item) = (*grenade_slot, *item);
       if inventory.0.get(&item).copied().unwrap_or(0) == 0 {
         log_message(&mut log, format!("No {} in inventory.", item.name()));
         false
@@ -253,7 +251,7 @@ pub fn handle_ability_click(
         *entry = entry.saturating_sub(1);
         if *entry == 0 {
           inventory.0.remove(&item);
-          equipped.grenades[grenade_slot] = None;
+          loadout.remove_grenade_by_item(item);
         }
         let path = bresenham_path(pos.x, pos.y, tx, ty);
         commands.spawn((

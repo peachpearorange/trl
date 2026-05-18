@@ -117,8 +117,7 @@ pub fn kong() -> Object {
       flavor: "A small monkey with unsettlingly intelligent eyes. You feel watched from the inside."
     },
     Stats { hp: 6, max_hp: 6, attack: 1, move_speed: 5.0, attack_speed: 1.0 },
-    None,
-    None,
+    Loadout::default(),
     npc_person_glyph('M', Color::srgb(0.38, 0.72, 0.32), Color::srgb(0.72, 0.92, 0.48)),
     &DIALOGUE
   )

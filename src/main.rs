@@ -34,8 +34,8 @@ use {bevy::prelude::*,
      std::collections::{HashMap, HashSet},
      crate::entities::{AirlockDoor, BlocksSight, Collidable, Dialogue, DialogueNode,
                        DialogueTree, Door, Elevator, Enemy, FixedChestLoot, FlightConsole,
-                       FollowerData, FollowerState, Glyph, LoadoutConsole, Location, LootChest,
-                       Named, PlayerEquipped, Stats, Tree, Visuals},
+                       FollowerData, FollowerState, Glyph, Loadout, LoadoutConsole, Location,
+                       LootChest, Named, Stats, Tree, Visuals},
      ui::{LogEntries, LogSpan, MenuClickPending, log_message, log_spans}};
 
 use {active_zone::ActiveZone,
@@ -1215,7 +1215,7 @@ fn handle_menus(
   mut clock: ResMut<Clock>,
   mut tb: ResMut<TurnBasedWorldState>,
   mut log: ResMut<LogEntries>,
-  mut player_query: Query<(&mut PlayerPos, &mut Inventory, &mut PlayerEquipped), With<Player>>,
+  mut player_query: Query<(&mut PlayerPos, &mut Inventory, &mut Loadout), With<Player>>,
   asset_server: Res<AssetServer>,
   mut palette_cache: ResMut<PaletteImageCache>,
   mut images: ResMut<Assets<Image>>,
@@ -1469,7 +1469,7 @@ fn direction_name(dx: i32, dy: i32) -> String {
 fn apply_open_chest(
   commands: &mut Commands,
   entity: Entity,
-  player_query: &mut Query<(&mut PlayerPos, &mut Inventory, &mut PlayerEquipped), With<Player>>,
+  player_query: &mut Query<(&mut PlayerPos, &mut Inventory, &mut Loadout), With<Player>>,
   loot_chest_q: &mut Query<(&mut LootChest, &mut Glyph, &Location)>,
   fixed_q: &Query<&FixedChestLoot>,
   log: &mut LogEntries,
@@ -1599,7 +1599,7 @@ fn execute_interaction(
   ui: &mut UiState,
   log: &mut LogEntries,
   commands: &mut Commands,
-  player_query: &mut Query<(&mut PlayerPos, &mut Inventory, &mut PlayerEquipped), With<Player>>
+  player_query: &mut Query<(&mut PlayerPos, &mut Inventory, &mut Loadout), With<Player>>
 ) {
   // No player/position needed; must not sit behind `player_query` or logging can be skipped.
   if let InteractionAction::Talk { speaker, tree, speaker_color } = action {
@@ -1658,41 +1658,41 @@ fn execute_interaction(
         clock.spend_turn(tb);
       }
       InteractionAction::EquipWeapon(item) => {
-        equipped.weapon = Some(*item);
+        equipped.equip_weapon(*item);
         log_message(log, format!("Equipped {} as weapon.", item.name()));
         clock.spend_turn(tb);
       }
       InteractionAction::EquipArmor(item) => {
-        equipped.armor = Some(*item);
+        equipped.equip_armor(*item);
         log_message(log, format!("Equipped {} as armor.", item.name()));
         clock.spend_turn(tb);
       }
       InteractionAction::UnequipWeapon => {
-        if let Some(w) = equipped.weapon.take() {
+        if let Some(w) = equipped.unequip_weapon() {
           log_message(log, format!("Unequipped {}.", w.name()));
         }
         clock.spend_turn(tb);
       }
       InteractionAction::UnequipArmor => {
-        if let Some(a) = equipped.armor.take() {
+        if let Some(a) = equipped.unequip_armor() {
           log_message(log, format!("Unequipped {}.", a.name()));
         }
         clock.spend_turn(tb);
       }
-      InteractionAction::EquipGrenade { slot, item } => {
-        equipped.grenades[*slot] = Some(*item);
-        log_message(log, format!("Equipped {} in grenade slot {}.", item.name(), slot + 1));
+      InteractionAction::EquipGrenade { item, .. } => {
+        equipped.equip_grenade(*item);
+        log_message(log, format!("Equipped {}.", item.name()));
         clock.spend_turn(tb);
       }
       InteractionAction::UnequipGrenade { slot } => {
-        if let Some(g) = equipped.grenades[*slot].take() {
-          log_message(log, format!("Unequipped {} from grenade slot {}.", g.name(), slot + 1));
+        if let Some(g) = equipped.unequip_grenade_at(*slot) {
+          log_message(log, format!("Unequipped {}.", g.name()));
         }
         clock.spend_turn(tb);
       }
       InteractionAction::ShowLoadoutStatus => {
-        let wpn = equipped.weapon.map(|w| w.name()).unwrap_or("none");
-        let arm = equipped.armor.map(|a| a.name()).unwrap_or("none");
+        let wpn = equipped.weapon().map(|w| w.name()).unwrap_or("none");
+        let arm = equipped.armor_item().map(|a| a.name()).unwrap_or("none");
         log_message(log, format!("Loadout — weapon: {wpn}, armor: {arm}."));
       }
       InteractionAction::TakeElevator { dest_z, dest_x, dest_y } => {
@@ -1714,7 +1714,7 @@ fn dispatch_interactive_choice(
   tb: &mut TurnBasedWorldState,
   ui: &mut UiState,
   log: &mut LogEntries,
-  player_query: &mut Query<(&mut PlayerPos, &mut Inventory, &mut PlayerEquipped), With<Player>>,
+  player_query: &mut Query<(&mut PlayerPos, &mut Inventory, &mut Loadout), With<Player>>,
   pending_chest: &mut ChestOpenPending,
   pending_nav: &mut PendingNavigation,
   door_q: &mut Query<(
@@ -1812,31 +1812,31 @@ fn auto_close_airlocks(
 /// If so and the adjacent zone exists and target tile is walkable, perform the transition.
 /// Returns true if a transition happened (or was blocked at world boundary) — caller skips normal move.
 
-fn is_equipped(action: &InteractionAction, equipped: &PlayerEquipped) -> bool {
+fn is_equipped(action: &InteractionAction, loadout: &Loadout) -> bool {
   match action {
-    InteractionAction::UnequipWeapon => equipped.weapon.is_some(),
-    InteractionAction::UnequipArmor => equipped.armor.is_some(),
-    InteractionAction::UnequipGrenade { slot } => equipped.grenades[*slot].is_some(),
-    InteractionAction::EquipWeapon(item) => equipped.weapon == Some(*item),
-    InteractionAction::EquipArmor(item) => equipped.armor == Some(*item),
-    InteractionAction::EquipGrenade { slot, item } => equipped.grenades[*slot] == Some(*item),
+    InteractionAction::UnequipWeapon => loadout.weapon().is_some(),
+    InteractionAction::UnequipArmor => loadout.armor_item().is_some(),
+    InteractionAction::UnequipGrenade { slot } => loadout.grenade_at(*slot).is_some(),
+    InteractionAction::EquipWeapon(item) => loadout.weapon() == Some(*item),
+    InteractionAction::EquipArmor(item) => loadout.armor_item() == Some(*item),
+    InteractionAction::EquipGrenade { item, .. } => {
+      loadout.grenade_slots().iter().any(|&(_, g)| g == *item)
+    }
     _ => false
   }
 }
 
-/// Separate system for Space key interactions to avoid Bevy's system param limit.
-/// Items are always listed in alphabetical order; only the action (equip/unequip) changes.
-fn loadout_options(inventory: &Inventory, equipped: &PlayerEquipped) -> Vec<InteractionOption> {
+fn loadout_options(inventory: &Inventory, loadout: &Loadout) -> Vec<InteractionOption> {
   let sorted = |pred: fn(Item) -> bool| -> Vec<Item> {
     let mut v: Vec<_> = inventory.0.keys().copied().filter(|&i| pred(i)).collect();
     v.sort_by_key(|i| i.name());
     v
   };
-  let free_grenade_slot = equipped.grenades.iter().position(|g| g.is_none());
+  let can_add_grenade = loadout.grenade_slots().len() < loadout.max_grenades() as usize;
 
   sorted(Item::is_weapon).into_iter()
     .map(|item| {
-      let action = if equipped.weapon == Some(item) {
+      let action = if loadout.weapon() == Some(item) {
         InteractionAction::UnequipWeapon
       } else {
         InteractionAction::EquipWeapon(item)
@@ -1845,7 +1845,7 @@ fn loadout_options(inventory: &Inventory, equipped: &PlayerEquipped) -> Vec<Inte
     })
   .chain(sorted(Item::is_armor).into_iter()
     .map(|item| {
-      let action = if equipped.armor == Some(item) {
+      let action = if loadout.armor_item() == Some(item) {
         InteractionAction::UnequipArmor
       } else {
         InteractionAction::EquipArmor(item)
@@ -1855,13 +1855,17 @@ fn loadout_options(inventory: &Inventory, equipped: &PlayerEquipped) -> Vec<Inte
   )
   .chain(sorted(Item::is_grenade).into_iter()
     .filter_map(|item| {
-      if let Some(slot) = equipped.grenades.iter().position(|g| *g == Some(item)) {
+      let grenade_slots = loadout.grenade_slots();
+      if let Some(&(slot, _)) = grenade_slots.iter().find(|&&(_, g)| g == item) {
         Some(InteractionOption { label: item.name().to_string(), action: InteractionAction::UnequipGrenade { slot } })
-      } else {
-        free_grenade_slot.map(|slot| InteractionOption {
+      } else if can_add_grenade {
+        let slot = grenade_slots.len();
+        Some(InteractionOption {
           label: item.name().to_string(),
           action: InteractionAction::EquipGrenade { slot, item }
         })
+      } else {
+        None
       }
     })
   )
@@ -1885,7 +1889,7 @@ fn gather_interactions_at_tile(
   follower_q: &Query<&FollowerState>,
   galaxy: &galaxy::Galaxy,
   inventory: &Inventory,
-  equipped: &PlayerEquipped
+  equipped: &Loadout
 ) -> Vec<InteractionOption> {
   tile_entities
     .into_iter()
@@ -2025,7 +2029,7 @@ fn resolve_bump_interact(
   named_q: Query<&Named>,
   console_q: Query<(Option<&FlightConsole>, Option<&LoadoutConsole>)>,
   follower_q: Query<&FollowerState>,
-  player: Single<(&Inventory, &PlayerEquipped), With<Player>>
+  player: Single<(&Inventory, &Loadout), With<Player>>
 ) {
   let Some((tx, ty, tz)) = pending.0.take() else {
     return;
@@ -2067,7 +2071,7 @@ fn apply_bump_auto_interact(
   mut tb: ResMut<TurnBasedWorldState>,
   mut ui: ResMut<UiState>,
   mut log: ResMut<LogEntries>,
-  mut player_query: Query<(&mut PlayerPos, &mut Inventory, &mut PlayerEquipped), With<Player>>,
+  mut player_query: Query<(&mut PlayerPos, &mut Inventory, &mut Loadout), With<Player>>,
   mut pending_chest: ResMut<ChestOpenPending>,
   mut pending_nav: ResMut<PendingNavigation>,
   mut door_q: Query<(
@@ -2105,7 +2109,7 @@ fn apply_bump_auto_interact(
 fn flush_pending_chest_open(
   mut pending_chest: ResMut<ChestOpenPending>,
   mut commands: Commands,
-  mut player_q: Query<(&mut PlayerPos, &mut Inventory, &mut PlayerEquipped), With<Player>>,
+  mut player_q: Query<(&mut PlayerPos, &mut Inventory, &mut Loadout), With<Player>>,
   mut loot_chest_q: Query<(&mut LootChest, &mut Glyph, &Location)>,
   fixed_q: Query<&FixedChestLoot>,
   mut log: ResMut<LogEntries>,
@@ -2133,7 +2137,7 @@ fn handle_interact(
   mut ui: ResMut<UiState>,
   mut flash: ResMut<BumpInteractFlash>,
   index: Res<TileEntityIndex>,
-  player: Single<(&PlayerPos, &Inventory, &PlayerEquipped), With<Player>>,
+  player: Single<(&PlayerPos, &Inventory, &Loadout), With<Player>>,
   dialogue_q: Query<(&Named, &Dialogue)>,
   tree_q: Query<Entity, With<Tree>>,
   glyph_q: Query<&Glyph, Without<LootChest>>,
@@ -2442,7 +2446,7 @@ fn setup(
     Location::xyz(local_x, local_y, 0),
     Stats { hp: 20, max_hp: 20, attack: 5, move_speed: 3.0, attack_speed: 1.0 },
     Inventory::default(),
-    PlayerEquipped::default(),
+    Loadout::default(),
     GlyphVisual,
     Visuals {
       prev: start_local,
@@ -2538,7 +2542,7 @@ fn player_input(
   mut time_mode_auto: ResMut<TimeModeAuto>,
   index: Res<TileEntityIndex>,
   mut pending_bump: ResMut<PendingBumpInteract>,
-  player: Single<(&mut PlayerPos, &Stats, &mut Inventory, &PlayerEquipped), With<Player>>,
+  player: Single<(&mut PlayerPos, &Stats, &mut Inventory, &Loadout), With<Player>>,
   mut enemy_query: Query<&mut Stats, (With<Enemy>, Without<Player>)>,
   collidable_q: Query<&Collidable>
 ) {
@@ -2561,7 +2565,7 @@ fn player_input(
     && !ui.dir_consumed
   {
     let (mut pos, stats, mut inventory, equipped) = player.into_inner();
-    let player_attack = stats.attack + equipped.weapon.map(|w| w.attack_bonus()).unwrap_or(0);
+    let player_attack = stats.attack + equipped.weapon_attack_bonus();
     let turn_based_block = clock.mode == TimeMode::TurnBased
       && (clock.move_cooldown_frames > 0 || tb.world_tick_pending);
 

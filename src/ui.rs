@@ -21,7 +21,7 @@ use {crate::{Clock, GAME_VIEWPORT_WIDTH_FRAC, STATUS_BAR_HEIGHT, game_pane_rect,
             ui::{AlignItems, FlexWrap, JustifyContent}},
      haalka::{jonmo::SignalProcessing, prelude::*},
      jonmo::{signal},
-     crate::entities::{Named, PlayerEquipped, Stats}};
+     crate::entities::{Loadout, Named, Stats}};
 
 // ---------------------------------------------------------------------------
 // Data shapes — written by sync_ui, read by Haalka signals
@@ -846,7 +846,7 @@ fn sync_interact_display(
 
 fn sync_ui(
   clock: Res<Clock>,
-  player_q: Query<(&crate::PlayerPos, &Stats, &crate::Inventory, &PlayerEquipped), With<crate::Player>>,
+  player_q: Query<(&crate::PlayerPos, &Stats, &crate::Inventory, &Loadout), With<crate::Player>>,
   ui: Res<crate::UiState>,
   current: Res<crate::CurrentZone>,
   fov: Res<crate::Fov>,
@@ -872,23 +872,23 @@ fn sync_ui(
   };
 
   // ── Player stats ──
-  if let Ok((pos, stats, inv, equipped)) = player_q.single() {
+  if let Ok((pos, stats, inv, loadout)) = player_q.single() {
     *player_data = PlayerData {
       hp: stats.hp,
       max_hp: stats.max_hp,
-      attack: stats.attack + equipped.weapon.map(|w| w.attack_bonus()).unwrap_or(0),
+      attack: stats.attack + loadout.weapon_attack_bonus(),
       speed: stats.move_speed,
       x: pos.x,
       y: pos.y,
       z: pos.z,
-      equipped_weapon: equipped.weapon.map(|w| w.name().to_string()),
-      equipped_armor: equipped.armor.map(|a| a.name().to_string())
+      equipped_weapon: loadout.weapon().map(|w| w.name().to_string()),
+      equipped_armor: loadout.armor_item().map(|a| a.name().to_string())
     };
 
     inv_display.formatted = if inv.0.is_empty() {
       "(empty)".into()
     } else {
-      mapv(|(item, count)| format!("{}x {}", count, item.name()), &inv.0).join("\n")
+      mapv(|(item, count): (&crate::level::Item, &u32)| format!("{}x {}", count, item.name()), &inv.0).join("\n")
     };
   }
 
@@ -944,7 +944,7 @@ fn compute_hover_info(
   windows: &Query<&Window>,
   camera_q: &Query<(&Camera, &GlobalTransform), With<crate::post_process::GameCamera>>,
   current: &crate::CurrentZone,
-  player_q: Query<(&crate::PlayerPos, &Stats, &crate::Inventory, &PlayerEquipped), With<crate::Player>>,
+  player_q: Query<(&crate::PlayerPos, &Stats, &crate::Inventory, &Loadout), With<crate::Player>>,
   fov: &crate::Fov,
   index: &crate::combat::TileEntityIndex,
   named_q: &Query<(&Named, Option<&Stats>)>

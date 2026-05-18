@@ -3,9 +3,9 @@ use {bevy::prelude::*,
      std::collections::{BinaryHeap, HashMap, HashSet, VecDeque},
      std::cmp::Reverse,
      crate::{entities::{Collidable, DamageCloud, Enemy, FollowerData, FollowerState,
-                        Glyph, GrenadeInFlight, GrenadeThrowComp, GunComp, Location, Named,
-                        Object, Path, PlayerEquipped, SporeEmitter, Stats, TimeSinceAction,
-                        WalkAroundRandomly, Wearing},
+                        Gear, Glyph, GrenadeInFlight, Loadout, Location, Named,
+                        Object, Path, Stats, TimeSinceAction,
+                        WalkAroundRandomly},
              path_overlay::{bresenham_path, euclidean_los_point},
              particles::{ParticleEffects, spawn_bullet_trail, spawn_explosion_burst},
              ui::{LogEntries, log_message}}};
@@ -36,20 +36,17 @@ pub fn maintain_tile_index(
 // ---------------------------------------------------------------------------
 
 /// Apply player attack to an enemy. Returns true if the enemy died.
-/// Caller is responsible for despawning dead entities.
 pub fn bump_attack(
   attacker_attack: i32,
   target_stats: &mut Stats,
-  target_wearing: Option<&Wearing>
+  target_dr: i32
 ) -> bool {
-  let dmg = resolve_damage(attacker_attack, target_wearing);
+  let dmg = resolve_damage(attacker_attack, target_dr);
   target_stats.hp -= dmg;
   target_stats.hp <= 0
 }
 
-/// Compute damage dealt to a target, accounting for armor DR.
-pub fn resolve_damage(attack: i32, wearing: Option<&Wearing>) -> i32 {
-  let dr = wearing.and_then(|w| w.0).map(|armor| armor.dr()).unwrap_or(0);
+pub fn resolve_damage(attack: i32, dr: i32) -> i32 {
   (attack - dr).max(0)
 }
 
@@ -309,22 +306,22 @@ pub fn enemy_ai(
   flow: Res<FlowField>,
   fov: Res<crate::Fov>,
   player: Single<
-    (&crate::PlayerPos, &mut Stats, &PlayerEquipped),
+    (&crate::PlayerPos, &mut Stats, &Loadout),
     (With<crate::Player>, Without<Enemy>)
   >,
   mut enemy_q: Query<
-    (&mut Location, &mut TimeSinceAction, &Stats, Option<&Wearing>, Option<&Named>, Option<&crate::entities::DriftChance>),
+    (&mut Location, &mut TimeSinceAction, &Stats, &Loadout, Option<&Named>, Option<&crate::entities::DriftChance>),
     (With<Enemy>, Without<crate::Player>)
   >,
   collidable_q: Query<&Collidable>
 ) {
-  let (player_pos, ref mut player_stats, player_equipped) = player.into_inner();
+  let (player_pos, ref mut player_stats, player_loadout) = player.into_inner();
   let (px, py, pz) = (player_pos.x, player_pos.y, player_pos.z);
 
   let mut claimed: HashSet<(i32, i32)> = HashSet::new();
 
   let mut rng = rand::rng();
-  for (mut location, mut timer, enemy_stats, enemy_wearing, enemy_named, drift) in enemy_q.iter_mut() {
+  for (mut location, mut timer, enemy_stats, _enemy_loadout, enemy_named, drift) in enemy_q.iter_mut() {
     timer.0 = timer.0.saturating_add(1);
 
     if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location {
@@ -336,8 +333,7 @@ pub fn enemy_ai(
       let mov_fr = move_interval(enemy_stats.move_speed);
 
       if dist == 1 && timer.0 >= atk_fr {
-        let player_dr = player_equipped.armor.map(|a| a.defense_bonus()).unwrap_or(0);
-        let dmg = (resolve_damage(enemy_stats.attack, enemy_wearing) - player_dr).max(0);
+        let dmg = resolve_damage(enemy_stats.attack, player_loadout.armor_dr());
         player_stats.hp = (player_stats.hp - dmg).max(0);
         let name = enemy_named.map(|n| n.name).unwrap_or("Something");
         if dmg > 0 {
@@ -425,17 +421,18 @@ pub fn mushroom_spore_attack(
   mut commands: Commands,
   mut log: ResMut<LogEntries>,
   player_pos: Single<&crate::PlayerPos, With<crate::Player>>,
-  mut emitter_q: Query<(&Location, &mut SporeEmitter, Option<&Named>), With<Enemy>>
+  mut emitter_q: Query<(&Location, &mut Loadout, Option<&Named>), With<Enemy>>
 ) {
   let &crate::PlayerPos { x: px, y: py, z: pz } = *player_pos;
-  for (location, mut emitter, named) in emitter_q.iter_mut() {
-    emitter.timer = emitter.timer.saturating_add(1);
+  for (location, mut loadout, named) in emitter_q.iter_mut() {
+    let Some(slot) = loadout.spore_mut() else { continue };
+    slot.timer = slot.timer.saturating_add(1);
     if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location
       && ez == pz
       && (px - ex).abs().max((py - ey).abs()) <= 3
-      && emitter.timer >= emitter.cooldown
+      && slot.timer >= slot.cooldown
     {
-      emitter.timer = 0;
+      slot.timer = 0;
       let name = named.map(|n| n.name).unwrap_or("Something");
       log_message(&mut log, format!("{name} releases a cloud of spores!"));
       spawn_cloud_area(&mut commands, ex, ey, ez, Object::spore_cloud(), &SPORE_CLOUD_OFFSETS);
@@ -448,18 +445,19 @@ pub fn grenade_thrower_ai(
   mut commands: Commands,
   mut log: ResMut<LogEntries>,
   player_pos: Single<&crate::PlayerPos, With<crate::Player>>,
-  mut thrower_q: Query<(&Location, &mut GrenadeThrowComp, Option<&Named>), With<Enemy>>
+  mut thrower_q: Query<(&Location, &mut Loadout, Option<&Named>), With<Enemy>>
 ) {
   let &crate::PlayerPos { x: px, y: py, z: pz } = *player_pos;
-  for (location, mut comp, named) in thrower_q.iter_mut() {
-    comp.timer = comp.timer.saturating_add(1);
-    if let Location::Coords { z: ez, .. } = *location
+  for (location, mut loadout, named) in thrower_q.iter_mut() {
+    let Some(slot) = loadout.grenade_throw_mut() else { continue };
+    let Gear::InnateGrenadeThrow { min_range } = slot.gear else { continue };
+    slot.timer = slot.timer.saturating_add(1);
+    if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location
       && ez == pz
-      && let Location::Coords { x: ex, y: ey, .. } = *location
-      && (px - ex).abs().max((py - ey).abs()) >= comp.min_range
-      && comp.timer >= comp.cooldown
+      && (px - ex).abs().max((py - ey).abs()) >= min_range
+      && slot.timer >= slot.cooldown
     {
-      comp.timer = 0;
+      slot.timer = 0;
       let name = named.map(|n| n.name).unwrap_or("Something");
       log_message(&mut log, format!("{name} hurls a grenade!"));
       let path = bresenham_path(ex, ey, px, py);
@@ -484,24 +482,26 @@ pub fn gun_attacker_ai(
   effects: Res<ParticleEffects>,
   player_pos: Single<&crate::PlayerPos, With<crate::Player>>,
   mut player_stats: Single<&mut Stats, (With<crate::Player>, Without<Enemy>)>,
-  player_equipped: Single<&PlayerEquipped, (With<crate::Player>, Without<Enemy>)>,
-  mut gunner_q: Query<(&Location, &mut GunComp, Option<&Named>), With<Enemy>>
+  player_loadout: Single<&Loadout, (With<crate::Player>, Without<Enemy>)>,
+  mut gunner_q: Query<(&Location, &mut Loadout, Option<&Named>), (With<Enemy>, Without<crate::Player>)>
 ) {
   let &crate::PlayerPos { x: px, y: py, z: pz } = *player_pos;
   let level = current.0.level(pz);
-  for (location, mut comp, named) in gunner_q.iter_mut() {
-    comp.timer = comp.timer.saturating_add(1);
+  let player_dr = player_loadout.armor_dr();
+  for (location, mut loadout, named) in gunner_q.iter_mut() {
+    let Some(slot) = loadout.gun_mut() else { continue };
+    let Gear::InnateGun { damage } = slot.gear else { continue };
+    slot.timer = slot.timer.saturating_add(1);
     if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location
       && ez == pz
-      && comp.timer >= comp.cooldown
+      && slot.timer >= slot.cooldown
       && euclidean_los_point(ex as f32 + 0.5, ey as f32 + 0.5, px, py, level).is_some()
     {
-      comp.timer = 0;
+      slot.timer = 0;
       let name = named.map(|n| n.name).unwrap_or("Something");
       let path = bresenham_path(ex, ey, px, py);
       spawn_bullet_trail(&mut commands, &effects, &path, level.width, level.height);
-      let player_dr = player_equipped.armor.map(|a| a.defense_bonus()).unwrap_or(0);
-      let dmg = (comp.damage - player_dr).max(0);
+      let dmg = (damage - player_dr).max(0);
       player_stats.hp = (player_stats.hp - dmg).max(0);
       if dmg > 0 {
         log_message(&mut log, format!("{name} shoots you for {dmg}."));
@@ -605,35 +605,30 @@ pub fn damage_cloud_tick(
 
 #[cfg(test)]
 mod tests {
-  use {super::*,
-       crate::entities::{Armor, Wearing}};
+  use super::*;
 
   #[test]
   fn no_armor_deals_full_damage() {
-    assert_eq!(resolve_damage(5, None), 5);
+    assert_eq!(resolve_damage(5, 0), 5);
   }
 
   #[test]
   fn armor_reduces_damage() {
-    let wearing = Wearing(Some(Armor::Leather)); // DR 1
-    assert_eq!(resolve_damage(5, Some(&wearing)), 4);
+    assert_eq!(resolve_damage(5, 1), 4);
   }
 
   #[test]
   fn armor_cannot_go_below_zero() {
-    let wearing = Wearing(Some(Armor::Plate)); // DR 3
-    assert_eq!(resolve_damage(2, Some(&wearing)), 0);
+    assert_eq!(resolve_damage(2, 3), 0);
   }
 
   #[test]
   fn chain_armor_dr() {
-    let wearing = Wearing(Some(Armor::Chain)); // DR 2
-    assert_eq!(resolve_damage(4, Some(&wearing)), 2);
+    assert_eq!(resolve_damage(4, 2), 2);
   }
 
   #[test]
   fn zero_attack_deals_no_damage() {
-    let wearing = Wearing(Some(Armor::Leather)); // DR 1
-    assert_eq!(resolve_damage(0, Some(&wearing)), 0);
+    assert_eq!(resolve_damage(0, 1), 0);
   }
 }

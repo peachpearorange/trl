@@ -136,8 +136,7 @@ pub fn dock1() -> Object {
                is scratched but its sensors are keen."
     },
     Stats { hp: 25, max_hp: 25, attack: 3, move_speed: 1.0, attack_speed: 0.5 },
-    None,
-    None,
+    Loadout::default(),
     npc_robo_glyph('D', Color::srgb(0.60, 0.65, 0.70), Color::srgb(0.85, 0.88, 0.90)),
     &DOCK1_DIALOGUE
   )
@@ -225,8 +224,7 @@ pub fn aiden3() -> Object {
                display cycling through welcome messages."
     },
     Stats { hp: 15, max_hp: 15, attack: 1, move_speed: 3.5, attack_speed: 0.6 },
-    None,
-    None,
+    Loadout::default(),
     npc_robo_glyph('A', Color::srgb(0.30, 0.75, 0.55), Color::srgb(0.70, 0.95, 0.80)),
     &AIDEN_DIALOGUE
   )
@@ -308,8 +306,7 @@ pub fn wren9() -> Object {
                Its optical sensors are an unusually warm amber."
     },
     Stats { hp: 18, max_hp: 18, attack: 2, move_speed: 2.5, attack_speed: 0.7 },
-    None,
-    None,
+    Loadout::default(),
     npc_robo_glyph('W', Color::srgb(0.75, 0.35, 0.35), Color::srgb(0.95, 0.75, 0.75)),
     &WREN_DIALOGUE
   )
@@ -392,8 +389,7 @@ pub fn forge() -> Object {
                Every surface is practical. There are no decorative elements."
     },
     Stats { hp: 30, max_hp: 30, attack: 5, move_speed: 1.5, attack_speed: 0.5 },
-    None,
-    None,
+    Loadout::default(),
     npc_robo_glyph('F', Color::srgb(0.50, 0.45, 0.35), Color::srgb(0.80, 0.72, 0.55)),
     &FORGE_DIALOGUE
   )

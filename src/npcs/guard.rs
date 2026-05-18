@@ -47,8 +47,10 @@ pub fn guard() -> Object {
       flavor: "A tired-looking guard leaning on a sword. Seems like he'd rather be elsewhere."
     },
     Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 3.0, attack_speed: 1.0 },
-    Some(Item::Sword),
-    Some(Armor::Leather),
+    Loadout::new(vec![
+      GearSlot::passive(Gear::Weapon(crate::level::Item::IronSword)),
+      GearSlot::passive(Gear::NaturalArmor { dr: 1 }),
+    ]),
     npc_person_glyph('G', Color::srgb(0.72, 0.76, 0.8), Color::srgb(0.42, 0.46, 0.52)),
     &DIALOGUE
   )
