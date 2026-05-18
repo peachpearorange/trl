@@ -27,8 +27,8 @@ mod utils;
 
 use {bevy::prelude::*,
      combat::{FlowField, TileEntityIndex, compute_flow_field, damage_cloud_tick, enemy_ai,
-              follower_ai, grenade_thrower_ai, maintain_tile_index, mushroom_spore_attack,
-              tick_grenade_in_flight,
+              follower_ai, grenade_thrower_ai, gun_attacker_ai, maintain_tile_index,
+              mushroom_spore_attack, tick_grenade_in_flight,
               npc_wander},
      level::{FovGrid, Item, LocationType, Tile, ZONE_HEIGHT, ZONE_WIDTH, compute_fov},
      std::collections::{HashMap, HashSet},
@@ -649,6 +649,7 @@ fn main() {
         enemy_ai.in_set(SimStep),
         mushroom_spore_attack.in_set(SimStep),
         grenade_thrower_ai.in_set(SimStep),
+        gun_attacker_ai.in_set(SimStep),
         tick_grenade_in_flight.in_set(SimStep),
         damage_cloud_tick.in_set(SimStep),
         npc_wander.in_set(SimStep),

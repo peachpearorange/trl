@@ -342,6 +342,15 @@ pub struct SporeEmitter {
   pub timer: u32
 }
 
+pub struct Loadout { pub _todo: () }
+
+#[derive(Component, Clone, Copy, Debug)]
+pub struct GunComp {
+  pub cooldown: u32,
+  pub timer: u32,
+  pub damage: i32
+}
+
 /// Gives an enemy a ranged grenade throw when far enough from the player.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct GrenadeThrowComp {
@@ -933,6 +942,7 @@ impl Object {
         Color::srgb(0.42, 0.52, 0.68),
         Color::srgb(0.72, 0.82, 0.92)
       ),
+      GunComp { cooldown: 15, timer: 0, damage: 4 }
     ))
   }
 

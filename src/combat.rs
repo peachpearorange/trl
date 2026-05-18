@@ -3,11 +3,11 @@ use {bevy::prelude::*,
      std::collections::{BinaryHeap, HashMap, HashSet, VecDeque},
      std::cmp::Reverse,
      crate::{entities::{Collidable, DamageCloud, Enemy, FollowerData, FollowerState,
-                        Glyph, GrenadeInFlight, GrenadeThrowComp, Location, Named, Object,
-                        Path, PlayerEquipped, SporeEmitter, Stats, TimeSinceAction,
+                        Glyph, GrenadeInFlight, GrenadeThrowComp, GunComp, Location, Named,
+                        Object, Path, PlayerEquipped, SporeEmitter, Stats, TimeSinceAction,
                         WalkAroundRandomly, Wearing},
-             path_overlay::bresenham_path,
-             particles::{ParticleEffects, spawn_explosion_burst},
+             path_overlay::{bresenham_path, euclidean_los_point},
+             particles::{ParticleEffects, spawn_bullet_trail, spawn_explosion_burst},
              ui::{LogEntries, log_message}}};
 
 // ---------------------------------------------------------------------------
@@ -307,6 +307,7 @@ pub fn enemy_ai(
   mut tb: ResMut<crate::TurnBasedWorldState>,
   mut log: ResMut<LogEntries>,
   flow: Res<FlowField>,
+  fov: Res<crate::Fov>,
   player: Single<
     (&crate::PlayerPos, &mut Stats, &PlayerEquipped),
     (With<crate::Player>, Without<Enemy>)
@@ -328,7 +329,7 @@ pub fn enemy_ai(
 
     if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location {
       let dist = (px - ex).abs().max((py - ey).abs());
-      if dist > 24 {
+      if dist > 24 || !fov.0.is_visible(ex as usize, ey as usize) {
         continue;
       }
       let atk_fr = attack_interval(enemy_stats.attack_speed);
@@ -476,6 +477,44 @@ pub fn grenade_thrower_ai(
   }
 }
 
+pub fn gun_attacker_ai(
+  mut commands: Commands,
+  mut log: ResMut<LogEntries>,
+  current: Res<crate::CurrentZone>,
+  effects: Res<ParticleEffects>,
+  player_pos: Single<&crate::PlayerPos, With<crate::Player>>,
+  mut player_stats: Single<&mut Stats, (With<crate::Player>, Without<Enemy>)>,
+  player_equipped: Single<&PlayerEquipped, (With<crate::Player>, Without<Enemy>)>,
+  mut gunner_q: Query<(&Location, &mut GunComp, Option<&Named>), With<Enemy>>
+) {
+  let &crate::PlayerPos { x: px, y: py, z: pz } = *player_pos;
+  let level = current.0.level(pz);
+  for (location, mut comp, named) in gunner_q.iter_mut() {
+    comp.timer = comp.timer.saturating_add(1);
+    if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location
+      && ez == pz
+      && comp.timer >= comp.cooldown
+      && euclidean_los_point(ex as f32 + 0.5, ey as f32 + 0.5, px, py, level).is_some()
+    {
+      comp.timer = 0;
+      let name = named.map(|n| n.name).unwrap_or("Something");
+      let path = bresenham_path(ex, ey, px, py);
+      spawn_bullet_trail(&mut commands, &effects, &path, level.width, level.height);
+      let player_dr = player_equipped.armor.map(|a| a.defense_bonus()).unwrap_or(0);
+      let dmg = (comp.damage - player_dr).max(0);
+      player_stats.hp = (player_stats.hp - dmg).max(0);
+      if dmg > 0 {
+        log_message(&mut log, format!("{name} shoots you for {dmg}."));
+      } else {
+        log_message(&mut log, format!("{name} shoots at you but deals no damage."));
+      }
+      if player_stats.hp == 0 {
+        log_message(&mut log, "You died.".into());
+      }
+    }
+  }
+}
+
 /// Detonate a grenade at (cx, cy, z): scatter explosion-cloud tiles on the walkable
 /// portion of [`EXPLOSION_OFFSETS`] and play a particle burst.
 fn detonate_grenade(
@@ -504,13 +543,23 @@ pub fn tick_grenade_in_flight(
   mut grenade_q: Query<(Entity, &mut GrenadeInFlight, &mut Location)>
 ) {
   for (entity, mut grenade, mut location) in grenade_q.iter_mut() {
+    let level = current.0.level(grenade.z);
     let last_idx = grenade.path.len().saturating_sub(1);
-    let next_step = (grenade.step + grenade.tiles_per_turn).min(last_idx);
-    let &(nx, ny) = &grenade.path[next_step];
+    let target_step = (grenade.step + grenade.tiles_per_turn).min(last_idx);
+    let mut hit_wall = false;
+    let mut next_step = grenade.step;
+    for s in (grenade.step + 1)..=target_step {
+      let &(sx, sy) = &grenade.path[s];
+      if !level.walkable(sx, sy) {
+        hit_wall = true;
+        break;
+      }
+      next_step = s;
+    }
+    let &(nx, ny) = &grenade.path[next_step.max(grenade.step)];
     *location = Location::xyz(nx, ny, grenade.z);
     grenade.step = next_step;
-    if next_step >= last_idx {
-      let level = current.0.level(grenade.z);
+    if hit_wall || next_step >= last_idx {
       detonate_grenade(&mut commands, &effects, level, nx, ny, grenade.z);
       commands.entity(entity).despawn();
     }
