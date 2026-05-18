@@ -918,6 +918,24 @@ impl Object {
     ))
   }
 
+  pub fn gunman() -> Self {
+    Self::enemy().add((
+      Named {
+        name: "Gunman",
+        flavor: "A sharp-eyed mercenary with a revolver. Shoots first."
+      },
+      Stats { hp: 8, max_hp: 8, attack: 3, move_speed: 2.0, attack_speed: 1.0 },
+      Wielding(None),
+      Wearing(None),
+      Glyph::palette_sprite(
+        "textures/space_qud/gunman .png",
+        'g',
+        Color::srgb(0.42, 0.52, 0.68),
+        Color::srgb(0.72, 0.82, 0.92)
+      ),
+    ))
+  }
+
   pub fn mushroom(primary: Color, secondary: Color, name: &'static str) -> Self {
     Self::structure(false).add((
       Glyph::palette_sprite("textures/space_qud/mushroom.png", 'm', primary, secondary),

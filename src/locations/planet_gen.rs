@@ -22,6 +22,7 @@ pub const ID_CRYSTAL_CAVES: LocationId = (5, 0, 0);
 pub const ID_ARCTIC_WASTE: LocationId  = (6, 0, 0);
 pub const ID_DESERT_WORLD: LocationId  = (1, 1, 0);
 pub const ID_LAVA_WORLD: LocationId    = (7, 0, 0);
+pub const ID_BRIGHT_WORLD: LocationId  = (8, 0, 0);
 
 pub fn all() -> Vec<(LocationId, Location)> {
     vec![
@@ -59,6 +60,13 @@ pub fn all() -> Vec<(LocationId, Location)> {
                 .with_rocks(0.5)
                 .with_seed(0xF1A3_BA11)),
         ),
+        (
+            ID_BRIGHT_WORLD,
+            generate(&PlanetParams::bright("Lumos Reach")
+                .with_water(0.15)
+                .with_rocks(0.3)
+                .with_seed(0xB1A7_CE55)),
+        ),
     ]
 }
 
@@ -72,6 +80,7 @@ pub enum PlanetBiome {
     Alien,
     Arctic,
     Lava,
+    Bright,
 }
 
 pub struct PlanetParams {
@@ -103,6 +112,9 @@ impl PlanetParams {
     pub fn desert(name: &'static str) -> Self {
         Self { name, biome: PlanetBiome::Desert,    breathable: false, water_coverage: 0.1,  vegetation_density: 0.0, rock_frequency: 0.3,  seed: None }
     }
+    pub fn bright(name: &'static str) -> Self {
+        Self { name, biome: PlanetBiome::Bright,    breathable: true,  water_coverage: 0.15, vegetation_density: 0.0, rock_frequency: 0.3,  seed: None }
+    }
 
     pub fn with_seed(mut self, seed: u64) -> Self { self.seed = Some(seed); self }
     pub fn with_water(mut self, v: f32) -> Self { self.water_coverage = v; self }
@@ -114,7 +126,7 @@ fn is_solid_ground(tile: Tile) -> bool {
     matches!(
         tile,
         Tile::Grass | Tile::TallGrass | Tile::Ash | Tile::CaveFloor
-            | Tile::IceFloor | Tile::AlienSoil | Tile::AlienGrass
+            | Tile::IceFloor | Tile::AlienSoil | Tile::AlienGrass | Tile::BrightGround
     )
 }
 
@@ -222,8 +234,8 @@ pub fn generate(params: &PlanetParams) -> Location {
             // Ground is dominant so ash plains stay well-connected; rock formations cluster
             // as islands rather than wall-to-wall solid. r_out borders ground, r_in is interior.
             tile!(ground,  20.0,             Tile::Ash);
-            tile!(r_out,   6.0,              Tile::CaveWall);
-            tile!(r_in,    14.0,             Tile::CaveWall);
+            tile!(r_out,   5.0,              Tile::CaveWall);
+            tile!(r_in,    35.0,             Tile::CaveWall);
             tile!(shallow, scaled(wc, 3.0),  Tile::Lava);
             tile!(deep,    scaled(wc, 2.0),  Tile::CrimsonPool);
 
@@ -243,6 +255,14 @@ pub fn generate(params: &PlanetParams) -> Location {
             tile!(t_wall,  3.0,              Tile::Ash);
 
             tile!(ground,  0.35,             Tile::Ash, Object::lava_crab);
+        }
+        PlanetBiome::Bright => {
+            tile!(ground,  10.0,             Tile::BrightGround);
+            tile!(rock,    scaled(rf, 8.0),  Tile::BrightCobbleWall);
+            tile!(shallow, scaled(wc, 5.0),  Tile::ShallowWater);
+            tile!(deep,    scaled(wc, 2.0),  Tile::DeepWater);
+            tile!(ground,  0.4,              Tile::BrightGround, Object::gunman);
+            tile!(ground,  0.1,              Tile::BrightGround, Object::grenade_thrower);
         }
     }
 

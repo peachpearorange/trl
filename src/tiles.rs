@@ -132,6 +132,10 @@ pub enum Tile {
   CrimsonPool,
   #[assoc(glyph = "~", color = [0.85, 0.52, 0.08], walkable = true, name = "Amber Pool", render_mode = TileRenderMode::Sprite("textures/space_qud/liquid tile.png", [0.62, 0.32, 0.04], [0.92, 0.68, 0.22]))]
   AmberPool,
+  #[assoc(glyph = ".", color = [0.65, 0.78, 0.88], walkable = true, name = "Bright Ground", render_mode = TileRenderMode::SpritePackRandom(&["textures/space_qud/ground.png"], [0.58, 0.72, 0.85], [0.82, 0.90, 0.96]))]
+  BrightGround,
+  #[assoc(glyph = "#", color = [0.72, 0.76, 0.82], walkable = false, opaque = true, name = "Bright Cobble Wall", render_mode = TileRenderMode::Sprite("textures/space_qud/cobble tile.png", [0.68, 0.72, 0.78], [0.88, 0.92, 0.96]))]
+  BrightCobbleWall,
   #[assoc(glyph = "P", color = [0.85, 0.72, 0.1], walkable = true, name = "Ship Dock", has_atmosphere = false, render_mode = TileRenderMode::Sprite("textures/space_qud/diagonal lines tile.png", [0.62, 0.50, 0.05], [1.0, 0.92, 0.38]))]
   ShipDock,
   /// Transparent filler for ship bounding-box corners — skipped when merging
