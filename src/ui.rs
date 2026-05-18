@@ -104,7 +104,8 @@ pub fn log_spans(log: &mut LogEntries, line: LogLine) {
 #[derive(Resource, Clone, Default, PartialEq)]
 pub struct InteractDisplayState {
   pub selected: usize,
-  pub highlighted: Vec<bool>
+  pub highlighted: Vec<bool>,
+  pub disabled: Vec<bool>
 }
 
 #[derive(Resource, Clone, Debug, PartialEq)]
@@ -153,6 +154,7 @@ const HP_RED: Color = Color::srgb(0.85, 0.30, 0.30);
 const OVERLAY_DIM: Color = Color::srgba(0.0, 0.0, 0.0, 0.50);
 const DIALOGUE_OVERLAY_DIM: Color = Color::srgba(0.0, 0.0, 0.0, 0.68);
 const EQUIP_HIGHLIGHT: Color = Color::srgb(1.0, 0.85, 0.15);
+const DISABLED_TEXT: Color = Color::srgb(0.45, 0.45, 0.50);
 
 const FONT_SIZE_LABEL: f32 = 15.0;
 const FONT_SIZE_BODY: f32 = 17.0;
@@ -746,9 +748,11 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
                         .component_signal::<TextColor>(
                           signal::from_resource::<InteractDisplayState>()
                             .map_in(move |s: InteractDisplayState| {
+                              let is_disabled = s.disabled.get(i).copied().unwrap_or(false);
                               let is_hi = s.highlighted.get(i).copied().unwrap_or(false);
                               Some(TextColor(
-                                if is_hi { EQUIP_HIGHLIGHT }
+                                if is_disabled { DISABLED_TEXT }
+                                else if is_hi { EQUIP_HIGHLIGHT }
                                 else if s.selected == i { LIGHT_TEXT }
                                 else { DIM_TEXT }
                               ))
@@ -834,8 +838,8 @@ fn sync_interact_display(
   ui: Res<crate::UiState>,
   mut state: ResMut<InteractDisplayState>
 ) {
-  let new = if let crate::InteractMenu::Open { selected, highlighted, .. } = &ui.interact {
-    InteractDisplayState { selected: *selected, highlighted: highlighted.clone() }
+  let new = if let crate::InteractMenu::Open { selected, highlighted, disabled, .. } = &ui.interact {
+    InteractDisplayState { selected: *selected, highlighted: highlighted.clone(), disabled: disabled.clone() }
   } else {
     InteractDisplayState::default()
   };
@@ -851,7 +855,7 @@ fn sync_ui(
   current: Res<crate::CurrentZone>,
   fov: Res<crate::Fov>,
   index: Res<crate::combat::TileEntityIndex>,
-  named_q: Query<(&Named, Option<&Stats>)>,
+  named_q: Query<(&Named, Option<&Stats>, Option<&crate::entities::Corpse>)>,
   windows: Query<&Window>,
   camera_q: Query<(&Camera, &GlobalTransform), With<crate::post_process::GameCamera>>,
   mut clock_data: ResMut<ClockData>,
@@ -947,7 +951,7 @@ fn compute_hover_info(
   player_q: Query<(&crate::PlayerPos, &Stats, &crate::Inventory, &Loadout), With<crate::Player>>,
   fov: &crate::Fov,
   index: &crate::combat::TileEntityIndex,
-  named_q: &Query<(&Named, Option<&Stats>)>
+  named_q: &Query<(&Named, Option<&Stats>, Option<&crate::entities::Corpse>)>
 ) -> HoverInfo {
   let empty = HoverInfo {
     coords: (0, 0),
@@ -991,11 +995,12 @@ fn compute_hover_info(
             .get(&(tx, ty, pos.z))
             .and_then(|entities| {
               entities.iter().find_map(|&e| {
-                named_q.get(e).ok().map(|(named, stats)| {
+                named_q.get(e).ok().map(|(named, stats, corpse)| {
+                  let is_corpse = corpse.is_some();
                   (
-                    Some(named.name.into()),
+                    Some(if is_corpse { format!("dead {}", named.name) } else { named.name.into() }),
                     stats.map(|s| (s.hp, s.max_hp)),
-                    Some(named.flavor.into())
+                    if is_corpse { None } else { Some(named.flavor.into()) }
                   )
                 })
               })

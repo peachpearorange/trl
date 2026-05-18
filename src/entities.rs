@@ -222,6 +222,8 @@ impl Loadout {
     match gear {
       Gear::Weapon(_) if self.weapon_count() >= self.max_weapons() =>
         Some(format!("weapon slot full ({}/{})", self.weapon_count(), self.max_weapons())),
+      Gear::Armor(_) if self.armor_item().is_some() =>
+        Some("armor slot full".into()),
       Gear::Grenade(_) if self.grenade_count() >= self.max_grenades() =>
         Some(format!("grenade slots full ({}/{})", self.grenade_count(), self.max_grenades())),
       _ => None
@@ -229,7 +231,6 @@ impl Loadout {
   }
 
   pub fn equip_weapon(&mut self, item: crate::level::Item) {
-    self.gear.retain(|s| !s.gear.is_weapon());
     self.gear.push(GearSlot::passive(Gear::Weapon(item)));
   }
 
@@ -240,7 +241,6 @@ impl Loadout {
   }
 
   pub fn equip_armor(&mut self, item: crate::level::Item) {
-    self.gear.retain(|s| !matches!(s.gear, Gear::Armor(_)));
     self.gear.push(GearSlot::passive(Gear::Armor(item)));
   }
 
@@ -273,6 +273,13 @@ impl Loadout {
     if let Some(idx) = self.gear.iter().position(|s| s.gear == Gear::Grenade(item)) {
       self.gear.remove(idx);
     }
+  }
+
+  pub fn lootable_items(&self) -> Vec<(crate::level::Item, u32)> {
+    self.gear.iter().filter_map(|s| match s.gear {
+      Gear::Weapon(item) | Gear::Armor(item) | Gear::Grenade(item) => Some((item, s.count)),
+      _ => None
+    }).collect()
   }
 }
 
@@ -336,9 +343,20 @@ pub struct Player;
 #[derive(Component, Clone, Copy)]
 pub struct Enemy;
 
+/// A dead creature whose inventory can be looted.
+#[derive(Component, Clone, Debug)]
+pub struct Corpse {
+  pub loot: Vec<(crate::level::Item, u32)>,
+  pub looted: bool,
+}
+
 /// A tree entity.
 #[derive(Component, Clone, Copy)]
 pub struct Tree;
+
+/// A bed the player can sleep in to save their game.
+#[derive(Component, Clone, Copy)]
+pub struct Bed;
 
 /// An elevator that transports the player to another z-level.
 /// `floors` lists every connected deck as (deck_index, local_x, local_y).
@@ -775,6 +793,7 @@ impl Object {
 
   pub fn bed() -> Self {
     Self::structure(true).add((
+      Bed,
       Glyph::palette_sprite(
         "textures/space_qud/bed.png",
         'b',

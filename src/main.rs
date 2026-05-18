@@ -32,7 +32,7 @@ use {bevy::prelude::*,
               npc_wander},
      level::{FovGrid, Item, LocationType, Tile, ZONE_HEIGHT, ZONE_WIDTH, compute_fov},
      std::collections::{HashMap, HashSet},
-     crate::entities::{AirlockDoor, BlocksSight, Collidable, Dialogue, DialogueNode,
+     crate::entities::{AirlockDoor, Bed, BlocksSight, Collidable, Dialogue, DialogueNode,
                        DialogueTree, Door, Elevator, Enemy, FixedChestLoot, FlightConsole,
                        FollowerData, FollowerState, Glyph, Loadout, LoadoutConsole, Location,
                        LootChest, Named, Stats, Tree, Visuals},
@@ -115,6 +115,8 @@ enum InteractionAction {
   TakeElevator { dest_z: usize, dest_x: i32, dest_y: i32 },
   RecruitFollower { entity: Entity, name: &'static str },
   DismissFollower { entity: Entity, name: &'static str },
+  LootCorpse(Entity),
+  SaveAtBed,
 }
 
 /// Tracks which menu row index a [`Button`] entity belongs to; queried by [`detect_menu_option_clicks`].
@@ -128,7 +130,8 @@ pub enum InteractMenu {
   Open {
     options: Vec<InteractionOption>,
     selected: usize,
-    highlighted: Vec<bool>
+    highlighted: Vec<bool>,
+    disabled: Vec<bool>
   }
 }
 
@@ -248,13 +251,27 @@ pub struct TurnBasedWorldState {
 #[derive(Resource, Default)]
 struct PendingBumpInteract(pub Option<(i32, i32, usize)>);
 
-/// Set when the player picks "Open chest" from the interact menu; applied next frame.
+/// Deferred actions set by menu selection, applied next frame by dedicated systems.
 #[derive(Resource, Default)]
-struct ChestOpenPending(pub Option<Entity>);
+struct DeferredActions {
+  pub loot_chest: Option<Entity>,
+  pub loot_corpse: Option<Entity>,
+  pub navigate: Option<galaxy::LocationId>,
+  /// Position to teleport the player to after navigation completes (used by death respawn).
+  pub post_navigate_pos: Option<(i32, i32, usize)>,
+  pub save_at_bed: bool,
+}
 
-/// Flight-console chart selection; applied next frame by [`apply_pending_navigation`].
+/// Snapshot of player state taken when sleeping in a bed.
 #[derive(Resource, Default)]
-struct PendingNavigation(pub Option<galaxy::LocationId>);
+struct BedSave(Option<SaveData>);
+
+struct SaveData {
+  docked_at: Option<galaxy::LocationId>,
+  pos: (i32, i32, usize),
+  inventory: HashMap<Item, u32>,
+  loadout: Loadout,
+}
 
 /// Single interaction chosen after bumping a blocked tile ([`resolve_bump_interact`] → [`apply_bump_auto_interact`]).
 #[derive(Resource, Default)]
@@ -571,8 +588,8 @@ fn main() {
     .init_resource::<TurnBasedWorldState>()
     .insert_resource(Clock::new())
     .insert_resource(TimeModeAuto(false))
-    .init_resource::<ChestOpenPending>()
-    .init_resource::<PendingNavigation>()
+    .init_resource::<DeferredActions>()
+    .init_resource::<BedSave>()
     .init_resource::<BumpInteractFlash>()
     .init_resource::<PendingBumpInteract>()
     .init_resource::<PaletteImageCache>()
@@ -618,7 +635,7 @@ fn main() {
     .add_systems(Update, update_time_mode.in_set(FramePipeline::TimeMode))
     .add_systems(Update, handle_dialogue.in_set(FramePipeline::DialogueKey))
     .add_systems(Update, (detect_menu_option_clicks, handle_menus).chain().in_set(FramePipeline::Menus))
-    .add_systems(Update, flush_pending_chest_open.in_set(FramePipeline::FlushChest))
+    .add_systems(Update, (flush_pending_loot, apply_bed_save).chain().in_set(FramePipeline::FlushChest))
     .add_systems(Update, handle_interact.in_set(FramePipeline::InteractKey))
     .add_systems(Update, handle_utility_menus.in_set(FramePipeline::UtilityMenus))
     .add_systems(Update, abilities::handle_ability_keys.in_set(FramePipeline::UtilityMenus))
@@ -652,6 +669,7 @@ fn main() {
         gun_attacker_ai.in_set(SimStep),
         tick_grenade_in_flight.in_set(SimStep),
         damage_cloud_tick.in_set(SimStep),
+        player_death_check.in_set(SimStep),
         npc_wander.in_set(SimStep),
         follower_ai.in_set(SimStep),
         abilities::tick_cooldowns.in_set(SimStep),
@@ -709,11 +727,25 @@ pub(crate) fn world_to_level_cell(world: Vec2, w: usize, h: usize) -> (i32, i32)
 /// are removed before the next frame's rendering and AI.
 fn enemy_death_check(
   mut commands: Commands,
-  enemy_q: Query<(Entity, &Stats), With<Enemy>>
+  enemy_q: Query<(Entity, &Stats, &Loadout, Option<&Named>), With<Enemy>>
 ) {
-  for (entity, stats) in enemy_q.iter() {
+  for (entity, stats, loadout, _) in enemy_q.iter() {
     if stats.hp <= 0 {
-      commands.entity(entity).despawn();
+      let loot = loadout.lootable_items();
+      commands.entity(entity)
+        .remove::<(Enemy, Stats, Loadout, entities::Character, entities::FactionComp,
+                   entities::Gravity, entities::TimeSinceAction, entities::Path,
+                   entities::DriftChance, Glyph, Sprite, GlyphVisual)>()
+        .insert((
+          entities::Corpse { loot, looted: false },
+          Collidable(false),
+          Glyph::palette_sprite(
+            "textures/space_qud/bones.png",
+            '%',
+            Color::srgb(0.90, 0.88, 0.85),
+            Color::srgb(0.75, 0.72, 0.68),
+          ),
+        ));
     }
   }
 }
@@ -1226,8 +1258,7 @@ fn handle_menus(
     &Location,
     Option<&mut AirlockDoor>
   )>,
-  mut pending_chest: ResMut<ChestOpenPending>,
-  mut pending_nav: ResMut<PendingNavigation>,
+  mut deferred: ResMut<DeferredActions>,
   mut exit: MessageWriter<AppExit>,
   mut menu_click: ResMut<MenuClickPending>
 ) {
@@ -1313,7 +1344,8 @@ fn handle_menus(
       };
 
       if let Some(idx) = exec_idx
-        && let InteractMenu::Open { ref options, .. } = ui.interact
+        && let InteractMenu::Open { ref options, ref disabled, .. } = ui.interact
+        && !disabled.get(idx).copied().unwrap_or(false)
         && let Some(option) = options.get(idx).cloned()
       {
         let is_loadout = matches!(option.action,
@@ -1331,8 +1363,7 @@ fn handle_menus(
           &mut ui,
           &mut log,
           &mut player_query,
-          &mut pending_chest,
-          &mut pending_nav,
+          &mut deferred,
           &mut door_q,
           &asset_server,
           &mut palette_cache,
@@ -1342,10 +1373,11 @@ fn handle_menus(
           && let Ok((_, inventory, equipped)) = player_query.single()
         {
           let opts = loadout_options(&inventory, &equipped);
-          let highlighted = opts.iter().map(|o| is_equipped(&o.action, &equipped)).collect();
+          let highlighted = utils::mapv(|o: &_| is_equipped(&o.action, &equipped), &opts);
+          let disabled = utils::mapv(|o: &_| is_disabled(&o.action, &equipped), &opts);
           let new_sel = cur_sel.min(opts.len().saturating_sub(1));
           if !opts.is_empty() {
-            ui.interact = InteractMenu::Open { options: opts, selected: new_sel, highlighted };
+            ui.interact = InteractMenu::Open { options: opts, selected: new_sel, highlighted, disabled };
           }
         }
       }
@@ -1577,7 +1609,7 @@ fn handle_utility_menus(
     } else {
       let n = opts.len();
       ui.interact =
-        InteractMenu::Open { options: opts, selected: 0, highlighted: vec![false; n] };
+        InteractMenu::Open { options: opts, selected: 0, highlighted: vec![false; n], disabled: vec![false; n] };
     }
   } else if keys.just_pressed(KeyCode::KeyC) {
     let opts = build_craft_options(&inv.0);
@@ -1586,7 +1618,7 @@ fn handle_utility_menus(
     } else {
       let n = opts.len();
       ui.interact =
-        InteractMenu::Open { options: opts, selected: 0, highlighted: vec![false; n] };
+        InteractMenu::Open { options: opts, selected: 0, highlighted: vec![false; n], disabled: vec![false; n] };
     }
   }
 }
@@ -1658,14 +1690,22 @@ fn execute_interaction(
         clock.spend_turn(tb);
       }
       InteractionAction::EquipWeapon(item) => {
-        equipped.equip_weapon(*item);
-        log_message(log, format!("Equipped {} as weapon.", item.name()));
-        clock.spend_turn(tb);
+        if let Some(reason) = equipped.rejection_reason(entities::Gear::Weapon(*item)) {
+          log_message(log, format!("Can't equip {} — {}.", item.name(), reason));
+        } else {
+          equipped.equip_weapon(*item);
+          log_message(log, format!("Equipped {} as weapon.", item.name()));
+          clock.spend_turn(tb);
+        }
       }
       InteractionAction::EquipArmor(item) => {
-        equipped.equip_armor(*item);
-        log_message(log, format!("Equipped {} as armor.", item.name()));
-        clock.spend_turn(tb);
+        if let Some(reason) = equipped.rejection_reason(entities::Gear::Armor(*item)) {
+          log_message(log, format!("Can't equip {} — {}.", item.name(), reason));
+        } else {
+          equipped.equip_armor(*item);
+          log_message(log, format!("Equipped {} as armor.", item.name()));
+          clock.spend_turn(tb);
+        }
       }
       InteractionAction::UnequipWeapon => {
         if let Some(w) = equipped.unequip_weapon() {
@@ -1705,7 +1745,8 @@ fn execute_interaction(
         pos.y = *dest_y;
         clock.spend_turn(tb);
       }
-      InteractionAction::RecruitFollower { .. } | InteractionAction::DismissFollower { .. } => {}
+      InteractionAction::RecruitFollower { .. } | InteractionAction::DismissFollower { .. }
+        | InteractionAction::LootCorpse(_) | InteractionAction::SaveAtBed => {}
     }
   }
 }
@@ -1719,8 +1760,7 @@ fn dispatch_interactive_choice(
   ui: &mut UiState,
   log: &mut LogEntries,
   player_query: &mut Query<(&mut PlayerPos, &mut Inventory, &mut Loadout), With<Player>>,
-  pending_chest: &mut ChestOpenPending,
-  pending_nav: &mut PendingNavigation,
+  deferred: &mut DeferredActions,
   door_q: &mut Query<(
     &mut Door,
     &mut Glyph,
@@ -1734,10 +1774,13 @@ fn dispatch_interactive_choice(
 ) {
   match &option.action {
     InteractionAction::OpenChest(ent) => {
-      pending_chest.0 = Some(*ent);
+      deferred.loot_chest = Some(*ent);
+    }
+    InteractionAction::LootCorpse(ent) => {
+      deferred.loot_corpse = Some(*ent);
     }
     InteractionAction::Navigate { dest } => {
-      pending_nav.0 = Some(*dest);
+      deferred.navigate = Some(*dest);
     }
     InteractionAction::RecruitFollower { entity, name } => {
       commands.entity(*entity).insert(FollowerState::Following);
@@ -1769,6 +1812,9 @@ fn dispatch_interactive_choice(
         );
       }
       clock.spend_turn(tb);
+    }
+    InteractionAction::SaveAtBed => {
+      deferred.save_at_bed = true;
     }
     other => {
       execute_interaction(other, zone, clock, tb, ui, log, commands, player_query);
@@ -1858,8 +1904,8 @@ fn loadout_options(inventory: &Inventory, loadout: &Loadout) -> Vec<InteractionO
   .chain(sorted(Item::is_grenade).into_iter()
     .map(|item| {
       let grenade_slots = loadout.grenade_slots();
-      if let Some(&(slot, _)) = grenade_slots.iter().find(|&&(_, g)| g == item) {
-        InteractionOption { label: item.name().to_string(), action: InteractionAction::UnequipGrenade { slot } }
+      if let Some((list_idx, _)) = grenade_slots.iter().enumerate().find(|(_, (_, g))| *g == item) {
+        InteractionOption { label: item.name().to_string(), action: InteractionAction::UnequipGrenade { slot: list_idx } }
       } else {
         let slot = grenade_slots.len();
         InteractionOption {
@@ -1870,6 +1916,18 @@ fn loadout_options(inventory: &Inventory, loadout: &Loadout) -> Vec<InteractionO
     })
   )
   .collect()
+}
+
+fn is_disabled(action: &InteractionAction, loadout: &Loadout) -> bool {
+  match action {
+    InteractionAction::EquipWeapon(item) =>
+      !loadout.can_add(entities::Gear::Weapon(*item)),
+    InteractionAction::EquipArmor(item) =>
+      !loadout.can_add(entities::Gear::Armor(*item)),
+    InteractionAction::EquipGrenade { item, .. } =>
+      !loadout.can_add(entities::Gear::Grenade(*item)),
+    _ => false
+  }
 }
 
 fn gather_interactions_at_tile(
@@ -1884,7 +1942,7 @@ fn gather_interactions_at_tile(
   loot_chest_q: &mut Query<(&mut LootChest, &mut Glyph, &Location)>,
   door_q: &Query<&Door>,
   elevator_q: &Query<&Elevator>,
-  named_q: &Query<&Named>,
+  named_q: &Query<(&Named, Option<&entities::Corpse>, Option<&Bed>)>,
   console_q: &Query<(Option<&FlightConsole>, Option<&LoadoutConsole>)>,
   follower_q: &Query<&FollowerState>,
   galaxy: &galaxy::Galaxy,
@@ -1931,7 +1989,7 @@ fn gather_interactions_at_tile(
           follower_q
             .get(e)
             .ok()
-            .and_then(|state| named_q.get(e).ok().map(|named| (state, named.name)))
+            .and_then(|state| named_q.get(e).ok().map(|(named, ..)| (state, named.name)))
             .map(|(state, name)| match *state {
               FollowerState::Available | FollowerState::Dismissed => InteractionOption {
                 label: "Follow me".into(),
@@ -1955,9 +2013,30 @@ fn gather_interactions_at_tile(
             })
             .into_iter()
         )
+        .chain(
+          named_q
+            .get(e)
+            .ok()
+            .and_then(|(named, corpse, _)| corpse.filter(|c| !c.looted).map(|_| named.name))
+            .map(|name| InteractionOption {
+              label: format!("Loot dead {name} ({dir_label})"),
+              action: InteractionAction::LootCorpse(e)
+            })
+            .into_iter()
+        )
+        .chain(
+          named_q
+            .get(e)
+            .ok()
+            .and_then(|(_, _, bed)| bed.map(|_| InteractionOption {
+              label: format!("Sleep ({dir_label})"),
+              action: InteractionAction::SaveAtBed
+            }))
+            .into_iter()
+        )
         .chain(door_q.get(e).ok().into_iter().map(move |door| {
           let verb = if door.open { "Close" } else { "Open" };
-          let name = named_q.get(e).map_or("door", |n| n.name);
+          let name = named_q.get(e).map_or("door", |(n, ..)| n.name);
           InteractionOption {
             label: format!("{verb} {name} ({dir_label})"),
             action: InteractionAction::ToggleDoor(e)
@@ -2026,7 +2105,7 @@ fn resolve_bump_interact(
   mut loot_chest_q: Query<(&mut LootChest, &mut Glyph, &Location)>,
   door_q: Query<&Door>,
   elevator_q: Query<&Elevator>,
-  named_q: Query<&Named>,
+  named_q: Query<(&Named, Option<&entities::Corpse>, Option<&Bed>)>,
   console_q: Query<(Option<&FlightConsole>, Option<&LoadoutConsole>)>,
   follower_q: Query<&FollowerState>,
   player: Single<(&Inventory, &Loadout), With<Player>>
@@ -2055,11 +2134,12 @@ fn resolve_bump_interact(
     inventory,
     equipped
   );
-  let highlighted = opts.iter().map(|o| is_equipped(&o.action, equipped)).collect();
+  let highlighted = utils::mapv(|o: &_| is_equipped(&o.action, equipped), &opts);
+  let disabled = utils::mapv(|o: &_| is_disabled(&o.action, equipped), &opts);
   match opts.len() {
     0 => {}
     1 => flash.0 = opts.into_iter().next(),
-    _ => ui.interact = InteractMenu::Open { options: opts, selected: 0, highlighted }
+    _ => ui.interact = InteractMenu::Open { options: opts, selected: 0, highlighted, disabled }
   }
 }
 
@@ -2072,8 +2152,7 @@ fn apply_bump_auto_interact(
   mut ui: ResMut<UiState>,
   mut log: ResMut<LogEntries>,
   mut player_query: Query<(&mut PlayerPos, &mut Inventory, &mut Loadout), With<Player>>,
-  mut pending_chest: ResMut<ChestOpenPending>,
-  mut pending_nav: ResMut<PendingNavigation>,
+  mut deferred: ResMut<DeferredActions>,
   mut door_q: Query<(
     &mut Door,
     &mut Glyph,
@@ -2097,8 +2176,7 @@ fn apply_bump_auto_interact(
     &mut ui,
     &mut log,
     &mut player_query,
-    &mut pending_chest,
-    &mut pending_nav,
+    &mut deferred,
     &mut door_q,
     &asset_server,
     &mut palette_cache,
@@ -2106,17 +2184,18 @@ fn apply_bump_auto_interact(
   );
 }
 
-fn flush_pending_chest_open(
-  mut pending_chest: ResMut<ChestOpenPending>,
+fn flush_pending_loot(
+  mut pending: ResMut<DeferredActions>,
   mut commands: Commands,
   mut player_q: Query<(&mut PlayerPos, &mut Inventory, &mut Loadout), With<Player>>,
   mut loot_chest_q: Query<(&mut LootChest, &mut Glyph, &Location)>,
   fixed_q: Query<&FixedChestLoot>,
+  mut corpse_q: Query<(&mut entities::Corpse, &Named)>,
   mut log: ResMut<LogEntries>,
   mut clock: ResMut<Clock>,
   mut tb: ResMut<TurnBasedWorldState>
 ) {
-  if let Some(ent) = pending_chest.0.take() {
+  if let Some(ent) = pending.loot_chest.take() {
     apply_open_chest(
       &mut commands,
       ent,
@@ -2128,6 +2207,70 @@ fn flush_pending_chest_open(
       &mut *tb
     );
   }
+  if let Some(ent) = pending.loot_corpse.take()
+    && let Ok((mut corpse, named)) = corpse_q.get_mut(ent)
+    && !corpse.looted
+    && let Ok((_, mut inventory, _)) = player_q.single_mut()
+  {
+    let kinds = corpse.loot.len();
+    for &(item, qty) in &corpse.loot {
+      *inventory.0.entry(item).or_insert(0) += qty;
+    }
+    corpse.looted = true;
+    let name = named.name;
+    log_message(
+      &mut *log,
+      if kinds == 0 { format!("Nothing on the dead {name}.") }
+      else { format!("Looted dead {name} ({kinds} stack{}).", if kinds == 1 { "" } else { "s" }) }
+    );
+    clock.spend_turn(&mut *tb);
+  }
+}
+
+fn apply_bed_save(
+  mut deferred: ResMut<DeferredActions>,
+  mut bed_save: ResMut<BedSave>,
+  ship: Res<ship::Ship>,
+  player: Single<(&PlayerPos, &Inventory, &Loadout), With<Player>>,
+  mut log: ResMut<LogEntries>
+) {
+  if !std::mem::take(&mut deferred.save_at_bed) { return }
+  let (pos, inventory, loadout) = *player;
+  bed_save.0 = Some(SaveData {
+    docked_at: ship.docked_at,
+    pos: (pos.x, pos.y, pos.z),
+    inventory: inventory.0.clone(),
+    loadout: loadout.clone(),
+  });
+  log_message(&mut log, "You rest and save your progress.".into());
+}
+
+fn player_death_check(
+  mut bed_save: ResMut<BedSave>,
+  ship: Res<ship::Ship>,
+  mut deferred: ResMut<DeferredActions>,
+  mut player: Query<(&mut PlayerPos, &mut Stats, &mut Inventory, &mut Loadout), With<Player>>,
+  mut log: ResMut<LogEntries>
+) {
+  let Ok((mut pos, mut stats, mut inventory, mut loadout)) = player.single_mut() else {
+    return;
+  };
+  if stats.hp > 0 { return }
+  let Some(save) = bed_save.0.take() else { return };
+  pos.x = save.pos.0;
+  pos.y = save.pos.1;
+  pos.z = save.pos.2;
+  stats.hp = stats.max_hp;
+  inventory.0 = save.inventory.clone();
+  *loadout = save.loadout.clone();
+  if ship.docked_at != save.docked_at {
+    if let Some(dest) = save.docked_at {
+      deferred.navigate = Some(dest);
+      deferred.post_navigate_pos = Some(save.pos);
+    }
+  }
+  bed_save.0 = Some(save);
+  log_message(&mut log, "You wake up in bed, shaken but alive.".into());
 }
 
 fn handle_interact(
@@ -2144,7 +2287,7 @@ fn handle_interact(
   mut loot_chest_q: Query<(&mut LootChest, &mut Glyph, &Location)>,
   door_q: Query<&Door>,
   elevator_q: Query<&Elevator>,
-  named_q: Query<&Named>,
+  named_q: Query<(&Named, Option<&entities::Corpse>, Option<&Bed>)>,
   console_q: Query<(Option<&FlightConsole>, Option<&LoadoutConsole>)>,
   follower_q: Query<&FollowerState>
 ) {
@@ -2170,11 +2313,12 @@ fn handle_interact(
     })
     .collect();
 
-  let highlighted = options.iter().map(|o| is_equipped(&o.action, equipped)).collect();
+  let highlighted = utils::mapv(|o: &_| is_equipped(&o.action, equipped), &options);
+  let disabled = utils::mapv(|o: &_| is_disabled(&o.action, equipped), &options);
   match options.len() {
     0 => {}
     1 => flash.0 = options.into_iter().next(),
-    _ => ui.interact = InteractMenu::Open { options, selected: 0, highlighted }
+    _ => ui.interact = InteractMenu::Open { options, selected: 0, highlighted, disabled }
   }
 }
 
@@ -2273,7 +2417,7 @@ fn fov_recompute(
 }
 
 fn apply_pending_navigation(
-  mut pending: ResMut<PendingNavigation>,
+  mut pending: ResMut<DeferredActions>,
   mut commands: Commands,
   galaxy: Res<galaxy::Galaxy>,
   mut ship: ResMut<ship::Ship>,
@@ -2295,7 +2439,7 @@ fn apply_pending_navigation(
   mut clock: ResMut<Clock>,
   mut tb: ResMut<TurnBasedWorldState>
 ) {
-  let Some(dest) = pending.0.take() else {
+  let Some(dest) = pending.navigate.take() else {
     return;
   };
   if ship.docked_at == Some(dest) {
@@ -2338,18 +2482,19 @@ fn apply_pending_navigation(
     player_ship_offset.unwrap_or((ship::SHIP_WIDTH as i32 / 2, ship::SHIP_HEIGHT as i32 / 2));
   let local_x = sox + offset_x;
   let local_y = soy + offset_y;
-  let start_local = Vec2::new(local_x as f32, local_y as f32);
   if let Ok((mut pos, mut location, mut vis, mut tf)) = player.single_mut() {
-    pos.x = local_x;
-    pos.y = local_y;
-    pos.z = 0;
-    *location = Location::xyz(local_x, local_y, 0);
+    let (lx, ly, lz) = pending.post_navigate_pos.take().unwrap_or((local_x, local_y, 0));
+    pos.x = lx;
+    pos.y = ly;
+    pos.z = lz;
+    *location = Location::xyz(lx, ly, lz);
+    let start_local = Vec2::new(lx as f32, ly as f32);
     vis.prev = start_local;
     vis.display = start_local;
     vis.last_pos = start_local;
     vis.last_move_start_frame = None;
     tf.translation =
-      tile_screen_pos(local_x as f32, local_y as f32, current.0.width, current.0.height)
+      tile_screen_pos(lx as f32, ly as f32, current.0.width, current.0.height)
         + Vec3::Z;
   }
   // Compute FOV immediately so tile visuals are correct on the next frame.
@@ -2380,6 +2525,7 @@ fn setup(
   mut log: ResMut<LogEntries>,
   mut clock: ResMut<Clock>,
   mut tb: ResMut<TurnBasedWorldState>,
+  mut bed_save: ResMut<BedSave>,
   render_target: Res<post_process::GameRenderTarget>,
 ) {
   clock.spend_turn(&mut tb);
@@ -2416,11 +2562,9 @@ fn setup(
     Visibility::Hidden
   ));
 
-  let start_x: i32 = ship::SHIP_WIDTH as i32 / 2;
-  let start_y: i32 = ship::SHIP_HEIGHT as i32 / 2;
   let (sox, soy) = current.0.ship_origin;
-  let local_x = sox + start_x;
-  let local_y = soy + start_y;
+  let local_x = sox + 11;
+  let local_y = soy + 4;
 
   let start_local = Vec2::new(local_x as f32, local_y as f32);
 
@@ -2455,6 +2599,13 @@ fn setup(
       last_pos: start_local
     }
   ));
+
+  bed_save.0 = Some(SaveData {
+    docked_at: ship.docked_at,
+    pos: (local_x, local_y, 0),
+    inventory: HashMap::new(),
+    loadout: Loadout::default(),
+  });
 
   log_message(
     &mut *log,
