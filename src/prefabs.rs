@@ -106,6 +106,28 @@ impl Prefab {
     (w, h)
   }
 
+  /// Layout-local `(x, y)` of the first occurrence of `ch`, or `None`.
+  pub fn find_char(&self, ch: char) -> Option<(i32, i32)> {
+    let raw_lines =
+      self.layout.lines().filter(|l| !l.trim().is_empty()).collect::<Vec<_>>();
+    let indent = raw_lines
+      .iter()
+      .filter_map(|line| {
+        line.char_indices().find(|(_, c)| !c.is_whitespace()).map(|(i, _)| i)
+      })
+      .min()
+      .unwrap_or(0);
+    for (y, line) in raw_lines.iter().enumerate() {
+      let stripped = line.get(indent..).unwrap_or(line);
+      for (x, c) in stripped.chars().enumerate() {
+        if c == ch {
+          return Some((x as i32, y as i32));
+        }
+      }
+    }
+    None
+  }
+
   /// Write tiles into `level` at `(ox + x, oy + y)` for each layout cell.
   pub fn stamp_level(&self, level: &mut Level, ox: i32, oy: i32) {
     self.visit_cells(|lx, ly, tile, _templates| {

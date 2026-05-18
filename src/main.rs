@@ -2563,8 +2563,11 @@ fn setup(
   ));
 
   let (dox, doy) = current.0.dest_origin.unwrap_or(current.0.ship_origin);
-  let local_x = dox + locations::starter_planet::BED_X;
-  let local_y = doy + locations::starter_planet::BED_Y;
+  let (spx, spy) = locations::starter_planet::surface_prefab()
+    .find_char('@')
+    .expect("starter planet must have a player spawn marker (@)");
+  let local_x = dox + spx;
+  let local_y = doy + spy;
 
   let start_local = Vec2::new(local_x as f32, local_y as f32);
 

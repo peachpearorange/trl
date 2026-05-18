@@ -6,9 +6,6 @@ use crate::{entities::Object,
 
 pub const ID: LocationId = (0, 0, 0);
 
-pub const BED_X: i32 = 14;
-pub const BED_Y: i32 = 20;
-
 pub fn surface_prefab() -> Prefab {
   prefab(
 "gggggggggggggggggggggggggggggggggggggggggggggggg
@@ -31,7 +28,7 @@ gggggggggggggggggggggggggggggggggggggggggggggggg
 gggggggggggggggggggggggggggggggggggggggggggggggg
 gggggggggggggggggggggggggggggggggggggggggggggggg
 gggggggggggggwwwwwwwwwwwwwwwwwwwwwwggggggggggggg
-gggggggggggggwBfffwffffffffRffffffwggggggggggggg
+gggggggggggggw@fffwffffffffRffffffwggggggggggggg
 gggggggggggggwffffwfffffffffffffffwggggggggggggg
 gggggggggggggwffff.fffffffffffffffwggggggggggggg
 gggggggggggggwffffwffffffKffffffffwggggggggggggg
@@ -65,7 +62,7 @@ gggggggggggggggggggggggggggggggggggggggggggggggg
     .assoc('~', (Tile::AlienFluid, []))
     .assoc('t', (Tile::AlienGrass, [Object::tree()]))
     .assoc('P', (Tile::ShipDock, []))
-    .assoc('B', (Tile::WoodTile, [Object::bed()]))
+    .assoc('@', (Tile::WoodTile, [Object::bed()]))
     .assoc('R', (Tile::StationFloor, [npcs::tutorial::ori1()]))
     .assoc('K', (Tile::StationFloor, [Object::crafting_table()]))
     .assoc('D', (Tile::StationFloor, [Object::door()]))
