@@ -3,9 +3,10 @@ use {bevy::prelude::*,
      std::collections::{BinaryHeap, HashMap, HashSet, VecDeque},
      std::cmp::Reverse,
      crate::{entities::{Collidable, DamageCloud, Enemy, FollowerData, FollowerState,
-                        GrenadeInFlight, GrenadeThrowComp, Location, Named, Object, Path,
-                        PlayerEquipped, SporeEmitter, Stats, TimeSinceAction, WalkAroundRandomly,
-                        Wearing},
+                        Glyph, GrenadeInFlight, GrenadeThrowComp, Location, Named, Object,
+                        Path, PlayerEquipped, SporeEmitter, Stats, TimeSinceAction,
+                        WalkAroundRandomly, Wearing},
+             path_overlay::bresenham_path,
              particles::{ParticleEffects, spawn_explosion_burst},
              ui::{LogEntries, log_message}}};
 
@@ -445,13 +446,10 @@ pub fn mushroom_spore_attack(
 pub fn grenade_thrower_ai(
   mut commands: Commands,
   mut log: ResMut<LogEntries>,
-  current: Res<crate::CurrentZone>,
   player_pos: Single<&crate::PlayerPos, With<crate::Player>>,
-  mut thrower_q: Query<(&Location, &mut GrenadeThrowComp, Option<&Named>), With<Enemy>>,
-  effects: Res<ParticleEffects>
+  mut thrower_q: Query<(&Location, &mut GrenadeThrowComp, Option<&Named>), With<Enemy>>
 ) {
   let &crate::PlayerPos { x: px, y: py, z: pz } = *player_pos;
-  let level = current.0.level(pz);
   for (location, mut comp, named) in thrower_q.iter_mut() {
     comp.timer = comp.timer.saturating_add(1);
     if let Location::Coords { z: ez, .. } = *location
@@ -463,8 +461,17 @@ pub fn grenade_thrower_ai(
       comp.timer = 0;
       let name = named.map(|n| n.name).unwrap_or("Something");
       log_message(&mut log, format!("{name} hurls a grenade!"));
-      spawn_cloud_area(&mut commands, px, py, pz, Object::explosion_cloud(), &EXPLOSION_OFFSETS);
-      spawn_explosion_burst(&mut commands, &effects, (px, py), level.width, level.height);
+      let path = bresenham_path(ex, ey, px, py);
+      commands.spawn((
+        Glyph::palette_sprite(
+          "textures/space_qud/grenade.png",
+          'o',
+          Color::srgb(0.85, 0.50, 0.10),
+          Color::srgb(0.30, 0.20, 0.10)
+        ),
+        Location::xyz(ex, ey, pz),
+        GrenadeInFlight { path, step: 0, tiles_per_turn: 4, z: pz }
+      ));
     }
   }
 }
