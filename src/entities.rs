@@ -215,10 +215,16 @@ impl Loadout {
   }
 
   pub fn can_add(&self, gear: Gear) -> bool {
+    self.rejection_reason(gear).is_none()
+  }
+
+  pub fn rejection_reason(&self, gear: Gear) -> Option<String> {
     match gear {
-      Gear::Weapon(_) => self.weapon_count() < self.max_weapons(),
-      Gear::Grenade(_) => self.grenade_count() < self.max_grenades(),
-      _ => true
+      Gear::Weapon(_) if self.weapon_count() >= self.max_weapons() =>
+        Some(format!("weapon slot full ({}/{})", self.weapon_count(), self.max_weapons())),
+      Gear::Grenade(_) if self.grenade_count() >= self.max_grenades() =>
+        Some(format!("grenade slots full ({}/{})", self.grenade_count(), self.max_grenades())),
+      _ => None
     }
   }
 

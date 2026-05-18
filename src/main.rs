@@ -1680,9 +1680,13 @@ fn execute_interaction(
         clock.spend_turn(tb);
       }
       InteractionAction::EquipGrenade { item, .. } => {
-        equipped.equip_grenade(*item);
-        log_message(log, format!("Equipped {}.", item.name()));
-        clock.spend_turn(tb);
+        if let Some(reason) = equipped.rejection_reason(entities::Gear::Grenade(*item)) {
+          log_message(log, format!("Can't equip {} — {}.", item.name(), reason));
+        } else {
+          equipped.equip_grenade(*item);
+          log_message(log, format!("Equipped {}.", item.name()));
+          clock.spend_turn(tb);
+        }
       }
       InteractionAction::UnequipGrenade { slot } => {
         if let Some(g) = equipped.unequip_grenade_at(*slot) {
@@ -1832,8 +1836,6 @@ fn loadout_options(inventory: &Inventory, loadout: &Loadout) -> Vec<InteractionO
     v.sort_by_key(|i| i.name());
     v
   };
-  let can_add_grenade = loadout.grenade_slots().len() < loadout.max_grenades() as usize;
-
   sorted(Item::is_weapon).into_iter()
     .map(|item| {
       let action = if loadout.weapon() == Some(item) {
@@ -1854,18 +1856,16 @@ fn loadout_options(inventory: &Inventory, loadout: &Loadout) -> Vec<InteractionO
     })
   )
   .chain(sorted(Item::is_grenade).into_iter()
-    .filter_map(|item| {
+    .map(|item| {
       let grenade_slots = loadout.grenade_slots();
       if let Some(&(slot, _)) = grenade_slots.iter().find(|&&(_, g)| g == item) {
-        Some(InteractionOption { label: item.name().to_string(), action: InteractionAction::UnequipGrenade { slot } })
-      } else if can_add_grenade {
+        InteractionOption { label: item.name().to_string(), action: InteractionAction::UnequipGrenade { slot } }
+      } else {
         let slot = grenade_slots.len();
-        Some(InteractionOption {
+        InteractionOption {
           label: item.name().to_string(),
           action: InteractionAction::EquipGrenade { slot, item }
-        })
-      } else {
-        None
+        }
       }
     })
   )
