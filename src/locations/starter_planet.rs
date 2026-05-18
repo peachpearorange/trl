@@ -1,9 +1,13 @@
 use crate::{entities::Object,
           galaxy::{Location, LocationId},
           level::{LocationType, Tile},
+          npcs,
           prefabs::{prefab, Prefab}};
 
 pub const ID: LocationId = (0, 0, 0);
+
+pub const BED_X: i32 = 14;
+pub const BED_Y: i32 = 20;
 
 pub fn surface_prefab() -> Prefab {
   prefab(
@@ -26,18 +30,15 @@ gggggggggggggggggggggggggggggggggggggggggggggggg
 gggggggggggggggggggggggggggggggggggggggggggggggg
 gggggggggggggggggggggggggggggggggggggggggggggggg
 gggggggggggggggggggggggggggggggggggggggggggggggg
-gggggggggggggggggggggggggggggggggggggggggggggggg
-ggggggggggggggggggwwwwwwwwwwwwgggggggggggggggggg
-ggggggggggggggggggwffffffffffwgggggggggggggggggg
-ggggggggggggggggggwffffffffffwgggggggggggggggggg
-ggggggggggggggggggwffffffffffwgggggggggggggggggg
-ggggggggggggggggggwffffffffffwgggggggggggggggggg
-ggggggggggggggggggwffffffffffwgggggggggggggggggg
-ggggggggggggggggggwffffffffffwgggggggggggggggggg
-ggggggggggggggggggwwwwwwwwwwwwgggggggggggggggggg
+gggggggggggggwwwwwwwwwwwwwwwwwwwwwwggggggggggggg
+gggggggggggggwBfffwffffffffRffffffwggggggggggggg
+gggggggggggggwffffwfffffffffffffffwggggggggggggg
+gggggggggggggwffff.fffffffffffffffwggggggggggggg
+gggggggggggggwffffwffffffKffffffffwggggggggggggg
+gggggggggggggwwwwwwwwwwwDwwwwwwwwwwggggggggggggg
+ggggggggggggggggggrrrrrrrrrrrrgggggggggggggggggg
 ggggggggggggggggggrrrrrrrrrrrrgggggggggggggggggg
 ggggggggggggggggggrrrrrrPrrrrrgggggggggggggggggg
-ggggggggggggggggggrrrrrrrrrrrrggggggggcggggggggg
 ggggggggggggggggggrrrrrrrrrrrrgggggggggggggggggg
 gggggggggggggggggggggggggggggggggggggggggggggggg
 gggggggggggggggggggggggggggggggggggggggggggggggg
@@ -59,11 +60,16 @@ gggggggggggggggggggggggggggggggggggggggggggggggg
     .assoc('g', (Tile::AlienGrass, []))
     .assoc('w', (Tile::StationWall, []))
     .assoc('f', (Tile::StationFloor, []))
-.assoc('r', (Tile::Road, []))
+    .assoc('r', (Tile::Road, []))
     .assoc('c', (Tile::CrystalGrowth, []))
     .assoc('~', (Tile::AlienFluid, []))
     .assoc('t', (Tile::AlienGrass, [Object::tree()]))
     .assoc('P', (Tile::ShipDock, []))
+    .assoc('B', (Tile::WoodTile, [Object::bed()]))
+    .assoc('R', (Tile::StationFloor, [npcs::tutorial::ori1()]))
+    .assoc('K', (Tile::StationFloor, [Object::crafting_table()]))
+    .assoc('D', (Tile::StationFloor, [Object::door()]))
+    .assoc('.', (Tile::StationFloor, []))
 }
 
 pub fn generate() -> Location {
@@ -74,4 +80,3 @@ pub fn generate() -> Location {
     Tile::AlienGrass
   )
 }
-

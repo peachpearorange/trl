@@ -2562,9 +2562,9 @@ fn setup(
     Visibility::Hidden
   ));
 
-  let (sox, soy) = current.0.ship_origin;
-  let local_x = sox + 11;
-  let local_y = soy + 4;
+  let (dox, doy) = current.0.dest_origin.unwrap_or(current.0.ship_origin);
+  let local_x = dox + locations::starter_planet::BED_X;
+  let local_y = doy + locations::starter_planet::BED_Y;
 
   let start_local = Vec2::new(local_x as f32, local_y as f32);
 
@@ -2609,10 +2609,7 @@ fn setup(
 
   log_message(
     &mut *log,
-    format!(
-      "{} — deck gravity nominal. You're on your ship (docked at the origin world).",
-      ship::SHIP_NAME
-    )
+    "You wake up in a small outpost on the Origin World. A robot hums nearby.".to_string()
   );
 }
 

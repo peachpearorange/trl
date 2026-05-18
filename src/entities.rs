@@ -804,6 +804,18 @@ impl Object {
     ))
   }
 
+  pub fn crafting_table() -> Self {
+    Self::structure(true).add((
+      Glyph::palette_sprite(
+        "textures/space_qud/crafting table.png",
+        'C',
+        Color::srgb(0.38, 0.42, 0.48),
+        Color::srgb(0.62, 0.62, 0.62)
+      ),
+      Named { name: "Crafting Table", flavor: "A workbench for assembling equipment from salvaged parts." }
+    ))
+  }
+
   pub fn table() -> Self {
     Self::structure(true).add((
       Glyph::palette_sprite(
