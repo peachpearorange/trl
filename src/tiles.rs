@@ -55,7 +55,7 @@ pub enum Tile {
   TallGrass,
   #[assoc(glyph = "%", color = [0.15, 0.45, 0.15], walkable = false, name = "Bush")]
   Bush,
-  #[assoc(glyph = ".", color = [0.55, 0.53, 0.5], walkable = true, name = "Ash", render_mode = TileRenderMode::Sprite("textures/space_qud/ground.png", [0.32, 0.30, 0.28], [0.55, 0.53, 0.50]))]
+  #[assoc(glyph = ".", color = [0.55, 0.53, 0.5], walkable = true, name = "Ash", render_mode = TileRenderMode::SpritePackRandom(&["textures/space_qud/ground.png"], [0.32, 0.30, 0.28], [0.55, 0.53, 0.50]))]
   Ash,
   #[assoc(glyph = "~", color = [0.9, 0.3, 0.05], walkable = false, name = "Lava", render_mode = TileRenderMode::Sprite("textures/space_qud/liquid tile.png", [0.72, 0.18, 0.04], [0.95, 0.52, 0.08]))]
   Lava,
@@ -106,9 +106,9 @@ pub enum Tile {
   Conduit,
   #[assoc(glyph = "#", color = [0.4, 0.35, 0.3], walkable = false, opaque = true, name = "Asteroid Rock", render_mode = TileRenderMode::Sprite("textures/space_qud/cobble tile.png", [0.28, 0.26, 0.24], [0.48, 0.46, 0.42]))]
   AsteroidRock,
-  #[assoc(glyph = ".", color = [0.5, 0.45, 0.4], walkable = true, name = "Asteroid Floor", render_mode = TileRenderMode::Sprite("textures/space_qud/ground.png", [0.48, 0.46, 0.44], [0.72, 0.70, 0.68]))]
+  #[assoc(glyph = ".", color = [0.5, 0.45, 0.4], walkable = true, name = "Asteroid Floor", render_mode = TileRenderMode::SpritePackRandom(&["textures/space_qud/ground.png"], [0.48, 0.46, 0.44], [0.72, 0.70, 0.68]))]
   AsteroidFloor,
-  #[assoc(glyph = ",", color = [0.55, 0.5, 0.45], walkable = true, name = "Regolith", render_mode = TileRenderMode::Sprite("textures/space_qud/ground.png", [0.48, 0.46, 0.44], [0.72, 0.70, 0.68]))]
+  #[assoc(glyph = ",", color = [0.55, 0.5, 0.45], walkable = true, name = "Regolith", render_mode = TileRenderMode::SpritePackRandom(&["textures/space_qud/ground.png"], [0.48, 0.46, 0.44], [0.72, 0.70, 0.68]))]
   Regolith,
   #[assoc(glyph = " ", color = [0.0, 0.0, 0.0], walkable = true, name = "Vacuum", has_atmosphere = false, render_mode = TileRenderMode::SpritePackRandom(&["textures/space_qud/stars1.png", "textures/space_qud/stars2.png", "textures/space_qud/stars3.png", "textures/space_qud/stars4.png"], [1.0, 1.0, 1.0], [0.62, 0.72, 0.92]))]
   Vacuum,
@@ -116,7 +116,7 @@ pub enum Tile {
   IceFloor,
   #[assoc(glyph = "#", color = [0.5, 0.55, 0.7], walkable = false, opaque = true, name = "Ice Wall")]
   IceWall,
-  #[assoc(glyph = ",", color = [0.45, 0.35, 0.55], walkable = true, name = "Alien Soil", render_mode = TileRenderMode::Sprite("textures/space_qud/ground.png", [0.28, 0.18, 0.38], [0.52, 0.38, 0.62]))]
+  #[assoc(glyph = ",", color = [0.45, 0.35, 0.55], walkable = true, name = "Alien Soil", render_mode = TileRenderMode::SpritePackRandom(&["textures/space_qud/ground.png"], [0.28, 0.18, 0.38], [0.52, 0.38, 0.62]))]
   AlienSoil,
   #[assoc(glyph = "\"", color = [0.3, 0.55, 0.3], walkable = true, name = "Alien Grass", render_mode = TileRenderMode::Sprite("textures/space_qud/grass.png", [0.38, 0.16, 0.52], [0.68, 0.52, 0.88]))]
   AlienGrass,
