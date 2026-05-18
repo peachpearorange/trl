@@ -119,13 +119,12 @@ fn recolor_components(@builtin(global_invocation_id) gid: vec3<u32>) {
     let rx = i32(root % params.size.x) + params.world_offset.x;
     let ry = i32(root / params.size.x) + params.world_offset.y;
     let world_key = u32(rx) ^ (u32(ry) * 0x9e3779b9u);
-    let hr = hash32(world_key ^ params.seed);
-    let hg = hash32(hr);
-    let hb = hash32(hg);
-    let amp = 0.04;
-    let dr = (f32(hr & 0xFFFFu) / 65535.0 * 2.0 - 1.0) * amp;
-    let dg = (f32(hg & 0xFFFFu) / 65535.0 * 2.0 - 1.0) * amp;
-    let db = (f32(hb & 0xFFFFu) / 65535.0 * 2.0 - 1.0) * amp;
-    let rgb = clamp(src.rgb + vec3<f32>(dr, dg, db), vec3<f32>(0.0), vec3<f32>(1.0));
+    let hv = hash32(world_key ^ params.seed);
+    let r = f32(hv & 0xFFFFu) / 65535.0;
+    let strength = 0.3;
+    let hsv = rgb_to_hsv(src.rgb);
+    let dv = (0.5 - hsv.z) * r * strength;
+    let perturbed = vec3<f32>(hsv.x, hsv.y, clamp(hsv.z + dv, 0.0, 1.0));
+    let rgb = hsv_to_rgb(perturbed);
     textureStore(dst_tex, vec2<i32>(xy), vec4<f32>(rgb, src.a));
 }
