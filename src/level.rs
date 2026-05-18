@@ -421,11 +421,15 @@ pub const ZONE_WIDTH: usize = 48;
 pub const ZONE_HEIGHT: usize = 48;
 
 // ---------------------------------------------------------------------------
-// Visibility: perimeter flood-fill
+// Visibility: BYOND-style dual-pass shadow propagation
 //
-// Expand outward chebyshev-ring by chebyshev-ring from the viewer.
-// A tile is visible if any of its parent tiles (one step closer to the
-// viewer along each axis) is itself visible and not opaque.
+// Two passes propagate visibility outward from the viewer:
+//   1. Diagonal pass (Chebyshev distance): spreads through 8-neighbors
+//   2. Straight pass (Manhattan distance): spreads through 8-neighbors but
+//      only to tiles already reached by the diagonal pass
+// A tile must be reached by BOTH passes to be visible. Opaque tiles are
+// reached (you see the wall face) but don't propagate further.
+// A final boundary pass reveals wall faces adjacent to visible areas.
 // ---------------------------------------------------------------------------
 
 pub struct FovGrid {
@@ -463,14 +467,6 @@ impl FovGrid {
 }
 
 /// Compute FOV from (cx, cy) with the given radius on the given level.
-/// Uses perimeter flood-fill: expand outward ring by ring; a tile is visible
-/// if any of its parents (one step closer along each axis) are visible and
-/// not opaque.
-///
-/// `blocks_sight` is checked in **level-local** tile coordinates (same as
-/// `level.get`): extra per-cell opacity for vision (same role as [`Tile::opaque`]
-/// for tiles). The viewer’s own cell is never used as a blocker for *outward*
-/// propagation.
 pub fn compute_fov(
   fov: &mut FovGrid,
   level: &Level,
@@ -480,81 +476,200 @@ pub fn compute_fov(
   mut blocks_sight: impl FnMut(i32, i32) -> bool
 ) {
   fov.clear_visible();
-
-  // viewer tile is always visible
-  if cx >= 0 && cy >= 0 && (cx as usize) < fov.width && (cy as usize) < fov.height {
-    fov.mark_visible(cx as usize, cy as usize);
+  if cx < 0 || cy < 0 || (cx as usize) >= fov.width || (cy as usize) >= fov.height {
+    return;
   }
 
-  // local visibility grid, offset-relative to viewer
-  let size = (2 * radius + 1) as usize;
-  let mut vis = vec![vec![false; size]; size];
-  let r = radius as usize;
-  vis[r][r] = true;
+  let max_dist = cx.max((fov.width as i32) - 1 - cx)
+    .max(cy.max((fov.height as i32) - 1 - cy));
+  let r = radius.min(max_dist);
+  let size = (2 * r + 1) as usize;
+  // 0 = unvisited, positive = propagation depth, -1 = opaque (visible but blocks)
+  let mut vis2 = vec![0i32; size * size];
+  let mut vis = vec![0i32; size * size];
 
-  fn sign(n: i32) -> i32 {
-    if n > 0 {
-      1
-    } else if n < 0 {
-      -1
-    } else {
-      0
+  let mut is_opaque = |dx: i32, dy: i32| -> bool {
+    if (dx, dy) == (0, 0) { return false; }
+    let (wx, wy) = (cx + dx, cy + dy);
+    match level.get(wx, wy) {
+      None => true,
+      Some(t) => t.opaque() || blocks_sight(wx, wy)
+    }
+  };
+
+  let idx = |dx: i32, dy: i32| (dy + r) as usize * size + (dx + r) as usize;
+
+  fn chebyshev_ring(d: i32, mut f: impl FnMut(i32, i32)) {
+    for dx in -d..=d { f(dx, -d); f(dx, d); }
+    for dy in (-d + 1)..d { f(-d, dy); f(d, dy); }
+  }
+
+  fn manhattan_shell(d: i32, mut f: impl FnMut(i32, i32)) {
+    for dx in -d..=d {
+      let ady = d - dx.abs();
+      f(dx, ady);
+      if ady != 0 { f(dx, -ady); }
     }
   }
 
-  for d in 1..=radius {
-    for dx in -d..=d {
-      for dy in -d..=d {
-        if dx.abs().max(dy.abs()) != d {
-          continue;
-        }
-        let (sx, sy) = (sign(dx), sign(dy));
-        // All parents are on ring d-1, so iteration order doesn't matter.
-        // Corners use only the diagonal parent to ensure a single diagonal
-        // wall tile properly occludes. Edge tiles use two inward parents
-        // along their dominant axis so they aren't over-blocked.
-        let parents: &[(i32, i32)] = if dx == 0 {
-          &[(0, -sy)]
-        } else if dy == 0 {
-          &[(-sx, 0)]
-        } else if dx.abs() == dy.abs() {
-          // corner: only the diagonal d-1 parent
-          &[(-sx, -sy)]
-        } else if dx.abs() > dy.abs() {
-          // vertical edge: two parents one step inward along x
-          &[(-sx, 0), (-sx, -sy)]
-        } else {
-          // horizontal edge: two parents one step inward along y
-          &[(0, -sy), (-sx, -sy)]
-        };
+  const NEIGHBORS: [(i32, i32); 8] = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)];
 
-        let visible = parents.iter().any(|&(px, py)| {
-          let (pj, pi) = ((dx + px) + radius, (dy + py) + radius);
-          let (uj, ui) = (pj as usize, pi as usize);
-          let (lx, ly) = (cx + dx + px, cy + dy + py);
-          let tile_opaque = |qx: i32, qy: i32| {
-            (qx, qy) != (cx, cy) && level.get(qx, qy).is_some_and(|t| t.opaque())
-          };
-          let parent_blocks = (lx, ly) != (cx, cy)
-            && (tile_opaque(lx, ly) || blocks_sight(lx, ly));
-          // For diagonal steps: blocked when both cardinal neighbours are opaque (kitty-corner).
-          // Applies at every ring, not just when |dx|==|dy|.
-          let corner_blocks = px != 0
-            && py != 0
-            && (tile_opaque(cx + dx, cy + dy + py) || blocks_sight(cx + dx, cy + dy + py))
-            && (tile_opaque(cx + dx + px, cy + dy) || blocks_sight(cx + dx + px, cy + dy));
-          uj < size && ui < size && vis[ui][uj] && !parent_blocks && !corner_blocks
-        });
+  let in_grid = |dx: i32, dy: i32| dx >= -r && dx <= r && dy >= -r && dy <= r;
 
-        if visible {
-          let (j, i) = ((dx + radius) as usize, (dy + radius) as usize);
-          vis[i][j] = true;
-          let (wx, wy) = (cx + dx, cy + dy);
-          if wx >= 0 && wy >= 0 && (wx as usize) < fov.width && (wy as usize) < fov.height
+  // Pass 1: Diagonal shadow — propagate by Chebyshev distance
+  // Only propagate from neighbors at exactly distance d (one ring closer)
+  for d in 0..r {
+    chebyshev_ring(d + 1, |dx, dy| {
+      if !in_grid(dx, dy) { return; }
+      let gi = idx(dx, dy);
+      let reached = d == 0 || NEIGHBORS.iter().any(|&(ndx, ndy)| {
+        let (nx, ny) = (dx + ndx, dy + ndy);
+        in_grid(nx, ny) && vis2[idx(nx, ny)] == d
+      });
+      if reached {
+        vis2[gi] = if is_opaque(dx, dy) { -1 } else { d + 1 };
+      }
+    });
+  }
+
+  // Pass 2: Straight shadow — propagate by Manhattan distance
+  // Only propagate from neighbors at exactly distance d (one shell closer)
+  let sum_max = 2 * r;
+  for d in 0..sum_max {
+    manhattan_shell(d + 1, |dx, dy| {
+      if !in_grid(dx, dy) { return; }
+      let gi = idx(dx, dy);
+      if vis2[gi] == 0 { return; }
+      let reached = d == 0 || NEIGHBORS.iter().any(|&(ndx, ndy)| {
+        let (nx, ny) = (dx + ndx, dy + ndy);
+        in_grid(nx, ny) && vis[idx(nx, ny)] == d
+      });
+      if reached {
+        vis[gi] = if is_opaque(dx, dy) { -1 } else { d + 1 };
+      }
+    });
+  }
+
+  // Mark eye visible
+  vis[idx(0, 0)] = 1;
+
+  // Boundary pass: reveal opaque tiles adjacent to visible areas
+  for dx in -r..=r {
+    for dy in -r..=r {
+      let gi = idx(dx, dy);
+      if vis[gi] != 0 || !is_opaque(dx, dy) { continue; }
+      let get_vis = |ddx: i32, ddy: i32| {
+        let (nx, ny) = (dx + ddx, dy + ddy);
+        if nx.abs().max(ny.abs()) <= r { vis[idx(nx, ny)] } else { 0 }
+      };
+      // Wall rule: both opposite cardinal neighbors visible
+      if (get_vis(1, 0) != 0 && get_vis(-1, 0) != 0)
+        || (get_vis(0, 1) != 0 && get_vis(0, -1) != 0)
+      {
+        vis[gi] = -1;
+      } else {
+        // Corner rule
+        for &(cdx, cdy) in &[(-1, -1), (-1, 1), (1, -1), (1, 1)] {
+          if get_vis(cdx, cdy) != 0
+            && get_vis(cdx, 0) != 0
+            && get_vis(0, cdy) != 0
+            && is_opaque(dx + cdx, dy)
+            && is_opaque(dx, dy + cdy)
+            && !is_opaque(dx + cdx, dy + cdy)
           {
-            fov.mark_visible(wx as usize, wy as usize);
+            vis[gi] = -1;
+            break;
           }
         }
+      }
+    }
+  }
+
+  // Transfer to FovGrid
+  for dx in -r..=r {
+    for dy in -r..=r {
+      if vis[idx(dx, dy)] != 0 {
+        fov.mark_visible((cx + dx) as usize, (cy + dy) as usize);
+      }
+    }
+  }
+}
+
+#[cfg(test)]
+mod fov_tests {
+  use super::*;
+
+  fn render_fov(fov: &FovGrid, level: &Level, px: i32, py: i32) -> String {
+    let mut s = String::new();
+    for y in 0..level.height as i32 {
+      for x in 0..level.width as i32 {
+        s.push(if (x, y) == (px, py) {
+          '@'
+        } else if !fov.is_visible(x as usize, y as usize) {
+          '?'
+        } else if level.get(x, y).is_some_and(|t| t.opaque()) {
+          '#'
+        } else {
+          '.'
+        });
+      }
+      s.push('\n');
+    }
+    s
+  }
+
+  #[test]
+  fn bedroom_door_open_sees_interior() {
+    // #####
+    // #...#
+    // #...D.@
+    // #...#
+    // #####
+    let mut level = Level::new(7, 5, Tile::StationFloor);
+    for x in 0..5 { level.set(x, 0, Tile::StationWall); level.set(x, 4, Tile::StationWall); }
+    for y in 0..5 { level.set(0, y, Tile::StationWall); }
+    level.set(4, 0, Tile::StationWall);
+    level.set(4, 1, Tile::StationWall);
+    level.set(4, 3, Tile::StationWall);
+    level.set(4, 4, Tile::StationWall);
+    // door at (4,2) is floor (open)
+
+    let (px, py) = (6, 2);
+    let mut fov = FovGrid::new(7, 5);
+    compute_fov(&mut fov, &level, px, py, 20, |_, _| false);
+
+    let map = render_fov(&fov, &level, px, py);
+    println!("door open:\n{map}");
+    for y in 1..=3 {
+      for x in 1..=3 {
+        assert!(fov.is_visible(x, y), "({x},{y}) should be visible with door open\n{map}");
+      }
+    }
+  }
+
+  #[test]
+  fn bedroom_door_closed_hides_interior() {
+    let mut level = Level::new(7, 5, Tile::StationFloor);
+    for x in 0..5 { level.set(x, 0, Tile::StationWall); level.set(x, 4, Tile::StationWall); }
+    for y in 0..5 { level.set(0, y, Tile::StationWall); }
+    level.set(4, 0, Tile::StationWall);
+    level.set(4, 1, Tile::StationWall);
+    level.set(4, 3, Tile::StationWall);
+    level.set(4, 4, Tile::StationWall);
+
+    let (px, py) = (6, 2);
+    let mut fov = FovGrid::new(7, 5);
+    // door at (4,2) blocks sight when closed
+    compute_fov(&mut fov, &level, px, py, 20, |x, y| x == 4 && y == 2);
+
+    let map = render_fov(&fov, &level, px, py);
+    println!("door closed:\n{map}");
+    // door itself is visible (wall face)
+    assert!(fov.is_visible(4, 2), "door should be visible\n{map}");
+    // interior should NOT be visible
+    for y in 1..=3 {
+      for x in 1..=3 {
+        assert!(!fov.is_visible(x, y), "({x},{y}) should be hidden with door closed\n{map}");
       }
     }
   }

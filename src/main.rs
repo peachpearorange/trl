@@ -633,6 +633,7 @@ fn main() {
     .add_systems(PostStartup, (update_fov, init_follower_homes).chain())
     .add_systems(Update, (accumulate_dir, player_input).chain().in_set(FramePipeline::PlayerMove))
     .add_systems(Update, auto_close_airlocks.after(FramePipeline::PlayerMove))
+    .add_systems(Update, update_fov.after(FramePipeline::BumpResolve))
     .add_systems(
       Update,
       (resolve_bump_interact, apply_bump_auto_interact)
@@ -652,7 +653,6 @@ fn main() {
         damage_cloud_tick.in_set(SimStep),
         npc_wander.in_set(SimStep),
         follower_ai.in_set(SimStep),
-        update_fov.in_set(SimStep),
         abilities::tick_cooldowns.in_set(SimStep),
         abilities::advance_pending_fire.in_set(SimStep)
       )
