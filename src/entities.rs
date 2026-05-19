@@ -555,24 +555,29 @@ impl<T: Bundle + Clone + Sync> ConstInsert for T {
 
 /// Const-constructible entity blueprint with parent-chain inheritance.
 ///
-/// Stores `&'static dyn ConstInsert` refs — works in `static` because
-/// trait-object references have const vtable pointers.
+/// Stores a `&'static dyn ConstInsert` — works in `static` because
+/// trait-object references have const vtable pointers. Tuples of
+/// components work directly since Bevy tuples are `Bundle`.
 ///
 /// ```ignore
-/// static WALL: ObjectConst = STRUCTURE.with(&[&WallComp { material: Material::Stone }]);
+/// static PHYSICAL: ObjectConst = ObjectConst::new(&Collidable(true));
+/// static WALL: ObjectConst = STRUCTURE.with(&(
+///     WallComp { material: Material::Stone },
+///     Named { name: "Wall", flavor: "A wall." },
+/// ));
 /// ```
 #[derive(Copy, Clone)]
 pub struct ObjectConst {
   parent: Option<&'static ObjectConst>,
-  components: &'static [&'static dyn ConstInsert],
+  components: &'static dyn ConstInsert,
 }
 
 impl ObjectConst {
-  pub const fn new(components: &'static [&'static dyn ConstInsert]) -> Self {
+  pub const fn new(components: &'static dyn ConstInsert) -> Self {
     Self { parent: None, components }
   }
 
-  pub const fn with(&'static self, components: &'static [&'static dyn ConstInsert]) -> Self {
+  pub const fn with(&'static self, components: &'static dyn ConstInsert) -> Self {
     Self { parent: Some(self), components }
   }
 
@@ -580,9 +585,7 @@ impl ObjectConst {
     if let Some(parent) = self.parent {
       parent.apply_to(e);
     }
-    for c in self.components {
-      c.insert_into(e);
-    }
+    self.components.insert_into(e);
   }
 
   pub fn spawn(&self, commands: &mut Commands) -> Entity {
