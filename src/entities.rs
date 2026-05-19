@@ -542,9 +542,13 @@ const DOOR_CLOSED_SEC: Color = Color::srgb(0.52, 0.55, 0.58);
 #[derive(Clone)]
 pub struct Object(Arc<dyn Fn(&mut EntityCommands) + Send + Sync + 'static>);
 
-/// Object-safe trait for inserting a component/bundle into an entity.
-/// Blanket-implemented for all `Bundle + Clone + Sync` types, so any
-/// Bevy component that derives `Clone` works automatically.
+/// Object-safe trait for spawning components onto an entity at runtime.
+/// The implementor stores const-friendly *parameters* and builds
+/// components (including heap-allocated ones) inside `insert_into`.
+///
+/// Blanket-implemented for `Bundle + Clone + Sync`, so simple
+/// components work directly. For components that need runtime
+/// construction (e.g. `Vec`), implement manually on a param struct.
 pub trait ConstInsert: Sync {
   fn insert_into(&self, e: &mut EntityCommands);
 }
@@ -555,16 +559,27 @@ impl<T: Bundle + Clone + Sync> ConstInsert for T {
 
 /// Const-constructible entity blueprint with parent-chain inheritance.
 ///
-/// Stores a `&'static dyn ConstInsert` — works in `static` because
-/// trait-object references have const vtable pointers. Tuples of
-/// components work directly since Bevy tuples are `Bundle`.
+/// Stores `&'static dyn ConstInsert` — the trait object ref is const
+/// because vtable pointers are compile-time data. The actual components
+/// are constructed at spawn time, so heap types like `Vec` are fine
+/// as long as the *parameters* to build them are const.
 ///
 /// ```ignore
+/// // Simple — component data is directly const:
 /// static PHYSICAL: ObjectConst = ObjectConst::new(&Collidable(true));
-/// static WALL: ObjectConst = STRUCTURE.with(&(
-///     WallComp { material: Material::Stone },
-///     Named { name: "Wall", flavor: "A wall." },
+/// static BOULDER: ObjectConst = PHYSICAL.with(&(
+///     Named { name: "Boulder", flavor: "A massive rock." },
+///     Collidable(true),
 /// ));
+///
+/// // Custom — stores const params, builds Vec at spawn time:
+/// struct LoadoutBlueprint(&'static [GearSlot]);
+/// impl ConstInsert for LoadoutBlueprint {
+///     fn insert_into(&self, e: &mut EntityCommands) {
+///         e.insert(Loadout::new(self.0.to_vec()));
+///     }
+/// }
+/// static SOLDIER: ObjectConst = ENEMY.with(&LoadoutBlueprint(&[...]));
 /// ```
 #[derive(Copy, Clone)]
 pub struct ObjectConst {
