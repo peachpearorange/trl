@@ -553,9 +553,9 @@ impl<T: Bundle + Clone + Sync> ConstInsert for T {
   fn insert_into(&self, e: &mut EntityCommands) { e.insert(self.clone()); }
 }
 
-/// Define a named blueprint struct + [`ConstInsert`] impl + call-site
-/// macro, all in one. The macro uses struct-init syntax and supports
-/// an optional parent via `&PARENT;` prefix.
+/// Define a blueprint struct + [`ConstInsert`] impl from const-friendly
+/// fields and spawn-time expressions. Pair with a call-site macro for
+/// function-like syntax.
 ///
 /// ```ignore
 /// const_blueprint!(npc(name: &'static str, flavor: &'static str) {
@@ -564,33 +564,29 @@ impl<T: Bundle + Clone + Sync> ConstInsert for T {
 ///     Loadout::new(vec![]),  // heap alloc is fine — runs at spawn time
 /// });
 ///
+/// // call-site macro (2 lines per blueprint):
+/// macro_rules! npc {
+///     ($parent:expr; $($tt:tt)*) => { $parent.with(&npc { $($tt)* }) };
+///     ($($tt:tt)*) => { ObjectConst::new(&npc { $($tt)* }) };
+/// }
+///
 /// static BOB: ObjectConst = npc!(name: "Bob", flavor: "This is Bob.");
 /// static BOB2: ObjectConst = npc!(&NPC_BASE; name: "Bob", flavor: "This is Bob.");
 /// ```
 #[macro_export]
 macro_rules! const_blueprint {
-  ($mac:ident($($field:ident: $ty:ty),* $(,)?) { $($bundle:expr),* $(,)? }) => {
+  ($name:ident($($field:ident: $ty:ty),* $(,)?) { $($bundle:expr),* $(,)? }) => {
     #[allow(non_camel_case_types)]
-    pub struct $mac { $(pub $field: $ty),* }
+    pub struct $name { $(pub $field: $ty),* }
 
-    unsafe impl Sync for $mac {}
+    unsafe impl Sync for $name {}
 
-    impl $crate::entities::ConstInsert for $mac {
+    impl $crate::entities::ConstInsert for $name {
       #[allow(unused_variables)]
       fn insert_into(&self, e: &mut ::bevy::prelude::EntityCommands) {
         $(let $field = &self.$field;)*
         $(e.insert($bundle);)*
       }
-    }
-
-    #[allow(unused_macros)]
-    macro_rules! $mac {
-      ($$parent:expr; $$($$tt:tt)*) => {
-        $$parent.with(&$mac { $$($$tt)* })
-      };
-      ($$($$tt:tt)*) => {
-        $crate::entities::ObjectConst::new(&$mac { $$($$tt)* })
-      };
     }
   };
 }
