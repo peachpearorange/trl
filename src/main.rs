@@ -34,7 +34,7 @@ use {bevy::prelude::*,
      std::collections::{HashMap, HashSet},
      crate::entities::{AirlockDoor, Bed, BlocksSight, Collidable, Dialogue, DialogueNode,
                        DialogueTree, Door, Elevator, Enemy, FixedChestLoot, FlightConsole,
-                       FollowerData, FollowerState, Glyph, Loadout, LoadoutConsole, Location,
+                       CraftingTable, FollowerData, FollowerState, Glyph, Loadout, LoadoutConsole, Location,
                        LootChest, Named, Stats, Tree, Visuals},
      ui::{LogEntries, LogSpan, MenuClickPending, log_message, log_spans}};
 
@@ -103,6 +103,7 @@ enum InteractionAction {
   PickUpItem(i32, i32),
   OpenChest(Entity),
   Navigate { dest: galaxy::LocationId },
+  OpenCraftingTable,
   Salvage(Item),
   Craft(usize),
   EquipWeapon(Item),
@@ -132,6 +133,21 @@ pub enum InteractMenu {
     selected: usize,
     highlighted: Vec<bool>,
     disabled: Vec<bool>
+  }
+}
+
+#[derive(Default)]
+pub enum CraftingMenu {
+  #[default]
+  Closed,
+  Open {
+    tab: usize,
+    selected: usize,
+    scroll: usize,
+    salvage_actions: Vec<InteractionAction>,
+    craft_actions: Vec<InteractionAction>,
+    salvage_entries: Vec<ui::CraftingEntry>,
+    craft_entries: Vec<ui::CraftingEntry>,
   }
 }
 
@@ -171,6 +187,7 @@ enum DialogueState {
 struct UiState {
   pause: PauseMenu,
   interact: InteractMenu,
+  crafting: CraftingMenu,
   dialogue: DialogueState,
   /// Set by `handle_dialogue`/`handle_menus` when Space closes a menu; read+cleared by
   /// `handle_interact` so the same keypress doesn't also open an interaction.
@@ -188,6 +205,7 @@ impl UiState {
   fn any_open(&self) -> bool {
     self.pause != PauseMenu::Closed
       || matches!(self.interact, InteractMenu::Open { .. })
+      || matches!(self.crafting, CraftingMenu::Open { .. })
       || matches!(self.dialogue, DialogueState::Open { .. })
   }
 }
@@ -371,6 +389,10 @@ struct GlyphVisual;
 /// Semi-transparent cell highlight following the cursor over the current zone.
 #[derive(Component)]
 struct TileHoverHighlight;
+
+/// Pulsing highlight on adjacent tiles that have interactable entities.
+#[derive(Component)]
+struct InteractHighlight(u8);
 
 // ---------------------------------------------------------------------------
 // Glyph rendering systems
@@ -634,7 +656,7 @@ fn main() {
     .add_systems(Update, setup_glyph_visuals.in_set(FramePipeline::GlyphSetup))
     .add_systems(Update, update_time_mode.in_set(FramePipeline::TimeMode))
     .add_systems(Update, handle_dialogue.in_set(FramePipeline::DialogueKey))
-    .add_systems(Update, (detect_menu_option_clicks, handle_menus).chain().in_set(FramePipeline::Menus))
+    .add_systems(Update, (detect_menu_option_clicks, handle_menus, handle_crafting_menu).chain().in_set(FramePipeline::Menus))
     .add_systems(Update, (flush_pending_loot, apply_bed_save).chain().in_set(FramePipeline::FlushChest))
     .add_systems(Update, handle_interact.in_set(FramePipeline::InteractKey))
     .add_systems(Update, handle_utility_menus.in_set(FramePipeline::UtilityMenus))
@@ -685,7 +707,8 @@ fn main() {
         sync_entity_positions,
         camera_follow,
         update_fov_visuals,
-        update_tile_hover_highlight
+        update_tile_hover_highlight,
+        update_interactable_highlights
       )
         .chain()
     )
@@ -810,6 +833,67 @@ fn update_tile_hover_highlight(
               + Vec3::new(0.0, 0.0, 0.25);
         }
       }
+    }
+  }
+}
+
+fn has_interaction(entity: Entity, interact_q: &Query<(
+  Option<&Tree>, Option<&Dialogue>, Option<&Door>, Option<&Elevator>,
+  Option<&FlightConsole>, Option<&LoadoutConsole>, Option<&CraftingTable>,
+  Option<&FollowerState>, Option<&Bed>,
+)>, loot_q: &Query<&LootChest>) -> bool {
+  interact_q.get(entity).is_ok_and(|(tree, dialogue, door, elevator, flight, loadout, craft, follower, bed)|
+    tree.is_some() || dialogue.is_some() || door.is_some() || elevator.is_some() ||
+    flight.is_some() || loadout.is_some() || craft.is_some() || follower.is_some() || bed.is_some()
+  ) || loot_q.get(entity).is_ok_and(|c| !c.opened)
+}
+
+fn update_interactable_highlights(
+  frame: Res<RenderFrame>,
+  current: Res<CurrentZone>,
+  index: Res<TileEntityIndex>,
+  fov: Res<Fov>,
+  player_pos: Single<&PlayerPos, With<Player>>,
+  ui: Res<UiState>,
+  interact_q: Query<(
+    Option<&Tree>, Option<&Dialogue>, Option<&Door>, Option<&Elevator>,
+    Option<&FlightConsole>, Option<&LoadoutConsole>, Option<&CraftingTable>,
+    Option<&FollowerState>, Option<&Bed>,
+  )>,
+  loot_q: Query<&LootChest>,
+  mut highlights: Query<(&InteractHighlight, &mut Transform, &mut Visibility, &mut Sprite)>
+) {
+  let any_menu_open = ui.any_open();
+  let t = frame.0 as f32 * 0.08;
+  let pulse = (t.sin() * 0.5 + 0.5) * 0.18 + 0.10;
+
+  for (ih, mut tf, mut vis, mut sprite) in highlights.iter_mut() {
+    *vis = Visibility::Hidden;
+    let idx = ih.0;
+    let dx = (idx % 3) as i32 - 1;
+    let dy = (idx / 3) as i32 - 1;
+    if dx == 0 && dy == 0 { continue }
+    let wx = player_pos.x + dx;
+    let wy = player_pos.y + dy;
+    let z = player_pos.z;
+    if any_menu_open { continue }
+    if wx < 0 || wy < 0 || (wx as usize) >= current.0.width || (wy as usize) >= current.0.height {
+      continue;
+    }
+    if !fov.0.is_visible(wx as usize, wy as usize) { continue }
+    let has = index.0.get(&(wx, wy, z))
+      .is_some_and(|ents| ents.iter().any(|&e| has_interaction(e, &interact_q, &loot_q)));
+    let has_item = {
+      let level = current.0.level(z);
+      (wy as usize) < level.height
+        && (wx as usize) < level.width
+        && level.items[wy as usize][wx as usize].is_some()
+    };
+    if has || has_item {
+      *vis = Visibility::Visible;
+      tf.translation = tile_screen_pos(wx as f32, wy as f32, current.0.width, current.0.height)
+        + Vec3::new(0.0, 0.0, 0.15);
+      sprite.color = Color::srgba(0.45, 0.75, 0.95, pulse);
     }
   }
 }
@@ -1544,83 +1628,208 @@ fn apply_open_chest(
   }
 }
 
-fn salvage_label(item: Item) -> String {
-  let y = item.scrap_yield();
-  let preview = y
-    .iter()
-    .take(4)
-    .map(|&(i, q)| format!("{}× {}", q, i.name()))
-    .collect::<Vec<_>>()
-    .join(", ");
-  let tail = if y.len() > 4 { ", …" } else { "" };
-  format!("Salvage {} → {}{}", item.name(), preview, tail)
-}
-
-fn format_recipe_ingredients(r: &crafting::Recipe) -> String {
-  r.ingredients
-    .iter()
-    .map(|&(i, q)| format!("{}× {}", q, i.name()))
-    .collect::<Vec<_>>()
-    .join(", ")
-}
-
-fn build_salvage_options(inv: &HashMap<Item, u32>) -> Vec<InteractionOption> {
+fn build_salvage_entries(inv: &HashMap<Item, u32>) -> (Vec<ui::CraftingEntry>, Vec<InteractionAction>) {
   let mut items =
     utils::mapv(|(&k, _)| k, utils::filter(|(k, n)| **n > 0 && k.can_salvage(), inv));
   items.sort_by(|a, b| a.name().cmp(b.name()));
-  utils::mapv(
-    |item| InteractionOption {
-      label: salvage_label(item),
-      action: InteractionAction::Salvage(item)
-    },
-    items
-  )
+  let entries: Vec<ui::CraftingEntry> = items.iter().map(|&item| {
+    let y = item.scrap_yield();
+    let detail = y.iter().map(|&(i, q)| format!("{}x {}", q, i.name())).collect::<Vec<_>>().join(", ");
+    let have = inv.get(&item).copied().unwrap_or(0);
+    ui::CraftingEntry {
+      label: format!("{} (have {})", item.name(), have),
+      detail: format!("→ {detail}"),
+      craftable: true,
+    }
+  }).collect();
+  let actions = items.into_iter().map(InteractionAction::Salvage).collect();
+  (entries, actions)
 }
 
-fn build_craft_options(inv: &HashMap<Item, u32>) -> Vec<InteractionOption> {
-  crafting::RECIPES
-    .iter()
-    .enumerate()
-    .filter(|(_, r)| crafting::can_craft(inv, r))
-    .map(|(i, r)| InteractionOption {
-      label: format!("Craft {} ({})", r.output.name(), format_recipe_ingredients(r)),
-      action: InteractionAction::Craft(i)
-    })
-    .collect()
+fn build_craft_entries(inv: &HashMap<Item, u32>) -> (Vec<ui::CraftingEntry>, Vec<InteractionAction>) {
+  let entries: Vec<ui::CraftingEntry> = crafting::RECIPES.iter().enumerate().map(|(_, r)| {
+    let can = crafting::can_craft(inv, r);
+    let ingredients = r.ingredients.iter().map(|&(item, need)| {
+      let have = inv.get(&item).copied().unwrap_or(0);
+      if have >= need {
+        format!("{}x {}", need, item.name())
+      } else {
+        format!("{}x {} ({}/{})", need, item.name(), have, need)
+      }
+    }).collect::<Vec<_>>().join(", ");
+    ui::CraftingEntry {
+      label: format!("{}x {}", r.output_qty, r.output.name()),
+      detail: ingredients,
+      craftable: can,
+    }
+  }).collect();
+  let actions = crafting::RECIPES.iter().enumerate().map(|(i, _)| InteractionAction::Craft(i)).collect();
+  (entries, actions)
+}
+
+fn open_crafting_menu(ui: &mut UiState, inv: &HashMap<Item, u32>) {
+  let (salvage_entries, salvage_actions) = build_salvage_entries(inv);
+  let (craft_entries, craft_actions) = build_craft_entries(inv);
+  ui.crafting = CraftingMenu::Open {
+    tab: 0,
+    selected: 0,
+    scroll: 0,
+    salvage_actions,
+    craft_actions,
+    salvage_entries,
+    craft_entries,
+  };
+}
+
+pub const CRAFT_VISIBLE_ROWS: usize = 12;
+
+fn craft_scroll_for(selected: usize, old_scroll: usize) -> usize {
+  if selected < old_scroll {
+    selected
+  } else if selected >= old_scroll + CRAFT_VISIBLE_ROWS {
+    selected + 1 - CRAFT_VISIBLE_ROWS
+  } else {
+    old_scroll
+  }
+}
+
+fn handle_crafting_menu(
+  keys: Res<ButtonInput<KeyCode>>,
+  mut ui: ResMut<UiState>,
+  mut clock: ResMut<Clock>,
+  mut tb: ResMut<TurnBasedWorldState>,
+  mut log: ResMut<LogEntries>,
+  mut player_query: Query<(&mut PlayerPos, &mut Inventory, &mut Loadout), With<Player>>
+) {
+  if !matches!(ui.crafting, CraftingMenu::Open { .. }) { return }
+
+  if keys.just_pressed(KeyCode::Space) {
+    ui.crafting = CraftingMenu::Closed;
+    ui.space_consumed = true;
+    return;
+  }
+
+  // Key repeat (same pattern as interact menu)
+  const NAV_INITIAL_DELAY: u32 = 8;
+  const NAV_REPEAT_RATE: u32 = 1;
+
+  let up_just = keys.just_pressed(KeyCode::KeyW) || keys.just_pressed(KeyCode::ArrowUp);
+  let down_just = keys.just_pressed(KeyCode::KeyS) || keys.just_pressed(KeyCode::ArrowDown);
+  let up_held = keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp);
+  let down_held = keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown);
+
+  let do_up = if up_just {
+    ui.menu_nav_dir = -1;
+    ui.menu_nav_frames = NAV_INITIAL_DELAY;
+    true
+  } else if up_held && ui.menu_nav_dir == -1 {
+    if ui.menu_nav_frames == 0 { ui.menu_nav_frames = NAV_REPEAT_RATE; true }
+    else { ui.menu_nav_frames -= 1; false }
+  } else { false };
+
+  let do_down = if down_just {
+    ui.menu_nav_dir = 1;
+    ui.menu_nav_frames = NAV_INITIAL_DELAY;
+    true
+  } else if down_held && ui.menu_nav_dir == 1 {
+    if ui.menu_nav_frames == 0 { ui.menu_nav_frames = NAV_REPEAT_RATE; true }
+    else { ui.menu_nav_frames -= 1; false }
+  } else { false };
+
+  if !up_held && !down_held {
+    ui.menu_nav_dir = 0;
+    ui.menu_nav_frames = 0;
+  }
+
+  let (tab, selected, scroll, action) = {
+    let CraftingMenu::Open { tab, selected, scroll, ref salvage_actions, ref craft_actions,
+                              ref salvage_entries, ref craft_entries, .. } = ui.crafting
+    else { unreachable!() };
+    let entries = if tab == 0 { salvage_entries } else { craft_entries };
+    let actions = if tab == 0 { salvage_actions } else { craft_actions };
+    let n = entries.len();
+
+    if keys.just_pressed(KeyCode::KeyA) || keys.just_pressed(KeyCode::ArrowLeft)
+      || keys.just_pressed(KeyCode::KeyD) || keys.just_pressed(KeyCode::ArrowRight)
+    {
+      let new_tab = if tab == 0 { 1 } else { 0 };
+      (new_tab, 0usize, 0usize, None)
+    } else if do_up {
+      let new_sel = selected.saturating_sub(1);
+      (tab, new_sel, craft_scroll_for(new_sel, scroll), None)
+    } else if do_down {
+      let new_sel = (selected + 1).min(n.saturating_sub(1));
+      (tab, new_sel, craft_scroll_for(new_sel, scroll), None)
+    } else if keys.just_pressed(KeyCode::Enter)
+      && n > 0
+      && selected < actions.len()
+    {
+      let craftable = entries.get(selected).is_some_and(|e| e.craftable);
+      if craftable {
+        (tab, selected, scroll, Some(actions[selected].clone()))
+      } else {
+        return;
+      }
+    } else {
+      return;
+    }
+  };
+
+  ui.dir_consumed = do_up || do_down
+    || keys.just_pressed(KeyCode::KeyA) || keys.just_pressed(KeyCode::KeyD)
+    || keys.just_pressed(KeyCode::ArrowLeft) || keys.just_pressed(KeyCode::ArrowRight);
+
+  if let Some(ref act) = action {
+    if let Ok((_, mut inventory, _)) = player_query.single_mut() {
+      match act {
+        InteractionAction::Salvage(item) => {
+          if let Some(count) = inventory.0.get_mut(item) {
+            if *count > 0 {
+              *count -= 1;
+              if *count == 0 { inventory.0.remove(item); }
+              for &(comp, q) in item.scrap_yield() {
+                *inventory.0.entry(comp).or_insert(0) += q;
+              }
+              log_message(&mut log, format!("Salvaged {}.", item.name()));
+              clock.spend_turn(&mut tb);
+            }
+          }
+        }
+        InteractionAction::Craft(recipe_idx) => {
+          if let Some(recipe) = crafting::RECIPES.get(*recipe_idx)
+            && crafting::can_craft(&inventory.0, recipe)
+          {
+            crafting::apply_craft(&mut inventory.0, recipe);
+            log_message(&mut log, format!("Crafted {}.", recipe.output.name()));
+            clock.spend_turn(&mut tb);
+          }
+        }
+        _ => {}
+      }
+      let inv = &inventory.0;
+      let (salvage_entries, salvage_actions) = build_salvage_entries(inv);
+      let (craft_entries, craft_actions) = build_craft_entries(inv);
+      let new_entries = if tab == 0 { &salvage_entries } else { &craft_entries };
+      let new_sel = selected.min(new_entries.len().saturating_sub(1));
+      let new_scroll = craft_scroll_for(new_sel, scroll);
+      ui.crafting = CraftingMenu::Open {
+        tab, selected: new_sel, scroll: new_scroll,
+        salvage_actions, craft_actions, salvage_entries, craft_entries,
+      };
+    }
+  } else {
+    if let CraftingMenu::Open { tab: ref mut t, selected: ref mut s, scroll: ref mut sc, .. } = ui.crafting {
+      *t = tab;
+      *s = selected;
+      *sc = scroll;
+    }
+  }
 }
 
 fn handle_utility_menus(
-  keys: Res<ButtonInput<KeyCode>>,
-  player: Single<(&PlayerPos, &Inventory), With<Player>>,
-  mut ui: ResMut<UiState>,
-  mut log: ResMut<LogEntries>
+  _keys: Res<ButtonInput<KeyCode>>,
+  _ui: ResMut<UiState>,
 ) {
-  if ui.any_open() {
-    return;
-  }
-  let (_, inv) = *player;
-  if keys.just_pressed(KeyCode::KeyG) {
-    let opts = build_salvage_options(&inv.0);
-    if opts.is_empty() {
-      log_message(
-        &mut *log,
-        "Nothing to salvage (gear, consumables, some junk).".into()
-      );
-    } else {
-      let n = opts.len();
-      ui.interact =
-        InteractMenu::Open { options: opts, selected: 0, highlighted: vec![false; n], disabled: vec![false; n] };
-    }
-  } else if keys.just_pressed(KeyCode::KeyC) {
-    let opts = build_craft_options(&inv.0);
-    if opts.is_empty() {
-      log_message(&mut *log, "No recipes available — gather base components.".into());
-    } else {
-      let n = opts.len();
-      ui.interact =
-        InteractMenu::Open { options: opts, selected: 0, highlighted: vec![false; n], disabled: vec![false; n] };
-    }
-  }
 }
 
 fn execute_interaction(
@@ -1645,6 +1854,7 @@ fn execute_interaction(
       InteractionAction::Talk { .. } => unreachable!(),
       InteractionAction::Navigate { .. } => {}
       InteractionAction::ToggleDoor(_) => {}
+      InteractionAction::OpenCraftingTable => {}
       InteractionAction::ChopTree(entity) => {
         commands.entity(*entity).despawn();
         *inventory.0.entry(Item::Wood).or_insert(0) += 1;
@@ -1816,6 +2026,11 @@ fn dispatch_interactive_choice(
     InteractionAction::SaveAtBed => {
       deferred.save_at_bed = true;
     }
+    InteractionAction::OpenCraftingTable => {
+      if let Ok((_, inventory, _)) = player_query.single() {
+        open_crafting_menu(ui, &inventory.0);
+      }
+    }
     other => {
       execute_interaction(other, zone, clock, tb, ui, log, commands, player_query);
     }
@@ -1943,7 +2158,7 @@ fn gather_interactions_at_tile(
   door_q: &Query<&Door>,
   elevator_q: &Query<&Elevator>,
   named_q: &Query<(&Named, Option<&entities::Corpse>, Option<&Bed>)>,
-  console_q: &Query<(Option<&FlightConsole>, Option<&LoadoutConsole>)>,
+  console_q: &Query<(Option<&FlightConsole>, Option<&LoadoutConsole>, Option<&CraftingTable>)>,
   follower_q: &Query<&FollowerState>,
   galaxy: &galaxy::Galaxy,
   inventory: &Inventory,
@@ -2059,7 +2274,7 @@ fn gather_interactions_at_tile(
                 .collect::<Vec<_>>()
             })
         )
-        .chain(console_q.get(e).ok().into_iter().flat_map(|(flight, loadout)| {
+        .chain(console_q.get(e).ok().into_iter().flat_map(|(flight, loadout, craft_table)| {
           let flight_opts: Vec<InteractionOption> = flight.map(|_| {
             let mut dests: Vec<InteractionOption> = galaxy
               .locations
@@ -2076,7 +2291,13 @@ fn gather_interactions_at_tile(
           let loadout_opts: Vec<InteractionOption> = loadout
             .map(|_| loadout_options(inventory, equipped))
             .unwrap_or_default();
-          flight_opts.into_iter().chain(loadout_opts)
+          let craft_opts: Vec<InteractionOption> = craft_table
+            .map(|_| vec![InteractionOption {
+              label: "Crafting Table".into(),
+              action: InteractionAction::OpenCraftingTable,
+            }])
+            .unwrap_or_default();
+          flight_opts.into_iter().chain(loadout_opts).chain(craft_opts)
         }))
     })
     .chain(
@@ -2106,7 +2327,7 @@ fn resolve_bump_interact(
   door_q: Query<&Door>,
   elevator_q: Query<&Elevator>,
   named_q: Query<(&Named, Option<&entities::Corpse>, Option<&Bed>)>,
-  console_q: Query<(Option<&FlightConsole>, Option<&LoadoutConsole>)>,
+  console_q: Query<(Option<&FlightConsole>, Option<&LoadoutConsole>, Option<&CraftingTable>)>,
   follower_q: Query<&FollowerState>,
   player: Single<(&Inventory, &Loadout), With<Player>>
 ) {
@@ -2288,7 +2509,7 @@ fn handle_interact(
   door_q: Query<&Door>,
   elevator_q: Query<&Elevator>,
   named_q: Query<(&Named, Option<&entities::Corpse>, Option<&Bed>)>,
-  console_q: Query<(Option<&FlightConsole>, Option<&LoadoutConsole>)>,
+  console_q: Query<(Option<&FlightConsole>, Option<&LoadoutConsole>, Option<&CraftingTable>)>,
   follower_q: Query<&FollowerState>
 ) {
   let space_consumed = std::mem::take(&mut ui.space_consumed);
@@ -2553,7 +2774,7 @@ fn setup(
   commands.spawn((
     TileHoverHighlight,
     Sprite {
-      image: hover_img,
+      image: hover_img.clone(),
       custom_size: Some(Vec2::splat(TILE_SIZE)),
       color: Color::srgba(0.95, 0.92, 0.45, 0.28),
       ..default()
@@ -2561,6 +2782,19 @@ fn setup(
     Transform::from_translation(Vec3::new(0.0, 0.0, 0.25)),
     Visibility::Hidden
   ));
+  for i in 0u8..9 {
+    commands.spawn((
+      InteractHighlight(i),
+      Sprite {
+        image: hover_img.clone(),
+        custom_size: Some(Vec2::splat(TILE_SIZE)),
+        color: Color::srgba(0.45, 0.75, 0.95, 0.15),
+        ..default()
+      },
+      Transform::from_translation(Vec3::ZERO),
+      Visibility::Hidden
+    ));
+  }
 
   let (dox, doy) = current.0.dest_origin.unwrap_or(current.0.ship_origin);
   let (spx, spy) = locations::starter_planet::surface_prefab()

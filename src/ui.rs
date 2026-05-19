@@ -108,6 +108,21 @@ pub struct InteractDisplayState {
   pub disabled: Vec<bool>
 }
 
+/// Drives per-row selection highlight in the crafting overlay without rebuilding nodes.
+#[derive(Resource, Clone, Default, PartialEq)]
+pub struct CraftingDisplayState {
+  pub tab: usize,
+  pub selected: usize,
+  pub scroll: usize,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CraftingEntry {
+  pub label: String,
+  pub detail: String,
+  pub craftable: bool,
+}
+
 #[derive(Resource, Clone, Debug, PartialEq)]
 pub enum OverlayKind {
   PauseMain,
@@ -120,6 +135,11 @@ pub enum OverlayKind {
   Dialogue {
     title: String,
     options: Vec<String>
+  },
+  /// Dedicated crafting table UI with two tabs.
+  CraftingTable {
+    salvage: Vec<CraftingEntry>,
+    craft: Vec<CraftingEntry>,
   }
 }
 
@@ -190,8 +210,9 @@ impl Plugin for UiPlugin {
       .init_resource::<InvDisplayData>()
       .init_resource::<OverlayData>()
       .init_resource::<InteractDisplayState>()
+      .init_resource::<CraftingDisplayState>()
       .init_resource::<MenuClickPending>()
-      .add_systems(PostUpdate, (sync_interact_display, sync_ui).before(SignalProcessing));
+      .add_systems(PostUpdate, (sync_interact_display, sync_crafting_display, sync_ui).before(SignalProcessing));
   }
 }
 
@@ -772,6 +793,88 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
               ))
           )
       }
+      OverlayKind::CraftingTable { salvage, craft } => {
+        let tab_names = ["Salvage", "Craft"];
+        El::<Node>::new()
+          .with_node(|mut n| {
+            n.width = Val::Percent(100.);
+            n.height = Val::Percent(100.0);
+          })
+          .background_color(BackgroundColor(OVERLAY_DIM))
+          .align(Align::center())
+          .align_content(Align::center())
+          .child(
+            Column::<Node>::new()
+              .with_node(|mut n| {
+                n.border_radius = BorderRadius::all(Val::Px(6.0));
+                n.padding = UiRect::all(Val::Px(16.));
+                n.row_gap = Val::Px(2.0);
+                n.min_width = Val::Px(420.0);
+                n.max_height = Val::Vh(70.0);
+              })
+              .background_color(BackgroundColor(DARK_BG))
+              .border_color(BorderColor::all(BORDER))
+              .item(static_text("Crafting Table", FONT_SIZE_TITLE, LIGHT_TEXT, W_STRONG))
+              .item(
+                Row::<Node>::new()
+                  .with_node(|mut n| {
+                    n.column_gap = Val::Px(16.0);
+                    n.padding = UiRect::vertical(Val::Px(4.0));
+                  })
+                  .items(tab_names.into_iter().enumerate().map(move |(ti, name)| {
+                    El::<Text>::new()
+                      .text_font(TextFont { font_size: FONT_SIZE_BODY, weight: W_STRONG, ..default() })
+                      .with_builder(move |b| {
+                        b.component_signal::<Text>(
+                          signal::from_resource::<CraftingDisplayState>()
+                            .map_in(move |s: CraftingDisplayState| {
+                              let marker = if s.tab == ti { "> " } else { "  " };
+                              Some(Text::new(format!("{marker}{name}")))
+                            })
+                        )
+                        .component_signal::<TextColor>(
+                          signal::from_resource::<CraftingDisplayState>()
+                            .map_in(move |s: CraftingDisplayState| {
+                              Some(TextColor(if s.tab == ti { ACCENT } else { DIM_TEXT }))
+                            })
+                        )
+                      })
+                  }))
+              )
+              .item(
+                El::<Node>::new()
+                  .with_node(|mut n| {
+                    n.width = Val::Percent(100.0);
+                    n.height = Val::Px(1.0);
+                    n.margin = UiRect::vertical(Val::Px(4.0));
+                  })
+                  .background_color(BackgroundColor(BORDER))
+              )
+              .item(crafting_entries_column(0, salvage))
+              .item(crafting_entries_column(1, craft))
+              .item(
+                El::<Text>::new()
+                  .text_font(TextFont { font_size: FONT_SIZE_SMALL, weight: W_UI, ..default() })
+                  .text_color(TextColor(DIM_TEXT))
+                  .with_builder(|b| {
+                    b.component_signal::<Text>(
+                      signal::from_resource::<CraftingDisplayState>()
+                        .map_in(|s: CraftingDisplayState| {
+                          let hint = if s.scroll > 0 { "  ▲ more above" } else { "" };
+                          Some(Text::new(hint.to_string()))
+                        })
+                    )
+                  })
+              )
+              .item(static_text("", FONT_SIZE_SMALL, DIM_TEXT, W_OVERLAY))
+              .item(static_text(
+                "A/D tab  W/S navigate  Enter confirm  Space close",
+                FONT_SIZE_SMALL,
+                DIM_TEXT,
+                W_OVERLAY
+              ))
+          )
+      }
       kind => {
         let (label, lines) = match &kind {
           OverlayKind::PauseMain => (
@@ -833,6 +936,20 @@ pub struct OverlayData {
 // ---------------------------------------------------------------------------
 // sync_ui — reads Bevy world, writes signal resources
 // ---------------------------------------------------------------------------
+
+fn sync_crafting_display(
+  ui: Res<crate::UiState>,
+  mut state: ResMut<CraftingDisplayState>
+) {
+  let new = if let &crate::CraftingMenu::Open { tab, selected, scroll, .. } = &ui.crafting {
+    CraftingDisplayState { tab, selected, scroll }
+  } else {
+    CraftingDisplayState::default()
+  };
+  if *state != new {
+    *state = new;
+  }
+}
 
 fn sync_interact_display(
   ui: Res<crate::UiState>,
@@ -913,6 +1030,14 @@ fn sync_ui(
       })
     }
     crate::InteractMenu::Closed => None
+  })
+  .or_else(|| match &ui.crafting {
+    crate::CraftingMenu::Open { salvage_entries, craft_entries, .. } => {
+      Some(OverlayKind::CraftingTable {
+        salvage: salvage_entries.clone(), craft: craft_entries.clone(),
+      })
+    }
+    crate::CraftingMenu::Closed => None
   })
   .or_else(|| match &ui.dialogue {
     crate::DialogueState::Open { speaker, tree, node_name, .. } => {
@@ -1052,4 +1177,82 @@ fn reactive_text(
     .text_font(TextFont { font_size: size, weight, ..default() })
     .text_color(TextColor(color))
     .with_builder(|b| b.component_signal::<Text>(sig.map_in(|s| Some(Text::new(s)))))
+}
+
+fn crafting_entries_column(tab_index: usize, entries: Vec<CraftingEntry>) -> Column<Node> {
+  let col = Column::<Node>::new()
+    .with_node(|mut n| {
+      n.width = Val::Percent(100.0);
+    })
+    .with_builder(move |b| {
+      b.component_signal::<Node>(
+        signal::from_resource::<CraftingDisplayState>()
+          .map_in(move |s: CraftingDisplayState| {
+            let mut node = Node::default();
+            node.width = Val::Percent(100.0);
+            node.flex_direction = FlexDirection::Column;
+            node.display = if s.tab == tab_index { Display::Flex } else { Display::None };
+            Some(node)
+          })
+      )
+    });
+  if entries.is_empty() {
+    col.item(static_text("  (nothing available)", FONT_SIZE_BODY, DIM_TEXT, W_OVERLAY))
+  } else {
+    col.items(entries.into_iter().enumerate().map(|(i, entry)| {
+      crafting_row(i, entry.label, entry.detail, entry.craftable)
+    }))
+  }
+}
+
+const CRAFT_AVAILABLE: Color = Color::srgb(0.55, 0.88, 0.65);
+const CRAFT_UNAVAILABLE: Color = Color::srgb(0.60, 0.55, 0.50);
+const CRAFT_DETAIL: Color = Color::srgb(0.68, 0.65, 0.58);
+
+fn crafting_row(i: usize, label: String, detail: String, craftable: bool) -> Column<Node> {
+  let base_color = if craftable { CRAFT_AVAILABLE } else { CRAFT_UNAVAILABLE };
+  Column::<Node>::new()
+    .with_node(|mut n| {
+      n.width = Val::Percent(100.0);
+      n.padding = UiRect::new(Val::Px(4.0), Val::Px(4.0), Val::Px(1.0), Val::Px(1.0));
+    })
+    .with_builder(move |b| {
+      b.component_signal::<Node>(
+        signal::from_resource::<CraftingDisplayState>()
+          .map_in(move |s: CraftingDisplayState| {
+            let visible = i >= s.scroll && i < s.scroll + crate::CRAFT_VISIBLE_ROWS;
+            let mut node = Node::default();
+            node.width = Val::Percent(100.0);
+            node.padding = UiRect::new(Val::Px(4.0), Val::Px(4.0), Val::Px(1.0), Val::Px(1.0));
+            node.flex_direction = FlexDirection::Column;
+            node.display = if visible { Display::Flex } else { Display::None };
+            Some(node)
+          })
+      )
+    })
+    .item(
+      El::<Text>::new()
+        .text_font(TextFont { font_size: FONT_SIZE_BODY, weight: W_OVERLAY, ..default() })
+        .with_builder(move |b| {
+          b.component_signal::<Text>(
+            signal::from_resource::<CraftingDisplayState>()
+              .map_in(move |s: CraftingDisplayState| {
+                let prefix = if s.selected == i { "> " } else { "  " };
+                Some(Text::new(format!("{prefix}{label}")))
+              })
+          )
+          .component_signal::<TextColor>(
+            signal::from_resource::<CraftingDisplayState>()
+              .map_in(move |s: CraftingDisplayState| {
+                Some(TextColor(if s.selected == i { LIGHT_TEXT } else { base_color }))
+              })
+          )
+        })
+    )
+    .item(
+      El::<Text>::new()
+        .text(Text::new(format!("    {detail}")))
+        .text_font(TextFont { font_size: FONT_SIZE_SMALL, weight: W_UI, ..default() })
+        .text_color(TextColor(CRAFT_DETAIL))
+    )
 }
