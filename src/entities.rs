@@ -543,18 +543,52 @@ const DOOR_CLOSED_SEC: Color = Color::srgb(0.52, 0.55, 0.58);
 pub struct Object(Arc<dyn Fn(&mut EntityCommands) + Send + Sync + 'static>);
 
 /// Object-safe trait for spawning components onto an entity at runtime.
-/// The implementor stores const-friendly *parameters* and builds
-/// components (including heap-allocated ones) inside `insert_into`.
-///
-/// Blanket-implemented for `Bundle + Clone + Sync`, so simple
-/// components work directly. For components that need runtime
-/// construction (e.g. `Vec`), implement manually on a param struct.
+/// Blanket-implemented for `Bundle + Clone + Sync`. For blueprints
+/// that need runtime construction from const params, use [`const_blueprint!`].
 pub trait ConstInsert: Sync {
   fn insert_into(&self, e: &mut EntityCommands);
 }
 
 impl<T: Bundle + Clone + Sync> ConstInsert for T {
   fn insert_into(&self, e: &mut EntityCommands) { e.insert(self.clone()); }
+}
+
+/// Define a blueprint struct + [`ConstInsert`] impl from const-friendly
+/// fields and spawn-time expressions. Pair with a small call-site macro
+/// for function-like syntax.
+///
+/// ```ignore
+/// const_blueprint!(NpcBlueprint(name: &'static str, flavor: &'static str) {
+///     Named { name, flavor },
+///     Collidable(false),
+///     Loadout::new(vec![]),  // heap alloc is fine — runs at spawn time
+/// });
+///
+/// macro_rules! npc {
+///     ($name:expr, $flavor:expr) =>
+///         { ObjectConst::new(&NpcBlueprint { name: $name, flavor: $flavor }) };
+///     ($parent:expr; $name:expr, $flavor:expr) =>
+///         { $parent.with(&NpcBlueprint { name: $name, flavor: $flavor }) };
+/// }
+///
+/// static BOB: ObjectConst = npc!("Bob", "This is Bob.");
+/// static BOB2: ObjectConst = npc!(&NPC_BASE; "Bob", "This is Bob.");
+/// ```
+#[macro_export]
+macro_rules! const_blueprint {
+  ($name:ident($($field:ident: $ty:ty),* $(,)?) { $($bundle:expr),* $(,)? }) => {
+    pub struct $name { $(pub $field: $ty),* }
+
+    unsafe impl Sync for $name {}
+
+    impl $crate::entities::ConstInsert for $name {
+      #[allow(unused_variables)]
+      fn insert_into(&self, e: &mut ::bevy::prelude::EntityCommands) {
+        $(let $field = &self.$field;)*
+        $(e.insert($bundle);)*
+      }
+    }
+  };
 }
 
 /// Const-constructible entity blueprint with parent-chain inheritance.
