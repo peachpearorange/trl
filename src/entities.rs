@@ -485,6 +485,9 @@ pub struct FlightConsole;
 #[derive(Component, Clone, Copy)]
 pub struct LoadoutConsole;
 
+#[derive(Component, Clone, Copy)]
+pub struct CraftingTable;
+
 
 /// Lingering area-of-effect cloud that damages the player each tick while they share a tile.
 /// Used by both spore clouds and explosion clouds.
@@ -538,6 +541,72 @@ const DOOR_CLOSED_SEC: Color = Color::srgb(0.52, 0.55, 0.58);
 /// ```
 #[derive(Clone)]
 pub struct Object(Arc<dyn Fn(&mut EntityCommands) + Send + Sync + 'static>);
+
+/// Object-safe trait for inserting a component/bundle into an entity.
+/// Blanket-implemented for all `Bundle + Clone + Sync` types, so any
+/// Bevy component that derives `Clone` works automatically.
+pub trait ConstInsert: Sync {
+  fn insert_into(&self, e: &mut EntityCommands);
+}
+
+impl<T: Bundle + Clone + Sync> ConstInsert for T {
+  fn insert_into(&self, e: &mut EntityCommands) { e.insert(self.clone()); }
+}
+
+/// Const-constructible entity blueprint with parent-chain inheritance.
+///
+/// Stores `&'static dyn ConstInsert` refs — works in `static` because
+/// trait-object references have const vtable pointers.
+///
+/// ```ignore
+/// static WALL: ObjectConst = STRUCTURE.with(&[&WallComp { material: Material::Stone }]);
+/// ```
+#[derive(Copy, Clone)]
+pub struct ObjectConst {
+  parent: Option<&'static ObjectConst>,
+  components: &'static [&'static dyn ConstInsert],
+}
+
+impl ObjectConst {
+  pub const fn new(components: &'static [&'static dyn ConstInsert]) -> Self {
+    Self { parent: None, components }
+  }
+
+  pub const fn with(&'static self, components: &'static [&'static dyn ConstInsert]) -> Self {
+    Self { parent: Some(self), components }
+  }
+
+  fn apply_to(&self, e: &mut EntityCommands) {
+    if let Some(parent) = self.parent {
+      parent.apply_to(e);
+    }
+    for c in self.components {
+      c.insert_into(e);
+    }
+  }
+
+  pub fn spawn(&self, commands: &mut Commands) -> Entity {
+    let mut e = commands.spawn_empty();
+    self.apply_to(&mut e);
+    e.id()
+  }
+
+  pub fn spawn_at(&self, commands: &mut Commands, x: i32, y: i32, z: usize) -> Entity {
+    let mut e = commands.spawn_empty();
+    self.apply_to(&mut e);
+    e.insert(Location::xyz(x, y, z));
+    e.id()
+  }
+
+  pub fn to_object(&self) -> Object {
+    let s = *self;
+    Object(Arc::new(move |e: &mut EntityCommands| s.apply_to(e)))
+  }
+}
+
+impl From<&ObjectConst> for Object {
+  fn from(c: &ObjectConst) -> Self { c.to_object() }
+}
 
 /// Space Qud–style NPC silhouette mask (`person (2).png`).
 pub fn npc_person_glyph(ch: char, primary: Color, secondary: Color) -> Glyph {
@@ -737,6 +806,16 @@ impl Object {
         crate::AIRLOCK_SEC
       ))
   }
+  pub fn thruster() -> Self {
+    Self::structure(false).add(
+      Glyph::palette_sprite(
+        "textures/space_qud/thruster.png",
+        '>',
+        Color::srgb(0.72, 0.38, 0.08),
+        Color::srgb(0.75, 0.75, 0.72),
+      )
+    )
+  }
   pub fn ground_item(item: crate::level::Item) -> Self { Self::new(GroundItem(item)) }
   pub fn torch(radius: u32) -> Self { Self::new(LightSource { radius }) }
 
@@ -806,6 +885,7 @@ impl Object {
 
   pub fn crafting_table() -> Self {
     Self::structure(true).add((
+      CraftingTable,
       Glyph::palette_sprite(
         "textures/space_qud/crafting table.png",
         'C',
