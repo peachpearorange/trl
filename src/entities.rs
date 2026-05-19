@@ -863,14 +863,15 @@ impl Object {
       ))
   }
   pub fn thruster() -> Self {
-    Self::structure(false).add(
+    Self::structure(true).add((
       Glyph::palette_sprite(
         "textures/space_qud/thruster.png",
         '>',
         Color::srgb(0.72, 0.38, 0.08),
         Color::srgb(0.75, 0.75, 0.72),
-      )
-    )
+      ),
+      Named { name: "Thruster", flavor: "A directional thruster assembly. Keeps the ship moving." },
+    ))
   }
   pub fn ground_item(item: crate::level::Item) -> Self { Self::new(GroundItem(item)) }
   pub fn torch(radius: u32) -> Self { Self::new(LightSource { radius }) }

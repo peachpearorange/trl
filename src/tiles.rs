@@ -17,7 +17,11 @@ pub enum TileRenderMode {
   /// The baker expands these into 16 layers, one per 4-bit cardinal-neighbor
   /// mask (bit 0 = N (y-1), 1 = E (x+1), 2 = S (y+1), 3 = W (x-1)); the
   /// renderer picks the layer matching same-tile neighbors.
-  ConnectedSprite(&'static [&'static str; 7], [f32; 3], [f32; 3])
+  ConnectedSprite(&'static [&'static str; 7], [f32; 3], [f32; 3]),
+  /// Connected border: a single texture with a 1px border. The baker generates
+  /// 16 variants by removing border pixels on connected sides (keeping corner
+  /// pixels) and clearing inner corner reinforcement.
+  ConnectedBorder(&'static str, [f32; 3], [f32; 3])
 }
 
 #[derive(Assoc, Clone, Copy, PartialEq, Eq, Debug, TryFromPrimitive)]
@@ -82,7 +86,7 @@ pub enum Tile {
   // --- Space tiles ---
   #[assoc(glyph = "#", color = [0.45, 0.47, 0.50], walkable = false, opaque = true, name = "Bulkhead", render_mode = TileRenderMode::Sprite("textures/space_qud/wall hashtag.png", [0.28, 0.30, 0.34], [0.48, 0.52, 0.56]))]
   Bulkhead,
-  #[assoc(glyph = "o", color = [0.2, 0.25, 0.7], walkable = false, name = "Window", render_mode = TileRenderMode::Sprite("textures/space_qud/window (1).png", [0.22, 0.32, 0.52], [0.62, 0.76, 0.94]))]
+  #[assoc(glyph = "o", color = [0.2, 0.25, 0.7], walkable = false, name = "Window", render_mode = TileRenderMode::ConnectedBorder("textures/space_qud/window (1).png", [0.22, 0.32, 0.52], [0.62, 0.76, 0.94]))]
   Window,
   #[assoc(glyph = ".", color = [0.55, 0.58, 0.62], walkable = true, name = "Station Floor", render_mode = TileRenderMode::Sprite("textures/space_qud/floor4.png", [0.52, 0.56, 0.62], [0.88, 0.90, 0.94]))]
   StationFloor,

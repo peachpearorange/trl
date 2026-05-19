@@ -197,6 +197,35 @@ enum Transform {
   AntiTranspose
 }
 
+fn connected_border_variant(base: &RgbaImage, mask: u8) -> RgbaImage {
+  let (w, h) = (base.width(), base.height());
+  let n = mask & 1 != 0;
+  let e = mask & 2 != 0;
+  let s = mask & 4 != 0;
+  let west = mask & 8 != 0;
+  let mut img = base.clone();
+  let clear = image::Rgba([0, 0, 0, 0]);
+  for y in 0..h {
+    for x in 0..w {
+      let is_corner = (x == 0 || x == w - 1) && (y == 0 || y == h - 1);
+      let on_edge =
+        (n && y == 0) || (s && y == h - 1) || (west && x == 0) || (e && x == w - 1);
+      if on_edge && !is_corner {
+        img.put_pixel(x, y, clear);
+      }
+      let is_inner_corner =
+        (x == 1 && y == 1 && (n || west))
+        || (x == w - 2 && y == 1 && (n || e))
+        || (x == 1 && y == h - 2 && (s || west))
+        || (x == w - 2 && y == h - 2 && (s || e));
+      if is_inner_corner {
+        img.put_pixel(x, y, clear);
+      }
+    }
+  }
+  img
+}
+
 fn apply_transform(img: &RgbaImage, t: Transform) -> RgbaImage {
   match t {
     Transform::Identity => img.clone(),
@@ -311,6 +340,20 @@ pub fn build_tileset(images: &mut Assets<Image>) -> TilesetInfo {
           for &(shape_idx, transform) in &CONNECTED_LOOKUP {
             let oriented = apply_transform(&shapes[shape_idx], transform);
             data.extend_from_slice(&bake_palette_png(&oriented, prim, sec_col));
+            current_layer += 1;
+          }
+          TileSelect::Connected
+        }
+        TileRenderMode::ConnectedBorder(path, pri, sec) => {
+          let prim = Color::srgb(pri[0], pri[1], pri[2]);
+          let sec_col = Color::srgb(sec[0], sec[1], sec[2]);
+          let bytes = load_asset_bytes(path);
+          let base_img = image::load_from_memory(&bytes)
+            .unwrap_or_else(|e| panic!("build_tileset: failed to decode {path}: {e}"))
+            .to_rgba8();
+          for mask in 0u8..16 {
+            let variant = connected_border_variant(&base_img, mask);
+            data.extend_from_slice(&bake_palette_png(&variant, prim, sec_col));
             current_layer += 1;
           }
           TileSelect::Connected

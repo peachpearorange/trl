@@ -225,22 +225,19 @@ impl Prefab {
   pub fn starting_ship() -> Self {
     prefab(
       "
-                 ###WWWWWWWWWWW###
-               ###...............###
-             ###...######.######...###
-            ##.....#B#,,,,,,L#B#.....##
-           ##.====.#,l,,,,,,,l,#......##
-          ##..====.#,#,,,k,,,#,#.......WW
-         ##.U.====.###,,,TT,,###........W
-         ##..........#,,,TT,,#......H.C.W
-         ##.G.====.###,,,TT,,###...Q....W
-          ##..====.#,m,,,,,,,X,#.......WW
-           ##.d==..#,,,,,,,,,,,#......##
-            ##.....######.######.....##
-             ###...................###
-               ###WWWWW#...#WWWWW###
-                       #...#
-                       ##a##
+         #WW#WW###################
+        t#,B#,B#........XQ.......###
+         #,L#,L#.......====......#.###
+        t#l##l##.......====......#...###
+         #,,,,L#.......====...k..#.....WW
+        t#L===,#.......====......#......W
+         #L===,l......dUGH.......a....C.W
+        t#L===,#.................#......W
+         #,,,,L#.................#.....WW
+        t#l##l##.................#...###
+         #,L#,L#.cTTc............#.###
+        t#,B#,B#.cTTc............###
+         #WW#WW##########a########
 "
     )
     .assoc('#', (Tile::ShipWall, []))
@@ -248,15 +245,16 @@ impl Prefab {
     .assoc(',', (Tile::WoodTile, []))
     .assoc('W', (Tile::Window, []))
     .assoc('a', (Tile::DeckPlate, [Object::airlock_door()]))
-    .assoc('l', (Tile::DeckPlate, [Object::airlock_door()]))
+    .assoc('l', (Tile::WoodTile, [Object::airlock_door()]))
     .assoc('=', (Tile::Conduit, []))
     .assoc('C', (Tile::DeckPlate, [Object::flight_console()]))
     .assoc('Q', (Tile::DeckPlate, [Object::loadout_console()]))
-    .assoc('k', (Tile::WoodTile, [Object::space_cat()]))
+    .assoc('k', (Tile::DeckPlate, [Object::space_cat()]))
     .assoc('B', (Tile::WoodTile, [Object::bed()]))
-    .assoc('T', (Tile::WoodTile, [Object::table()]))
+    .assoc('T', (Tile::DeckPlate, [Object::table()]))
+    .assoc('c', (Tile::DeckPlate, [Object::chair()]))
     .assoc('L', (Tile::WoodTile, [Object::locker()]))
-    .assoc('X', (Tile::WoodTile, [Object::supply_cache(&[
+    .assoc('X', (Tile::DeckPlate, [Object::supply_cache(&[
       (Item::LaserRifle, 1),
       (Item::PipeRevolver, 1),
       (Item::FragGrenade, 2),
@@ -267,6 +265,7 @@ impl Prefab {
     .assoc('U', (Tile::DeckPlate, [npcs::unit7::unit7()]))
     .assoc('G', (Tile::DeckPlate, [npcs::kong::kong()]))
     .assoc('d', (Tile::DeckPlate, [npcs::guard::guard()]))
+    .assoc('t', (Tile::Blank, [Object::thruster()]))
   }
 }
 
