@@ -1,3 +1,4 @@
+#![feature(macro_metavar_expr)]
 #![warn(dead_code)]
 #![warn(unused_imports)]
 mod ui;

@@ -553,40 +553,44 @@ impl<T: Bundle + Clone + Sync> ConstInsert for T {
   fn insert_into(&self, e: &mut EntityCommands) { e.insert(self.clone()); }
 }
 
-/// Define a blueprint struct + [`ConstInsert`] impl from const-friendly
-/// fields and spawn-time expressions. Pair with a small call-site macro
-/// for function-like syntax.
+/// Define a named blueprint struct + [`ConstInsert`] impl + call-site
+/// macro, all in one. The macro uses struct-init syntax and supports
+/// an optional parent via `&PARENT;` prefix.
 ///
 /// ```ignore
-/// const_blueprint!(NpcBlueprint(name: &'static str, flavor: &'static str) {
+/// const_blueprint!(npc(name: &'static str, flavor: &'static str) {
 ///     Named { name, flavor },
 ///     Collidable(false),
 ///     Loadout::new(vec![]),  // heap alloc is fine — runs at spawn time
 /// });
 ///
-/// macro_rules! npc {
-///     ($name:expr, $flavor:expr) =>
-///         { ObjectConst::new(&NpcBlueprint { name: $name, flavor: $flavor }) };
-///     ($parent:expr; $name:expr, $flavor:expr) =>
-///         { $parent.with(&NpcBlueprint { name: $name, flavor: $flavor }) };
-/// }
-///
-/// static BOB: ObjectConst = npc!("Bob", "This is Bob.");
-/// static BOB2: ObjectConst = npc!(&NPC_BASE; "Bob", "This is Bob.");
+/// static BOB: ObjectConst = npc!(name: "Bob", flavor: "This is Bob.");
+/// static BOB2: ObjectConst = npc!(&NPC_BASE; name: "Bob", flavor: "This is Bob.");
 /// ```
 #[macro_export]
 macro_rules! const_blueprint {
-  ($name:ident($($field:ident: $ty:ty),* $(,)?) { $($bundle:expr),* $(,)? }) => {
-    pub struct $name { $(pub $field: $ty),* }
+  ($mac:ident($($field:ident: $ty:ty),* $(,)?) { $($bundle:expr),* $(,)? }) => {
+    #[allow(non_camel_case_types)]
+    pub struct $mac { $(pub $field: $ty),* }
 
-    unsafe impl Sync for $name {}
+    unsafe impl Sync for $mac {}
 
-    impl $crate::entities::ConstInsert for $name {
+    impl $crate::entities::ConstInsert for $mac {
       #[allow(unused_variables)]
       fn insert_into(&self, e: &mut ::bevy::prelude::EntityCommands) {
         $(let $field = &self.$field;)*
         $(e.insert($bundle);)*
       }
+    }
+
+    #[allow(unused_macros)]
+    macro_rules! $mac {
+      ($$parent:expr; $$($$tt:tt)*) => {
+        $$parent.with(&$mac { $$($$tt)* })
+      };
+      ($$($$tt:tt)*) => {
+        $crate::entities::ObjectConst::new(&$mac { $$($$tt)* })
+      };
     }
   };
 }
