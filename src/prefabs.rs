@@ -137,13 +137,29 @@ impl Prefab {
 
   /// Spawn assoc objects at world coords `(ox + x, oy + y, z)`.
   pub fn stamp_entities(&self, commands: &mut Commands, ox: i32, oy: i32, z: usize) {
+    self.stamp_entities_excluding(commands, ox, oy, z, &std::collections::HashSet::new());
+  }
+
+  /// Spawn assoc objects, skipping any world position in `exclude`.
+  pub fn stamp_entities_excluding(
+    &self, commands: &mut Commands, ox: i32, oy: i32, z: usize,
+    exclude: &std::collections::HashSet<(i32, i32)>
+  ) {
     self.visit_cells(|lx, ly, _tile, templates| {
       let wx = ox + lx;
       let wy = oy + ly;
+      if exclude.contains(&(wx, wy)) { return; }
       for template in templates {
         template.clone().spawn_at(commands, wx, wy, z);
       }
     });
+  }
+
+  /// World positions `(ox+x, oy+y)` where this prefab has a non-whitespace tile.
+  pub fn occupied_positions(&self, ox: i32, oy: i32) -> std::collections::HashSet<(i32, i32)> {
+    let mut set = std::collections::HashSet::new();
+    self.visit_cells(|lx, ly, _tile, _| { set.insert((ox + lx, oy + ly)); });
+    set
   }
 
   /// Visit each `(x, y)` assoc object template (layout-local coords).

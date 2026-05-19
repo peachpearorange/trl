@@ -60,7 +60,7 @@ pub(crate) const AIRLOCK_SEC: Color = Color::srgb(0.52, 0.55, 0.58);
 /// Primary color used for the player sprite and "You:" log labels.
 pub const PLAYER_PRIMARY: Color = Color::srgb(0.72, 0.72, 0.72);
 /// Simulated 60Hz display: one grid step / one input gate spans this many render updates.
-pub const RENDER_FRAMES_PER_SIM_STEP: u32 = 5;
+pub const RENDER_FRAMES_PER_SIM_STEP: u32 = 8;
 /// How many sim steps run per real-time second (= assumed display Hz / render frames per step).
 pub const SIM_STEPS_PER_SEC: f32 = 60.0 / RENDER_FRAMES_PER_SIM_STEP as f32;
 const FOV_RADIUS: i32 = 99;
@@ -2571,29 +2571,32 @@ fn spawn_zone_geometry(
 ) {
   spawn_tilemaps(commands, zone, tileset);
   let (sox, soy) = zone.ship_origin;
-  prefabs::Prefab::starting_ship().stamp_entities(commands, sox, soy, 0);
+  let ship = prefabs::Prefab::starting_ship();
+  ship.stamp_entities(commands, sox, soy, 0);
+  let ship_footprint = ship.occupied_positions(sox, soy);
   if docked_at == Some(locations::starter_planet::ID)
     && let Some((dox, doy)) = zone.dest_origin
   {
-    locations::starter_planet::surface_prefab().stamp_entities(commands, dox, doy, 0);
+    locations::starter_planet::surface_prefab().stamp_entities_excluding(commands, dox, doy, 0, &ship_footprint);
   }
   if docked_at == Some(locations::mushroom_planet::ID)
     && let Some((dox, doy)) = zone.dest_origin
   {
-    locations::mushroom_planet::mushroom_prefab().stamp_entities(commands, dox, doy, 0);
+    locations::mushroom_planet::mushroom_prefab().stamp_entities_excluding(commands, dox, doy, 0, &ship_footprint);
   }
   if docked_at == Some(locations::gamma_station::ID)
     && let Some((dox, doy)) = zone.dest_origin
   {
-    locations::gamma_station::station_prefab().stamp_entities(commands, dox, doy, 0);
+    locations::gamma_station::station_prefab().stamp_entities_excluding(commands, dox, doy, 0, &ship_footprint);
   }
   if docked_at == Some(locations::meridian_station::ID)
     && let Some((dox, doy)) = zone.dest_origin
   {
-    locations::meridian_station::station_prefab().stamp_entities(commands, dox, doy, 0);
+    locations::meridian_station::station_prefab().stamp_entities_excluding(commands, dox, doy, 0, &ship_footprint);
     for &(lx, ly) in locations::meridian_station::NPC_COORDS {
       let wx = dox + lx;
       let wy = doy + ly;
+      if ship_footprint.contains(&(wx, wy)) { continue; }
       let obj = match (lx, ly) {
         (23, 3) => locations::meridian_station::dock1(),
         (23, 10) => locations::meridian_station::aiden3(),
@@ -2611,8 +2614,10 @@ fn spawn_zone_geometry(
     && let Some((dox, doy)) = zone.dest_origin
   {
     for (lx, ly, lz, obj) in &dest_loc.spawn_objects {
-      let ent = obj.clone().spawn_at(commands, dox + lx, doy + ly, *lz);
-      // Translate any local-coord data (e.g. Elevator floors) into world coords.
+      let wx = dox + lx;
+      let wy = doy + ly;
+      if ship_footprint.contains(&(wx, wy)) { continue; }
+      let ent = obj.clone().spawn_at(commands, wx, wy, *lz);
       commands.entity(ent).queue(move |mut e: bevy::ecs::world::EntityWorldMut| {
         if let Some(mut elev) = e.get_mut::<Elevator>() {
           for (_, x, y) in &mut elev.floors {
