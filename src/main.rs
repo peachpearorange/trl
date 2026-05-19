@@ -22,6 +22,7 @@ mod path_overlay;
 mod crafting;
 mod locations;
 mod loot;
+mod outline;
 mod npcs;
 mod utils;
 
@@ -390,9 +391,6 @@ struct GlyphVisual;
 #[derive(Component)]
 struct TileHoverHighlight;
 
-/// Pulsing highlight on adjacent tiles that have interactable entities.
-#[derive(Component)]
-struct InteractHighlight(u8);
 
 // ---------------------------------------------------------------------------
 // Glyph rendering systems
@@ -626,6 +624,7 @@ fn main() {
     .add_plugins(ui::UiPlugin)
     .add_plugins(particles::ParticlesPlugin)
     .add_plugins(post_process::PostProcessPlugin)
+    .add_plugins(outline::OutlinePlugin)
     .add_systems(Startup, (setup, ui::spawn_haalka_root).chain())
     .configure_sets(Update, SimStep.run_if(should_run_sim_step)
       .after(FramePipeline::BumpRender).before(FramePipeline::PlayerMove))
@@ -849,6 +848,7 @@ fn has_interaction(entity: Entity, interact_q: &Query<(
 }
 
 fn update_interactable_highlights(
+  mut commands: Commands,
   frame: Res<RenderFrame>,
   current: Res<CurrentZone>,
   index: Res<TileEntityIndex>,
@@ -861,39 +861,57 @@ fn update_interactable_highlights(
     Option<&FollowerState>, Option<&Bed>,
   )>,
   loot_q: Query<&LootChest>,
-  mut highlights: Query<(&InteractHighlight, &mut Transform, &mut Visibility, &mut Sprite)>
+  sprite_q: Query<(&Sprite, &Transform, &Visibility), Without<outline::InteractOutline>>,
+  pool: Res<outline::OutlinePool>,
+  mut outline_q: Query<(&mut Transform, &mut Visibility), With<outline::InteractOutline>>,
+  mut outline_mats: ResMut<Assets<outline::OutlineMaterial>>,
 ) {
   let any_menu_open = ui.any_open();
   let t = frame.0 as f32 * 0.08;
-  let pulse = (t.sin() * 0.5 + 0.5) * 0.18 + 0.10;
+  let pulse = (t.sin() * 0.5 + 0.5) * 0.55 + 0.45;
+  let outline_color = LinearRgba::new(0.95, 0.85, 0.2, pulse);
 
-  for (ih, mut tf, mut vis, mut sprite) in highlights.iter_mut() {
-    *vis = Visibility::Hidden;
-    let idx = ih.0;
-    let dx = (idx % 3) as i32 - 1;
-    let dy = (idx / 3) as i32 - 1;
-    if dx == 0 && dy == 0 { continue }
-    let wx = player_pos.x + dx;
-    let wy = player_pos.y + dy;
+  let mut targets: Vec<(Vec3, Handle<Image>)> = Vec::new();
+
+  if !any_menu_open {
     let z = player_pos.z;
-    if any_menu_open { continue }
-    if wx < 0 || wy < 0 || (wx as usize) >= current.0.width || (wy as usize) >= current.0.height {
-      continue;
+    for dy in -1..=1i32 {
+      for dx in -1..=1i32 {
+        let wx = player_pos.x + dx;
+        let wy = player_pos.y + dy;
+        if wx < 0 || wy < 0 || (wx as usize) >= current.0.width || (wy as usize) >= current.0.height {
+          continue;
+        }
+        if !fov.0.is_visible(wx as usize, wy as usize) { continue }
+        if let Some(ents) = index.0.get(&(wx, wy, z)) {
+          for &e in ents {
+            if has_interaction(e, &interact_q, &loot_q)
+              && let Ok((sprite, entity_tf, vis)) = sprite_q.get(e)
+              && *vis != Visibility::Hidden
+              && sprite.image != Handle::default()
+            {
+              let pos = entity_tf.translation.truncate().extend(entity_tf.translation.z - 0.1);
+              targets.push((pos, sprite.image.clone()));
+            }
+          }
+        }
+      }
     }
-    if !fov.0.is_visible(wx as usize, wy as usize) { continue }
-    let has = index.0.get(&(wx, wy, z))
-      .is_some_and(|ents| ents.iter().any(|&e| has_interaction(e, &interact_q, &loot_q)));
-    let has_item = {
-      let level = current.0.level(z);
-      (wy as usize) < level.height
-        && (wx as usize) < level.width
-        && level.items[wy as usize][wx as usize].is_some()
-    };
-    if has || has_item {
-      *vis = Visibility::Visible;
-      tf.translation = tile_screen_pos(wx as f32, wy as f32, current.0.width, current.0.height)
-        + Vec3::new(0.0, 0.0, 0.15);
-      sprite.color = Color::srgba(0.45, 0.75, 0.95, pulse);
+  }
+
+  for (i, &ent) in pool.entities.iter().enumerate() {
+    if let Ok((mut tf, mut vis)) = outline_q.get_mut(ent) {
+      if let Some((pos, tex)) = targets.get(i) {
+        *vis = Visibility::Visible;
+        tf.translation = *pos;
+        let mat = outline_mats.add(outline::OutlineMaterial {
+          texture: tex.clone(),
+          color: outline_color,
+        });
+        commands.entity(ent).insert(MeshMaterial2d(mat));
+      } else {
+        *vis = Visibility::Hidden;
+      }
     }
   }
 }
@@ -2787,19 +2805,6 @@ fn setup(
     Transform::from_translation(Vec3::new(0.0, 0.0, 0.25)),
     Visibility::Hidden
   ));
-  for i in 0u8..9 {
-    commands.spawn((
-      InteractHighlight(i),
-      Sprite {
-        image: hover_img.clone(),
-        custom_size: Some(Vec2::splat(TILE_SIZE)),
-        color: Color::srgba(0.45, 0.75, 0.95, 0.15),
-        ..default()
-      },
-      Transform::from_translation(Vec3::ZERO),
-      Visibility::Hidden
-    ));
-  }
 
   let (dox, doy) = current.0.dest_origin.unwrap_or(current.0.ship_origin);
   let (spx, spy) = locations::starter_planet::surface_prefab()
