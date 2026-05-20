@@ -36,7 +36,7 @@ use {bevy::prelude::*,
      crate::entities::{AirlockDoor, Bed, BlocksSight, Collidable, Dialogue, DialogueNode,
                        DialogueTree, Door, Elevator, Enemy, FixedChestLoot, FlightConsole,
                        CraftingTable, FollowerData, FollowerState, Glyph, Loadout, LoadoutConsole, Location,
-                       LootChest, Named, Stats, Tree, Visuals},
+                       LootChest, Named, Stats, Tree, Visuals, WalkAnim},
      ui::{LogEntries, LogSpan, MenuClickPending, log_message, log_spans}};
 
 use {active_zone::ActiveZone,
@@ -548,6 +548,39 @@ fn sync_player_location(player: Single<(&PlayerPos, &mut Location), With<Player>
   *location = Location::xyz(pos.x, pos.y, pos.z);
 }
 
+fn animate_walk_sprites(
+  frame: Res<RenderFrame>,
+  keys: Res<ButtonInput<KeyCode>>,
+  mut palette_cache: ResMut<PaletteImageCache>,
+  mut images: ResMut<Assets<Image>>,
+  mut query: Query<(&WalkAnim, &Glyph, &mut Sprite)>
+) {
+  let move_held = keys.any_pressed([
+    KeyCode::KeyW, KeyCode::KeyA, KeyCode::KeyS, KeyCode::KeyD,
+    KeyCode::ArrowUp, KeyCode::ArrowDown, KeyCode::ArrowLeft, KeyCode::ArrowRight,
+  ]);
+  for (anim, glyph, mut sprite) in query.iter_mut() {
+    let (frames, interval) = if move_held {
+      (anim.walk_frames, anim.interval)
+    } else {
+      (anim.idle_frames, anim.idle_interval)
+    };
+    let path = if frames.is_empty() {
+      anim.idle
+    } else {
+      let step = (frame.0 / interval) as usize;
+      let n = frames.len() * 2;
+      let phase = step % n;
+      if phase % 2 == 0 { anim.idle } else { frames[phase / 2] }
+    };
+    if let Some((primary, secondary)) = glyph.sprite_palette {
+      sprite.image = palette_sprite_handle(
+        path, primary, secondary, &mut palette_cache, &mut images
+      );
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // App
 // ---------------------------------------------------------------------------
@@ -704,6 +737,7 @@ fn main() {
         track_movement,
         interpolate_visual_positions,
         sync_entity_positions,
+        animate_walk_sprites,
         camera_follow,
         update_fov_visuals,
         update_tile_hover_highlight,
@@ -2281,12 +2315,17 @@ fn gather_interactions_at_tile(
             .ok()
             .into_iter()
             .flat_map(move |elev| {
+              let is_cave = named_q.get(e).is_ok_and(|(n, ..)| n.name.contains("Cave"));
               elev
                 .floors
                 .iter()
                 .filter(|&&(z, _, _)| z != elev.current_z)
-                .map(|&(z, dx, dy)| InteractionOption {
-                  label: format!("Elevator — Deck {}", z + 1),
+                .map(move |&(z, dx, dy)| InteractionOption {
+                  label: if is_cave {
+                    if z == 0 { "Return to surface".into() } else { "Enter cave".into() }
+                  } else {
+                    format!("Elevator — Deck {}", z + 1)
+                  },
                   action: InteractionAction::TakeElevator { dest_z: z, dest_x: dx, dest_y: dy }
                 })
                 .collect::<Vec<_>>()
@@ -2838,6 +2877,22 @@ fn setup(
     Stats { hp: 20, max_hp: 20, attack: 5, move_speed: 3.0, attack_speed: 1.0 },
     Inventory::default(),
     Loadout::default(),
+    Glyph::palette_sprite(
+      "textures/space_qud/tough guy 1.png",
+      '@',
+      Color::srgb(0.72, 0.72, 0.72),
+      Color::srgb(0.35, 0.55, 0.72),
+    ),
+    WalkAnim {
+      idle: "textures/space_qud/tough guy 1.png",
+      idle_frames: &["textures/space_qud/tough guy frame 2.png"],
+      walk_frames: &[
+        "textures/space_qud/tough guy walk frame 1.png",
+        "textures/space_qud/tough guy walk frame 2.png",
+      ],
+      interval: 8,
+      idle_interval: 30,
+    },
     GlyphVisual,
     Visuals {
       prev: start_local,

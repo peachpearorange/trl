@@ -9,6 +9,7 @@ use bevy_ghx_proc_gen::proc_gen::{
     ghx_grid::cartesian::{coordinates::Cartesian2D, grid::CartesianGrid},
 };
 
+use rand::{Rng, SeedableRng, rngs::SmallRng};
 use std::collections::VecDeque;
 
 use crate::{
@@ -289,7 +290,7 @@ pub fn generate(params: &PlanetParams) -> Location {
         params.name,
         PLANET_SIZE,
         PLANET_SIZE,
-        1,
+        2,
         LocationType::PlanetSurface { breathable: params.breathable },
         fill,
     );
@@ -314,7 +315,142 @@ pub fn generate(params: &PlanetParams) -> Location {
         }
     }
 
+    let cave_seed = params.seed.unwrap_or(0x5EED) ^ 0xCA7E_CA7E;
+    generate_cave_sublevel(&mut loc, cave_seed);
+
     loc
+}
+
+const CAVE_ENTRANCES: usize = 3;
+const CAVE_FILL_CHANCE: f64 = 0.45;
+const CAVE_SMOOTH_PASSES: usize = 5;
+
+fn generate_cave_sublevel(loc: &mut Location, seed: u64) {
+    let size = loc.width;
+    let mut rng = SmallRng::seed_from_u64(seed);
+
+    let cave = loc.level_mut(1);
+    for y in 0..size {
+        for x in 0..size {
+            cave.set(x as i32, y as i32, Tile::CaveWall);
+        }
+    }
+
+    // Cellular automata: seed random floor cells, then smooth
+    let mut cells = vec![vec![false; size]; size];
+    for y in 2..size - 2 {
+        for x in 2..size - 2 {
+            cells[y][x] = rng.random_bool(CAVE_FILL_CHANCE);
+        }
+    }
+    for _ in 0..CAVE_SMOOTH_PASSES {
+        let prev = cells.clone();
+        for y in 1..size - 1 {
+            for x in 1..size - 1 {
+                let neighbors = (-1..=1i32)
+                    .flat_map(|dy| (-1..=1i32).map(move |dx| (dx, dy)))
+                    .filter(|&(dx, dy)| (dx, dy) != (0, 0))
+                    .filter(|&(dx, dy)| prev[(y as i32 + dy) as usize][(x as i32 + dx) as usize])
+                    .count();
+                cells[y][x] = neighbors >= 5 || (cells[y][x] && neighbors >= 4);
+            }
+        }
+    }
+
+    for y in 0..size {
+        for x in 0..size {
+            if cells[y][x] {
+                cave.set(x as i32, y as i32, Tile::CaveFloor);
+            }
+        }
+    }
+
+    // Find the largest connected cave region
+    let largest = largest_walkable_component(cave);
+    if largest.len() < 20 { return; }
+
+    // Pick entrance positions: spread across the cave, on solid ground on the surface
+    let surface = loc.levels[0].clone();
+    let mut entrance_candidates: Vec<(i32, i32)> = largest.iter()
+        .copied()
+        .filter(|&(x, y)| {
+            x > 5 && y > 5 && x < (size as i32 - 5) && y < (size as i32 - 5)
+                && is_solid_ground(surface.get(x, y).unwrap_or(Tile::CaveWall))
+        })
+        .collect();
+
+    // Sort deterministically so seed controls selection
+    entrance_candidates.sort_by_key(|&(x, y)| (x, y));
+
+    let count = CAVE_ENTRANCES.min(entrance_candidates.len());
+    if count == 0 { return; }
+
+    // Space entrances apart by picking from evenly-spaced indices
+    let step = entrance_candidates.len() / count;
+    let entrances: Vec<(i32, i32)> = (0..count)
+        .map(|i| entrance_candidates[i * step])
+        .collect();
+
+    for &(ex, ey) in &entrances {
+        // Clear a small area around the entrance in the cave
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                let cave = loc.level_mut(1);
+                if !cave.walkable(ex + dx, ey + dy) {
+                    cave.set(ex + dx, ey + dy, Tile::CaveFloor);
+                }
+            }
+        }
+
+        loc.spawn_objects.push((ex, ey, 0, Object::cave_entrance(ex, ey, ex, ey)));
+        loc.spawn_objects.push((ex, ey, 1, Object::cave_exit(ex, ey, ex, ey)));
+    }
+
+    // Scatter loot chests in the cave
+    let chest_candidates: Vec<(i32, i32)> = largest.iter()
+        .copied()
+        .filter(|&(x, y)| {
+            !entrances.contains(&(x, y))
+                && x > 3 && y > 3 && x < (size as i32 - 3) && y < (size as i32 - 3)
+        })
+        .collect();
+    let chest_count = (chest_candidates.len() / 80).clamp(2, 6);
+    let chest_step = chest_candidates.len().max(1) / chest_count.max(1);
+    for i in 0..chest_count.min(chest_candidates.len()) {
+        let (cx, cy) = chest_candidates[i * chest_step];
+        loc.spawn_objects.push((cx, cy, 1, Object::loot_chest()));
+    }
+}
+
+fn largest_walkable_component(level: &Level) -> Vec<(i32, i32)> {
+    let (w, h) = (level.width as i32, level.height as i32);
+    let mut visited = vec![vec![false; level.width]; level.height];
+    let mut best = Vec::new();
+
+    for sy in 0..h {
+        for sx in 0..w {
+            if visited[sy as usize][sx as usize] || !level.walkable(sx, sy) { continue; }
+            let mut component = Vec::new();
+            let mut queue = VecDeque::new();
+            visited[sy as usize][sx as usize] = true;
+            queue.push_back((sx, sy));
+            while let Some((x, y)) = queue.pop_front() {
+                component.push((x, y));
+                for (dx, dy) in [(1i32, 0), (-1, 0), (0, 1), (0, -1)] {
+                    let (nx, ny) = (x + dx, y + dy);
+                    if nx >= 0 && ny >= 0 && nx < w && ny < h
+                        && !visited[ny as usize][nx as usize]
+                        && level.walkable(nx, ny)
+                    {
+                        visited[ny as usize][nx as usize] = true;
+                        queue.push_back((nx, ny));
+                    }
+                }
+            }
+            if component.len() > best.len() { best = component; }
+        }
+    }
+    best
 }
 
 fn place_ship_dock(level: &mut Level, fill: Tile) {

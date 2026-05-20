@@ -96,6 +96,7 @@ pub enum Gear {
   Weapon(crate::level::Item),
   Armor(crate::level::Item),
   Grenade(crate::level::Item),
+  Loot(crate::level::Item),
   InnateGun { damage: i32 },
   InnateGrenadeThrow { min_range: i32 },
   InnateSporeEmit,
@@ -277,7 +278,7 @@ impl Loadout {
 
   pub fn lootable_items(&self) -> Vec<(crate::level::Item, u32)> {
     self.gear.iter().filter_map(|s| match s.gear {
-      Gear::Weapon(item) | Gear::Armor(item) | Gear::Grenade(item) => Some((item, s.count)),
+      Gear::Weapon(item) | Gear::Armor(item) | Gear::Grenade(item) | Gear::Loot(item) => Some((item, s.count)),
       _ => None
     }).collect()
   }
@@ -379,6 +380,18 @@ pub struct FixedChestLoot(pub &'static [(crate::level::Item, u32)]);
 /// Entity occupies its tile for line-of-sight (like an opaque tile) but need not block movement.
 #[derive(Component, Clone, Copy)]
 pub struct BlocksSight;
+
+/// Sprite animation. `idle` is the standing texture; `idle_frames` cycle with `idle` when
+/// stationary (idle → idle_0 → idle → idle_1 → …). `walk_frames` cycle the same way while
+/// moving. Either list can be empty to just show `idle`.
+#[derive(Component, Clone, Debug)]
+pub struct WalkAnim {
+  pub idle: &'static str,
+  pub idle_frames: &'static [&'static str],
+  pub walk_frames: &'static [&'static str],
+  pub interval: u64,
+  pub idle_interval: u64,
+}
 
 /// Visual for a grid entity: optional PNG (tile-sized sprite) or [`Text2d`] from `ch` + `color`.
 #[derive(Component, Clone, Debug)]
@@ -823,6 +836,36 @@ impl Object {
       .add(Named { name: "Elevator", flavor: "Vertical transport. Choose a deck." })
   }
 
+  pub fn cave_entrance(surface_x: i32, surface_y: i32, cave_x: i32, cave_y: i32) -> Self {
+    Self::structure(false)
+      .add(Elevator {
+        current_z: 0,
+        floors: vec![(0, surface_x, surface_y), (1, cave_x, cave_y)],
+      })
+      .add(Glyph::palette_sprite(
+        "textures/space_qud/stairs.png",
+        '>',
+        Color::srgb(0.35, 0.32, 0.28),
+        Color::srgb(0.55, 0.50, 0.40),
+      ))
+      .add(Named { name: "Cave Entrance", flavor: "A dark opening leads underground." })
+  }
+
+  pub fn cave_exit(surface_x: i32, surface_y: i32, cave_x: i32, cave_y: i32) -> Self {
+    Self::structure(false)
+      .add(Elevator {
+        current_z: 1,
+        floors: vec![(0, surface_x, surface_y), (1, cave_x, cave_y)],
+      })
+      .add(Glyph::palette_sprite(
+        "textures/space_qud/stairs up down.png",
+        '<',
+        Color::srgb(0.55, 0.50, 0.40),
+        Color::srgb(0.35, 0.32, 0.28),
+      ))
+      .add(Named { name: "Cave Exit", flavor: "Daylight filters in from above." })
+  }
+
   pub fn loot_chest() -> Self {
     Self::structure(true).add((
       LootChest { opened: false },
@@ -880,7 +923,10 @@ impl Object {
           flavor: "A wiry rat-person clutching a crude spear. Smells like wet fur and old iron.",
         },
         Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 2.1, attack_speed: 1.0 },
-        Loadout::new(vec![GearSlot::passive(Gear::Weapon(crate::level::Item::CombatSpear))]),
+        Loadout::new(vec![
+          GearSlot::passive(Gear::Weapon(crate::level::Item::CombatSpear)),
+          GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 2),
+        ]),
         Glyph::palette_sprite(
           "textures/space_qud/gunman .png",
           'r',
@@ -901,6 +947,7 @@ impl Object {
         Loadout::new(vec![
           GearSlot::passive(Gear::Weapon(crate::level::Item::CombatSpear)),
           GearSlot::passive(Gear::NaturalArmor { dr: 1 }),
+          GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 3),
         ]),
         Glyph::palette_sprite(
           "textures/space_qud/mogussy.png",
@@ -1023,7 +1070,7 @@ impl Object {
         flavor: "A damaged security robot. Its threat-response routines are still very much active."
       },
       Stats { hp: 15, max_hp: 15, attack: 4, move_speed: 2.0, attack_speed: 0.8 },
-      Loadout::default(),
+      Loadout::new(vec![GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 4)]),
       Glyph::palette_sprite(
         "textures/space_qud/robo.png",
         'R',
@@ -1040,7 +1087,7 @@ impl Object {
         flavor: "A repurposed salvage drone running corrupted directives. Approaches everything as scrap."
       },
       Stats { hp: 8, max_hp: 8, attack: 3, move_speed: 2.3, attack_speed: 1.2 },
-      Loadout::default(),
+      Loadout::new(vec![GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 2)]),
       Glyph::palette_sprite(
         "textures/space_qud/wack robo.png",
         'R',
@@ -1058,7 +1105,7 @@ impl Object {
       },
       Stats { hp: 5, max_hp: 5, attack: 3, move_speed: 12.0, attack_speed: 1.5 },
       DriftChance(0.3),
-      Loadout::default(),
+      Loadout::new(vec![GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 1)]),
       Glyph::palette_sprite(
         "textures/space_qud/alien1.png",
         'x',
@@ -1076,7 +1123,10 @@ impl Object {
       },
       Stats { hp: 14, max_hp: 14, attack: 5, move_speed: 4.0, attack_speed: 0.9 },
       DriftChance(0.05),
-      Loadout::new(vec![GearSlot::passive(Gear::NaturalArmor { dr: 3 })]),
+      Loadout::new(vec![
+        GearSlot::passive(Gear::NaturalArmor { dr: 3 }),
+        GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 3),
+      ]),
       Glyph::palette_sprite(
         "textures/space_qud/crab alien.png",
         'c',
@@ -1094,13 +1144,20 @@ impl Object {
       },
       Stats { hp: 6, max_hp: 6, attack: 5, move_speed: 10.0, attack_speed: 2.0 },
       DriftChance(0.5),
-      Loadout::default(),
+      Loadout::new(vec![GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 2)]),
       Glyph::palette_sprite(
         "textures/space_qud/mantis alien.png",
         'M',
         Color::srgb(0.65, 0.90, 0.95),
         Color::srgb(0.20, 0.55, 0.70)
       ),
+      WalkAnim {
+        idle: "textures/space_qud/mantis alien.png",
+        idle_frames: &["textures/space_qud/mantis alien frame 2.png"],
+        walk_frames: &["textures/space_qud/mantis alien frame 2.png"],
+        interval: 20,
+        idle_interval: 20,
+      },
     ))
   }
 
@@ -1112,7 +1169,10 @@ impl Object {
       },
       Stats { hp: 10, max_hp: 10, attack: 4, move_speed: 3.5, attack_speed: 0.8 },
       DriftChance(0.1),
-      Loadout::new(vec![GearSlot::passive(Gear::NaturalArmor { dr: 1 })]),
+      Loadout::new(vec![
+        GearSlot::passive(Gear::NaturalArmor { dr: 1 }),
+        GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 2),
+      ]),
       Glyph::palette_sprite(
         "textures/space_qud/crab alien.png",
         'c',
@@ -1129,7 +1189,10 @@ impl Object {
         flavor: "An ambulatory fungal mass. Moves with unsettling purpose. Its gills swell with spores."
       },
       Stats { hp: 6, max_hp: 6, attack: 2, move_speed: 2.0, attack_speed: 0.6 },
-      Loadout::new(vec![GearSlot::ability(Gear::InnateSporeEmit, 40)]),
+      Loadout::new(vec![
+        GearSlot::ability(Gear::InnateSporeEmit, 40),
+        GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 1),
+      ]),
       Glyph::palette_sprite(
         "textures/space_qud/mushroom.png",
         'm',
@@ -1190,7 +1253,10 @@ impl Object {
         flavor: "A wiry soldier bristling with grenades. Keeps its distance."
       },
       Stats { hp: 8, max_hp: 8, attack: 2, move_speed: 2.0, attack_speed: 0.8 },
-      Loadout::new(vec![GearSlot::ability(Gear::InnateGrenadeThrow { min_range: 3 }, 25)]),
+      Loadout::new(vec![
+        GearSlot::ability(Gear::InnateGrenadeThrow { min_range: 3 }, 25),
+        GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 3),
+      ]),
       Glyph::palette_sprite(
         "textures/space_qud/gunman .png",
         'g',
@@ -1207,7 +1273,10 @@ impl Object {
         flavor: "A sharp-eyed mercenary with a revolver. Shoots first."
       },
       Stats { hp: 8, max_hp: 8, attack: 3, move_speed: 2.0, attack_speed: 1.0 },
-      Loadout::new(vec![GearSlot::ability(Gear::InnateGun { damage: 4 }, 15)]),
+      Loadout::new(vec![
+        GearSlot::ability(Gear::InnateGun { damage: 4 }, 15),
+        GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 4),
+      ]),
       Glyph::palette_sprite(
         "textures/space_qud/gunman .png",
         'g',

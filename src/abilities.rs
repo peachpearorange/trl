@@ -6,8 +6,9 @@ use {std::collections::HashMap,
      crate::{Clock, CurrentZone, Inventory, Player, PlayerPos, TimeMode, TurnBasedWorldState, UiState,
              entities::{Enemy, Glyph, GrenadeInFlight, Loadout, Location, Named, Stats},
              level::Item,
-             particles::{ParticleEffects, spawn_bullet_trail, spawn_laser_beam, tile_to_world},
-             path_overlay::{bresenham_path, dda_cells, euclidean_los_point, ray_cast_target},
+             particles::{ParticleEffects, spawn_bullet_trail, spawn_laser_beam, spawn_plasma_burst,
+                         spawn_scatter_trails, spawn_pulse_beam, tile_to_world},
+             path_overlay::{bresenham_path, dda_cells, euclidean_los_point},
              ui::{LogEntries, log_message}}};
 
 /// Grenade flight speed: tiles traversed per sim turn before detonation.
@@ -18,6 +19,9 @@ const GRENADE_TILES_PER_TURN: usize = 4;
 pub enum AbilityKind {
   FireGun,
   FireLaser,
+  FirePlasma,
+  FireScatter,
+  FirePulse,
   ThrowGrenade { slot: usize, item: Item }
 }
 
@@ -68,6 +72,12 @@ pub fn sync_ability_bar(
   {
     let (kind, name, max_cd) = if weapon.is_laser() {
       (AbilityKind::FireLaser, "Fire Laser", 4)
+    } else if weapon.is_plasma() {
+      (AbilityKind::FirePlasma, "Fire Plasma", 5)
+    } else if weapon.is_scatter() {
+      (AbilityKind::FireScatter, "Fire Scatter", 5)
+    } else if weapon.is_pulse() {
+      (AbilityKind::FirePulse, "Fire Pulse", 7)
     } else {
       (AbilityKind::FireGun, "Fire Gun", 3)
     };
@@ -178,16 +188,19 @@ pub fn handle_ability_click(
   let px = pos.x as f32 + 0.5;
   let py = pos.y as f32 + 0.5;
 
-  // Laser and grenades both require Euclidean LoS to the target tile.
-  let needs_los = matches!(kind, AbilityKind::FireLaser | AbilityKind::ThrowGrenade { .. });
+  let is_gun = matches!(kind,
+    AbilityKind::FireLaser | AbilityKind::FireGun | AbilityKind::FirePlasma
+    | AbilityKind::FireScatter | AbilityKind::FirePulse);
+  let needs_los = is_gun || matches!(kind, AbilityKind::ThrowGrenade { .. });
   let los_point = needs_los.then(|| euclidean_los_point(px, py, cursor_tx, cursor_ty, level)).flatten();
 
   if needs_los && los_point.is_none() {
     log_message(&mut log, "No LoS to target.".into());
-    return; // keep ability selected
+    return;
   }
 
-  let (tx, ty) = ray_cast_target(pos.x, pos.y, cursor_tx, cursor_ty, level);
+  let (tx, ty) = los_point.map(|(lx, ly)| (lx as i32, ly as i32))
+    .unwrap_or((cursor_tx, cursor_ty));
 
   let fired = match &kind {
     AbilityKind::FireLaser => {
@@ -214,16 +227,17 @@ pub fn handle_ability_click(
       true
     }
     AbilityKind::FireGun => {
-      let path = bresenham_path(pos.x, pos.y, tx, ty);
-      let hit_pos = path.iter().skip(1).find(|&&(px, py)| {
+      let (los_x, los_y) = los_point.unwrap();
+      let cells = dda_cells(px, py, los_x, los_y);
+      let hit = cells.iter().skip(1).find(|&&(cx, cy)| {
         enemy_q.iter().any(|(loc, _, _)| {
-          matches!(loc, Location::Coords { x, y, z, .. } if *x == px && *y == py && *z == pos.z)
+          matches!(loc, Location::Coords { x, y, z, .. } if *x == cx && *y == cy && *z == pos.z)
         })
       }).copied();
-      let trail_end = hit_pos.unwrap_or((tx, ty));
-      let trail_path = bresenham_path(pos.x, pos.y, trail_end.0, trail_end.1);
+      let (end_x, end_y) = hit.unwrap_or((los_x as i32, los_y as i32));
+      let trail_path = bresenham_path(pos.x, pos.y, end_x, end_y);
       spawn_bullet_trail(&mut commands, &effects, &trail_path, level.width, level.height);
-      if let Some((hx, hy)) = hit_pos
+      if let Some((hx, hy)) = hit
         && let Some((_, mut stats, named)) = enemy_q.iter_mut().find(|(loc, _, _)| {
           matches!(loc, Location::Coords { x, y, z, .. } if *x == hx && *y == hy && *z == pos.z)
         })
@@ -233,12 +247,100 @@ pub fn handle_ability_click(
         let name = named.map(|n| n.name).unwrap_or("Enemy");
         log_message(&mut log, format!("You shoot {} for {} damage!", name, attack));
       } else {
-        log_message(&mut log, if (tx, ty) != (cursor_tx, cursor_ty) {
-          "Your shot hit the wall."
-        } else {
-          "Your shot hits nothing."
-        }.into());
+        log_message(&mut log, "Your shot hits nothing.".into());
       }
+      true
+    }
+    AbilityKind::FirePlasma => {
+      let (los_x, los_y) = los_point.unwrap();
+      let cells = dda_cells(px, py, los_x, los_y);
+      let hit = cells.iter().skip(1).find(|&&(cx, cy)| {
+        enemy_q.iter().any(|(loc, _, _)| {
+          matches!(loc, Location::Coords { x, y, z, .. } if *x == cx && *y == cy && *z == pos.z)
+        })
+      }).copied();
+      let (end_x, end_y) = hit.unwrap_or((los_x as i32, los_y as i32));
+      let trail_path = bresenham_path(pos.x, pos.y, end_x, end_y);
+      spawn_plasma_burst(&mut commands, &effects, &trail_path, level.width, level.height);
+      if let Some((hx, hy)) = hit
+        && let Some((_, mut stats, named)) = enemy_q.iter_mut().find(|(loc, _, _)| {
+          matches!(loc, Location::Coords { x, y, z, .. } if *x == hx && *y == hy && *z == pos.z)
+        })
+      {
+        let per_bolt = loadout.weapon_attack_bonus() + 2;
+        let total = per_bolt * 3;
+        stats.hp -= total;
+        let name = named.map(|n| n.name).unwrap_or("Enemy");
+        log_message(&mut log, format!("Plasma burst hits {} for {} damage! (3\u{00d7}{})", name, total, per_bolt));
+      } else {
+        log_message(&mut log, "Your plasma burst hits nothing.".into());
+      }
+      true
+    }
+    AbilityKind::FireScatter => {
+      let (los_x, los_y) = los_point.unwrap();
+      let dx = los_x - px;
+      let dy = los_y - py;
+      let angle = dy.atan2(dx);
+      let range = (dx * dx + dy * dy).sqrt().max(1.0);
+      let spreads = [-0.18, -0.09, 0.0, 0.09, 0.18];
+      let mut paths = Vec::new();
+      let mut total_damage = 0;
+      let mut hit_names: Vec<&str> = vec![];
+      let attack = loadout.weapon_attack_bonus() + 3;
+      for &spread in &spreads {
+        let a = angle + spread;
+        let ray_tx = (px + a.cos() * range) as i32;
+        let ray_ty = (py + a.sin() * range) as i32;
+        let ray_los = euclidean_los_point(px, py, ray_tx, ray_ty, level);
+        let (rx, ry) = ray_los.unwrap_or((px + a.cos() * 2.0, py + a.sin() * 2.0));
+        let cells = dda_cells(px, py, rx, ry);
+        let hit = cells.iter().skip(1).find(|&&(cx, cy)| {
+          enemy_q.iter().any(|(loc, _, _)| {
+            matches!(loc, Location::Coords { x, y, z, .. } if *x == cx && *y == cy && *z == pos.z)
+          })
+        }).copied();
+        let (end_x, end_y) = hit.unwrap_or((rx as i32, ry as i32));
+        paths.push(bresenham_path(pos.x, pos.y, end_x, end_y));
+        if let Some((hx, hy)) = hit
+          && let Some((_, mut stats, named)) = enemy_q.iter_mut().find(|(loc, _, _)| {
+            matches!(loc, Location::Coords { x, y, z, .. } if *x == hx && *y == hy && *z == pos.z)
+          })
+        {
+          stats.hp -= attack;
+          total_damage += attack;
+          let name = named.map(|n| n.name).unwrap_or("Enemy");
+          if !hit_names.contains(&name) { hit_names.push(name); }
+        }
+      }
+      spawn_scatter_trails(&mut commands, &effects, &paths, level.width, level.height);
+      log_message(&mut log, match hit_names.len() {
+        0 => "Your scatter shot hits nothing.".into(),
+        _ => format!("Scatter shot peppers {} for {} total damage!", hit_names.join(", "), total_damage),
+      });
+      true
+    }
+    AbilityKind::FirePulse => {
+      let (los_x, los_y) = los_point.unwrap();
+      let cells = dda_cells(px, py, los_x, los_y);
+      let beam_start = tile_to_world(px, py, level.width, level.height);
+      let beam_end = tile_to_world(los_x, los_y, level.width, level.height);
+      spawn_pulse_beam(&mut commands, &effects, beam_start, beam_end);
+      let attack = loadout.weapon_attack_bonus() + 5;
+      let mut hit_names: Vec<&str> = vec![];
+      for &(cx, cy) in cells.iter().skip(1) {
+        if let Some((_, mut stats, named)) = enemy_q.iter_mut().find(|(loc, _, _)| {
+          matches!(loc, Location::Coords { x, y, z, .. } if *x == cx && *y == cy && *z == pos.z)
+        }) {
+          stats.hp -= attack;
+          hit_names.push(named.map(|n| n.name).unwrap_or("Enemy"));
+        }
+      }
+      log_message(&mut log, match hit_names.len() {
+        0 => "Your pulse blast hits nothing.".into(),
+        1 => format!("Pulse blast devastates {} for {} damage!", hit_names[0], attack),
+        n => format!("Pulse blast tears through {} enemies for {} damage each!", n, attack),
+      });
       true
     }
     AbilityKind::ThrowGrenade { slot: grenade_slot, item } => {

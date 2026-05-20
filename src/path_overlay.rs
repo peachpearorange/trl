@@ -259,7 +259,10 @@ pub fn update_ranged_path(
   {
     let is_laser = targeting.selected
       .and_then(|i| bar.slots.get(i))
-      .is_some_and(|s| s.kind == AbilityKind::FireLaser);
+      .is_some_and(|s| matches!(s.kind,
+        AbilityKind::FireLaser | AbilityKind::FirePlasma
+        | AbilityKind::FireScatter | AbilityKind::FirePulse
+        | AbilityKind::FireGun));
 
     let level = current.0.level(pos.z);
     let w = level.width;

@@ -44,7 +44,7 @@ impl ActiveZone {
     let (dpx, dpy) = (0..dest.height as i32)
       .flat_map(|y| (0..dest.width as i32).map(move |x| (x, y)))
       .find(|&(x, y)| level0.get(x, y) == Some(Tile::ShipDock))?;
-    let dest_origin = (AIRLOCK_X - dpx, AIRLOCK_Y + 1 - dpy);
+    let dest_origin = (AIRLOCK_X - dpx + 1, AIRLOCK_Y + 1 - dpy - 3);
 
     // Compute bounding box
     let ship_x0 = 0i32;

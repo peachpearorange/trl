@@ -257,6 +257,9 @@ impl Prefab {
     .assoc('X', (Tile::DeckPlate, [Object::supply_cache(&[
       (Item::LaserRifle, 1),
       (Item::PipeRevolver, 1),
+      (Item::PlasmaRifle, 1),
+      (Item::ScatterGun, 1),
+      (Item::PulseCannon, 1),
       (Item::FragGrenade, 2),
       (Item::StunGrenade, 1)
     ])]))
