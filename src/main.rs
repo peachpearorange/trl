@@ -383,6 +383,14 @@ struct ItemGlyph {
   z: usize
 }
 
+#[derive(Component)]
+struct LootDrop {
+  from: Vec2,
+  to: Vec2,
+  start_frame: u64,
+  duration_frames: u64,
+}
+
 #[derive(Component, Default)]
 pub struct Inventory(pub HashMap<Item, u32>);
 
@@ -771,6 +779,7 @@ fn main() {
         apply_bump_lunge,
         sync_entity_positions,
         animate_walk_sprites,
+        animate_loot_drops,
         camera_follow,
         update_fov_visuals,
         update_tile_hover_highlight,
@@ -812,29 +821,130 @@ pub(crate) fn world_to_level_cell(world: Vec2, w: usize, h: usize) -> (i32, i32)
 // Gravity
 // ---------------------------------------------------------------------------
 
-/// Despawn enemies with 0 or fewer HP. Runs in SimStep so dead enemies
-/// are removed before the next frame's rendering and AI.
+fn scatter_loot_tiles(ex: i32, ey: i32, level: &level::Level, count: usize) -> Vec<(i32, i32)> {
+  let mut tiles = Vec::with_capacity(count);
+  let candidates = [
+    (ex, ey),
+    (ex - 1, ey), (ex + 1, ey), (ex, ey - 1), (ex, ey + 1),
+    (ex - 1, ey - 1), (ex + 1, ey - 1), (ex - 1, ey + 1), (ex + 1, ey + 1),
+  ];
+  for &(cx, cy) in &candidates {
+    if tiles.len() >= count { break }
+    if level.walkable(cx, cy)
+      && cx >= 0 && cy >= 0
+      && (cx as usize) < level.width && (cy as usize) < level.height
+      && level.items[cy as usize][cx as usize].is_none()
+      && !tiles.contains(&(cx, cy))
+    {
+      tiles.push((cx, cy));
+    }
+  }
+  tiles
+}
+
 fn enemy_death_check(
   mut commands: Commands,
-  enemy_q: Query<(Entity, &Stats, &Loadout, Option<&Named>), With<Enemy>>
+  mut current: ResMut<CurrentZone>,
+  frame: Res<RenderFrame>,
+  mut palette_cache: ResMut<PaletteImageCache>,
+  mut images: ResMut<Assets<Image>>,
+  enemy_q: Query<(Entity, &Stats, &Loadout, &Location, Option<&Named>), With<Enemy>>
 ) {
-  for (entity, stats, loadout, _) in enemy_q.iter() {
+  for (entity, stats, loadout, location, _) in enemy_q.iter() {
     if stats.hp <= 0 {
       let loot = loadout.lootable_items();
+      let (ex, ey, ez) = if let Location::Coords { x, y, z, .. } = *location {
+        (x, y, z)
+      } else {
+        commands.entity(entity)
+          .remove::<(Enemy, Stats, Loadout, entities::Character, entities::FactionComp,
+                     entities::Gravity, entities::TimeSinceAction, entities::Path,
+                     entities::DriftChance, Glyph, Sprite, GlyphVisual)>()
+          .insert((
+            entities::Corpse { loot: vec![], looted: true },
+            Collidable(false),
+            Glyph::palette_sprite(
+              "textures/space_qud/bones.png", '%',
+              Color::srgb(0.90, 0.88, 0.85), Color::srgb(0.75, 0.72, 0.68),
+            ),
+          ));
+        continue;
+      };
+
+      let (w, h) = (current.0.width, current.0.height);
+      let level = current.0.level_mut(ez);
+      let drop_tiles = scatter_loot_tiles(ex, ey, level, loot.len());
+
+      for (i, &(item, _qty)) in loot.iter().enumerate() {
+        if let Some(&(tx, ty)) = drop_tiles.get(i) {
+          level.set_item(tx, ty, Some(item));
+          let (primary, secondary) = item.loot_colors();
+          let img = palette_sprite_handle(
+            item.loot_texture(), primary, secondary,
+            &mut palette_cache, &mut images,
+          );
+          commands.spawn((
+            Sprite {
+              image: img,
+              custom_size: Some(Vec2::splat(TILE_SIZE)),
+              ..default()
+            },
+            Transform::from_translation(
+              tile_screen_pos(ex as f32, ey as f32, w, h) + Vec3::new(0.0, 0.0, 5.0)
+            ),
+            LootDrop {
+              from: Vec2::new(ex as f32, ey as f32),
+              to: Vec2::new(tx as f32, ty as f32),
+              start_frame: frame.0,
+              duration_frames: 12,
+            },
+          ));
+          commands.spawn((
+            Text2d::new(item.glyph()),
+            TextFont { font_size: TILE_SIZE, ..default() },
+            TextColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+            Transform::from_translation(
+              tile_screen_pos(tx as f32, ty as f32, w, h) + Vec3::new(0.0, 0.0, 1.0)
+            ),
+            ItemGlyph { x: tx as usize, y: ty as usize, z: ez },
+          ));
+        }
+      }
+
       commands.entity(entity)
         .remove::<(Enemy, Stats, Loadout, entities::Character, entities::FactionComp,
                    entities::Gravity, entities::TimeSinceAction, entities::Path,
                    entities::DriftChance, Glyph, Sprite, GlyphVisual)>()
         .insert((
-          entities::Corpse { loot, looted: false },
+          entities::Corpse { loot: vec![], looted: true },
           Collidable(false),
           Glyph::palette_sprite(
-            "textures/space_qud/bones.png",
-            '%',
-            Color::srgb(0.90, 0.88, 0.85),
-            Color::srgb(0.75, 0.72, 0.68),
+            "textures/space_qud/bones.png", '%',
+            Color::srgb(0.90, 0.88, 0.85), Color::srgb(0.75, 0.72, 0.68),
           ),
         ));
+    }
+  }
+}
+
+fn animate_loot_drops(
+  mut commands: Commands,
+  frame: Res<RenderFrame>,
+  current: Res<CurrentZone>,
+  mut query: Query<(Entity, &LootDrop, &mut Transform, &mut Sprite)>,
+) {
+  let (w, h) = (current.0.width, current.0.height);
+  for (entity, drop, mut tf, mut sprite) in query.iter_mut() {
+    let elapsed = frame.0.saturating_sub(drop.start_frame);
+    if elapsed >= drop.duration_frames {
+      commands.entity(entity).despawn();
+    } else {
+      let t = (elapsed + 1) as f32 / drop.duration_frames as f32;
+      let pos = drop.from.lerp(drop.to, t);
+      let arc = 1.5 * (t * std::f32::consts::PI).sin();
+      tf.translation = tile_screen_pos(pos.x, pos.y, w, h)
+        + Vec3::new(0.0, arc * TILE_SIZE, 5.0);
+      sprite.color = Color::srgba(1.0, 1.0, 1.0, (t * 2.0).min(1.0));
     }
   }
 }

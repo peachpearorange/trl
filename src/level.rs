@@ -1,3 +1,5 @@
+use bevy::prelude::Color;
+
 /// What kind of place a Location is. Determines atmosphere, procgen strategy, and flavor.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum LocationType {
@@ -221,6 +223,18 @@ impl Item {
   pub fn is_grenade(self) -> bool { self.equip_slot() == Some(EquipSlot::Grenade) }
   pub fn is_ranged(self) -> bool {
     matches!(self, Item::PipeRevolver | Item::LaserRifle | Item::PlasmaRifle | Item::ScatterGun | Item::PulseCannon)
+  }
+
+  pub fn loot_texture(self) -> &'static str {
+    if self.is_ranged() { "textures/space_qud/gun.png" }
+    else { "textures/space_qud/box with highlight border.png" }
+  }
+
+  pub fn loot_colors(self) -> (Color, Color) {
+    let [r, g, b] = self.color();
+    let primary = Color::srgb(r, g, b);
+    let secondary = Color::srgb((r + 0.3).min(1.0), (g + 0.3).min(1.0), (b + 0.3).min(1.0));
+    (primary, secondary)
   }
   pub fn is_laser(self) -> bool { matches!(self, Item::LaserRifle) }
   pub fn is_plasma(self) -> bool { matches!(self, Item::PlasmaRifle) }
