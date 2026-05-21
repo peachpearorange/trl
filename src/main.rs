@@ -391,6 +391,7 @@ struct LootDrop {
   duration_frames: u64,
 }
 
+
 #[derive(Component, Default)]
 pub struct Inventory(pub HashMap<Item, u32>);
 
@@ -824,9 +825,9 @@ pub(crate) fn world_to_level_cell(world: Vec2, w: usize, h: usize) -> (i32, i32)
 fn scatter_loot_tiles(ex: i32, ey: i32, level: &level::Level, count: usize) -> Vec<(i32, i32)> {
   let mut tiles = Vec::with_capacity(count);
   let candidates = [
-    (ex, ey),
     (ex - 1, ey), (ex + 1, ey), (ex, ey - 1), (ex, ey + 1),
     (ex - 1, ey - 1), (ex + 1, ey - 1), (ex - 1, ey + 1), (ex + 1, ey + 1),
+    (ex, ey),
   ];
   for &(cx, cy) in &candidates {
     if tiles.len() >= count { break }
@@ -898,14 +899,6 @@ fn enemy_death_check(
               start_frame: frame.0,
               duration_frames: 12,
             },
-          ));
-          commands.spawn((
-            Text2d::new(item.glyph()),
-            TextFont { font_size: TILE_SIZE, ..default() },
-            TextColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
-            Transform::from_translation(
-              tile_screen_pos(tx as f32, ty as f32, w, h) + Vec3::new(0.0, 0.0, 1.0)
-            ),
             ItemGlyph { x: tx as usize, y: ty as usize, z: ez },
           ));
         }
@@ -937,7 +930,10 @@ fn animate_loot_drops(
   for (entity, drop, mut tf, mut sprite) in query.iter_mut() {
     let elapsed = frame.0.saturating_sub(drop.start_frame);
     if elapsed >= drop.duration_frames {
-      commands.entity(entity).despawn();
+      tf.translation = tile_screen_pos(drop.to.x, drop.to.y, w, h)
+        + Vec3::new(0.0, 0.0, 1.5);
+      sprite.color = Color::WHITE;
+      commands.entity(entity).remove::<LootDrop>();
     } else {
       let t = (elapsed + 1) as f32 / drop.duration_frames as f32;
       let pos = drop.from.lerp(drop.to, t);
@@ -1102,13 +1098,13 @@ fn update_fov_visuals(
   player: Single<(Entity, &PlayerPos, &mut Visibility), With<Player>>,
   mut chunk_q: Query<(&TilemapLayer, &mut TilemapChunkTileData, &mut Visibility), Without<Player>>,
   mut item_q: Query<
-    (Entity, &ItemGlyph, &mut TextColor, &mut Visibility),
+    (Entity, &ItemGlyph, &mut Visibility),
     (Without<Player>, Without<GlyphVisual>, Without<TilemapLayer>)
   >,
   mut entity_q: Query<
     (Entity, &Location, &mut Visibility),
     (With<GlyphVisual>, Without<Player>, Without<TilemapLayer>)
-  >
+  >,
 ) {
   let (player_ent, pos, mut player_vis) = player.into_inner();
   let z = pos.z;
@@ -1168,7 +1164,7 @@ fn update_fov_visuals(
       }
       stacks.entry((x, y)).or_default().extend(ents.iter().copied());
     }
-    for (entity, item, _, _) in item_q.iter_mut() {
+    for (entity, item, _) in item_q.iter_mut() {
       if item.z == z {
         stacks.entry((item.x as i32, item.y as i32)).or_default().push(entity);
       }
@@ -1214,17 +1210,9 @@ fn update_fov_visuals(
         *vis = Visibility::Visible;
       }
     }
-    for (entity, item, mut color, mut vis) in item_q.iter_mut() {
-      let visible_in_fov = item.z == pos.z && fov.0.is_visible(item.x, item.y);
-      let item_kind = level.items[item.y][item.x];
-      *color = item_kind.map_or(TextColor(Color::NONE), |item_kind| {
-        let [r, g, b] = item_kind.color();
-        if visible_in_fov {
-          TextColor(Color::srgb(r, g, b))
-        } else {
-          TextColor(Color::NONE)
-        }
-      });
+    for (entity, item, mut vis) in item_q.iter_mut() {
+      let visible_in_fov = item.z == pos.z && fov.0.is_visible(item.x, item.y)
+        && level.items[item.y][item.x].is_some();
       if !visible_in_fov {
         *vis = Visibility::Hidden;
       } else if let Some(list) = stacks.get(&(item.x as i32, item.y as i32))
@@ -2774,7 +2762,9 @@ fn spawn_zone_geometry(
   zone: &active_zone::ActiveZone,
   galaxy: &galaxy::Galaxy,
   docked_at: Option<galaxy::LocationId>,
-  tileset: Handle<Image>
+  tileset: Handle<Image>,
+  palette_cache: &mut PaletteImageCache,
+  images: &mut Assets<Image>,
 ) {
   spawn_tilemaps(commands, zone, tileset);
   let (sox, soy) = zone.ship_origin;
@@ -2835,7 +2825,7 @@ fn spawn_zone_geometry(
       });
     }
   }
-  spawn_item_glyphs(commands, zone);
+  spawn_item_glyphs(commands, zone, palette_cache, images);
 }
 
 fn fov_recompute(
@@ -2870,7 +2860,9 @@ fn apply_pending_navigation(
     With<Player>
   >,
   mut clock: ResMut<Clock>,
-  mut tb: ResMut<TurnBasedWorldState>
+  mut tb: ResMut<TurnBasedWorldState>,
+  mut palette_cache: ResMut<PaletteImageCache>,
+  mut images: ResMut<Assets<Image>>
 ) {
   let Some(dest) = pending.navigate.take() else {
     return;
@@ -2907,10 +2899,11 @@ fn apply_pending_navigation(
     &current.0,
     &galaxy,
     ship.docked_at,
-    tileset.0.handle.clone()
+    tileset.0.handle.clone(),
+    &mut palette_cache,
+    &mut images,
   );
   let (sox, soy) = current.0.ship_origin;
-  // Reapply offset to the new zone's ship_origin, falling back to ship center.
   let (offset_x, offset_y) =
     player_ship_offset.unwrap_or((ship::SHIP_WIDTH as i32 / 2, ship::SHIP_HEIGHT as i32 / 2));
   let local_x = sox + offset_x;
@@ -2979,7 +2972,9 @@ fn setup(
     &current.0,
     &galaxy,
     ship.docked_at,
-    tileset_handle
+    tileset_handle,
+    &mut palette_cache,
+    &mut images,
   );
 
   let hover_img = white_pixel_image(&mut images);
@@ -3087,21 +3082,32 @@ fn update_fov(
   fov_recompute(&mut fov.0, &current.0, x, y, z as usize, |tx, ty| blockers.contains(&(tx, ty)));
 }
 
-fn spawn_item_glyphs(commands: &mut Commands, zone: &active_zone::ActiveZone) {
+fn spawn_item_glyphs(
+  commands: &mut Commands,
+  zone: &active_zone::ActiveZone,
+  palette_cache: &mut PaletteImageCache,
+  images: &mut Assets<Image>,
+) {
   for z in 0..zone.depth {
     let level = zone.level(z);
     for y in 0..level.height {
       for x in 0..level.width {
         if let Some(item) = level.items[y][x] {
-          let [r, g, b] = item.color();
+          let (primary, secondary) = item.loot_colors();
+          let img = palette_sprite_handle(
+            item.loot_texture(), primary, secondary, palette_cache, images,
+          );
           commands.spawn((
-            Text2d::new(item.glyph()),
-            TextFont { font_size: TILE_SIZE, ..default() },
-            TextColor(Color::srgba(r, g, b, 0.0)),
+            Sprite {
+              image: img,
+              custom_size: Some(Vec2::splat(TILE_SIZE)),
+              ..default()
+            },
             Transform::from_translation(
               tile_screen_pos(x as f32, y as f32, zone.width, zone.height)
-                + Vec3::new(0.0, 0.0, 1.0)
+                + Vec3::new(0.0, 0.0, 1.5)
             ),
+            Visibility::Hidden,
             ItemGlyph { x, y, z }
           ));
         }
