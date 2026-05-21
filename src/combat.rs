@@ -2,7 +2,7 @@ use {bevy::prelude::*,
      rand::seq::SliceRandom,
      std::collections::{BinaryHeap, HashMap, HashSet, VecDeque},
      std::cmp::Reverse,
-     crate::{entities::{CanGrab, Collidable, DamageCloud, Enemy, FollowerData, FollowerState,
+     crate::{entities::{Collidable, DamageCloud, Enemy, FollowerData, FollowerState,
                         Gear, Glyph, Grabbed, GrenadeInFlight, Invisible, Loadout, Location, Named,
                         Object, Path, Stats, TimeSinceAction,
                         WalkAroundRandomly},
@@ -312,7 +312,7 @@ pub fn enemy_ai(
     (With<crate::Player>, Without<Enemy>)
   >,
   mut enemy_q: Query<
-    (Entity, &mut Location, &mut TimeSinceAction, &Stats, &Loadout, Option<&Named>, Option<&crate::entities::DriftChance>, Option<&CanGrab>),
+    (Entity, &mut Location, &mut TimeSinceAction, &Stats, &mut Loadout, Option<&Named>, Option<&crate::entities::DriftChance>),
     (With<Enemy>, Without<crate::Player>)
   >,
   collidable_q: Query<&Collidable>
@@ -324,8 +324,12 @@ pub fn enemy_ai(
   let mut claimed: HashSet<(i32, i32)> = HashSet::new();
 
   let mut rng = rand::rng();
-  for (enemy_entity, mut location, mut timer, enemy_stats, _enemy_loadout, enemy_named, drift, can_grab) in enemy_q.iter_mut() {
-    timer.0 = timer.0.saturating_add(1);
+  for (enemy_entity, mut location, mut timer, enemy_stats, mut enemy_loadout, enemy_named, drift) in enemy_q.iter_mut() {
+    timer.attack = timer.attack.saturating_add(1);
+    timer.movement = timer.movement.saturating_add(1);
+    if let Some(grab_slot) = enemy_loadout.grab_mut() {
+      grab_slot.timer = grab_slot.timer.saturating_add(1);
+    }
 
     if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location {
       let dist = (px - ex).abs().max((py - ey).abs());
@@ -338,7 +342,7 @@ pub fn enemy_ai(
       let atk_fr = attack_interval(enemy_stats.attack_speed);
       let mov_fr = move_interval(enemy_stats.move_speed);
 
-      if dist == 1 && timer.0 >= atk_fr {
+      if dist == 1 && timer.attack >= atk_fr {
         let dmg = resolve_damage(enemy_stats.attack, player_loadout.armor_dr());
         player_stats.hp = (player_stats.hp - dmg).max(0);
         let name = enemy_named.map(|n| n.name).unwrap_or("Something");
@@ -347,9 +351,12 @@ pub fn enemy_ai(
         } else {
           log_message(&mut log, format!("{name} hits you but deals no damage."));
         }
-        if can_grab.is_some() {
+        if let Some(grab_slot) = enemy_loadout.grab_mut()
+            && grab_slot.timer >= grab_slot.cooldown
+        {
           commands.entity(player_entity).insert(Grabbed { by: enemy_entity, turns_remaining: 3 });
           log_message(&mut log, format!("{name} grabs you!"));
+          grab_slot.timer = 0;
         }
         if player_stats.hp == 0 {
           log_message(&mut log, "You died.".into());
@@ -358,8 +365,9 @@ pub fn enemy_ai(
           dir: Vec2::new((px - ex) as f32, (py - ey) as f32),
           start_frame: frame.0,
         });
-        timer.0 = 0;
-      } else if ez == pz && timer.0 >= mov_fr {
+        timer.attack = 0;
+      }
+      if ez == pz && timer.movement >= mov_fr && dist > 1 {
         let level = current.0.level(ez);
         let next = if drift.is_some_and(|d| rand::Rng::random::<f32>(&mut rng) < d.0) {
           let mut dirs = NEIGHBOR_DIRS;
@@ -391,7 +399,7 @@ pub fn enemy_ai(
           };
           *location = Location::xyz(nex, ney, nz);
           claimed.insert((nex, ney));
-          timer.0 = 0;
+          timer.movement = 0;
         }
       }
     }
@@ -678,7 +686,7 @@ pub fn enemy_stealth_ai(
           loadout.gear.remove(idx);
         }
       }
-      commands.entity(entity).insert(Invisible(10));
+      commands.entity(entity).insert(Invisible(20));
       let name = named.map(|n| n.name).unwrap_or("Something");
       log_message(&mut log, format!("{name} activates a stealth device!"));
     }

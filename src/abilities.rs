@@ -149,7 +149,7 @@ pub fn handle_ability_keys(
             loadout.gear.retain(|s| s.gear != crate::entities::Gear::Device(item));
           }
           if item == Item::StealthDevice {
-            commands.entity(player_entity).insert(crate::entities::Invisible(10));
+            commands.entity(player_entity).insert(crate::entities::Invisible(20));
           }
           log_message(&mut log, format!("You activate the {}!", item.name()));
           targeting.selected = None;
@@ -238,7 +238,7 @@ pub fn handle_ability_click(
       loadout.gear.retain(|s| s.gear != crate::entities::Gear::Device(item));
     }
     if item == Item::StealthDevice {
-      commands.entity(player_entity).insert(crate::entities::Invisible(10));
+      commands.entity(player_entity).insert(crate::entities::Invisible(20));
     }
     log_message(&mut log, format!("You activate the {}!", item.name()));
     targeting.selected = None;
