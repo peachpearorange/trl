@@ -22,7 +22,8 @@ pub enum AbilityKind {
   FirePlasma,
   FireScatter,
   FirePulse,
-  ThrowGrenade { slot: usize, item: Item }
+  ThrowGrenade { slot: usize, item: Item },
+  ActivateDevice { item: Item }
 }
 
 /// One slot in the player's ability bar.
@@ -96,6 +97,17 @@ pub fn sync_ability_bar(
     });
   }
 
+  for (_slot, item) in loadout.device_slots() {
+    let kind = AbilityKind::ActivateDevice { item };
+    let cd = targeting.cooldowns.get(&kind).copied().unwrap_or(0);
+    new_slots.push(AbilitySlot {
+      kind,
+      name: format!("Use {}", item.name()),
+      cooldown: cd,
+      max_cooldown: 0
+    });
+  }
+
   let new_selected = targeting.selected;
   if bar.slots != new_slots || bar.selected != new_selected {
     bar.slots = new_slots;
@@ -105,10 +117,15 @@ pub fn sync_ability_bar(
 
 /// Number keys 1-9 select an ability slot (or toggle it off if already selected).
 pub fn handle_ability_keys(
+  mut commands: Commands,
   keys: Res<ButtonInput<KeyCode>>,
   ui: Res<UiState>,
   bar: Res<AbilityBarData>,
-  mut targeting: ResMut<TargetingState>
+  mut targeting: ResMut<TargetingState>,
+  player: Single<(Entity, &mut Inventory, &mut Loadout), With<Player>>,
+  mut log: ResMut<LogEntries>,
+  mut clock: ResMut<Clock>,
+  mut tb: ResMut<TurnBasedWorldState>
 ) {
   if !ui.any_open() {
     let pressed_idx = [
@@ -120,7 +137,27 @@ pub fn handle_ability_keys(
     if let Some(idx) = pressed_idx
       && idx < bar.slots.len()
     {
-      targeting.selected = (targeting.selected != Some(idx)).then_some(idx);
+      if let AbilityKind::ActivateDevice { item } = bar.slots[idx].kind {
+        let (player_entity, ref mut inventory, ref mut loadout) = player.into_inner();
+        if inventory.0.get(&item).copied().unwrap_or(0) == 0 {
+          log_message(&mut log, format!("No {} in inventory.", item.name()));
+        } else {
+          let entry = inventory.0.entry(item).or_insert(0);
+          *entry = entry.saturating_sub(1);
+          if *entry == 0 {
+            inventory.0.remove(&item);
+            loadout.gear.retain(|s| s.gear != crate::entities::Gear::Device(item));
+          }
+          if item == Item::StealthDevice {
+            commands.entity(player_entity).insert(crate::entities::Invisible(10));
+          }
+          log_message(&mut log, format!("You activate the {}!", item.name()));
+          targeting.selected = None;
+          clock.spend_turn(&mut tb);
+        }
+      } else {
+        targeting.selected = (targeting.selected != Some(idx)).then_some(idx);
+      }
     }
   }
 }
@@ -134,7 +171,7 @@ pub fn handle_ability_click(
   current: Res<CurrentZone>,
   mut targeting: ResMut<TargetingState>,
   bar: Res<AbilityBarData>,
-  player: Single<(&PlayerPos, &mut Inventory, &mut Loadout), With<Player>>,
+  player: Single<(Entity, &PlayerPos, &mut Inventory, &mut Loadout), With<Player>>,
   mut enemy_q: Query<(&Location, &mut Stats, Option<&Named>), With<Enemy>>,
   mut commands: Commands,
   mut log: ResMut<LogEntries>,
@@ -142,7 +179,7 @@ pub fn handle_ability_click(
   mut tb: ResMut<TurnBasedWorldState>,
   effects: Res<ParticleEffects>
 ) {
-  let (pos, ref mut inventory, ref mut loadout) = player.into_inner();
+  let (player_entity, pos, ref mut inventory, ref mut loadout) = player.into_inner();
 
   // Determine what to fire this frame — either a queued shot whose cooldown just hit 0,
   // or a fresh click. Produces (kind, cursor_tx, cursor_ty, max_cd) or None.
@@ -187,6 +224,27 @@ pub fn handle_ability_click(
   let level = current.0.level(pos.z);
   let px = pos.x as f32 + 0.5;
   let py = pos.y as f32 + 0.5;
+
+  if let AbilityKind::ActivateDevice { item } = &kind {
+    let item = *item;
+    if inventory.0.get(&item).copied().unwrap_or(0) == 0 {
+      log_message(&mut log, format!("No {} in inventory.", item.name()));
+      return;
+    }
+    let entry = inventory.0.entry(item).or_insert(0);
+    *entry = entry.saturating_sub(1);
+    if *entry == 0 {
+      inventory.0.remove(&item);
+      loadout.gear.retain(|s| s.gear != crate::entities::Gear::Device(item));
+    }
+    if item == Item::StealthDevice {
+      commands.entity(player_entity).insert(crate::entities::Invisible(10));
+    }
+    log_message(&mut log, format!("You activate the {}!", item.name()));
+    targeting.selected = None;
+    clock.spend_turn(&mut tb);
+    return;
+  }
 
   let is_gun = matches!(kind,
     AbilityKind::FireLaser | AbilityKind::FireGun | AbilityKind::FirePlasma
@@ -375,6 +433,7 @@ pub fn handle_ability_click(
         true
       }
     }
+    AbilityKind::ActivateDevice { .. } => unreachable!(),
   };
 
   if fired {

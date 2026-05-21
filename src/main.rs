@@ -28,9 +28,9 @@ mod utils;
 
 use {bevy::prelude::*,
      combat::{FlowField, TileEntityIndex, compute_flow_field, damage_cloud_tick, enemy_ai,
-              follower_ai, grenade_thrower_ai, gun_attacker_ai, maintain_tile_index,
-              mushroom_spore_attack, tick_grenade_in_flight,
-              npc_wander},
+              enemy_stealth_ai, follower_ai, grenade_thrower_ai, gun_attacker_ai,
+              maintain_tile_index, mushroom_spore_attack, tick_grabbed, tick_grenade_in_flight,
+              tick_invisible, npc_wander},
      level::{FovGrid, Item, LocationType, Tile, ZONE_HEIGHT, ZONE_WIDTH, compute_fov},
      std::collections::{HashMap, HashSet},
      crate::entities::{AirlockDoor, Bed, BlocksSight, Collidable, Dialogue, DialogueNode,
@@ -380,7 +380,8 @@ struct Tileset(sprites::TilesetInfo);
 struct ItemGlyph {
   x: usize,
   y: usize,
-  z: usize
+  z: usize,
+  item: level::Item,
 }
 
 #[derive(Component)]
@@ -762,6 +763,9 @@ fn main() {
         mushroom_spore_attack.in_set(SimStep),
         grenade_thrower_ai.in_set(SimStep),
         gun_attacker_ai.in_set(SimStep),
+        enemy_stealth_ai.in_set(SimStep),
+        tick_grabbed.in_set(SimStep),
+        tick_invisible.in_set(SimStep),
         tick_grenade_in_flight.in_set(SimStep),
         damage_cloud_tick.in_set(SimStep),
         player_death_check.in_set(SimStep),
@@ -781,6 +785,7 @@ fn main() {
         sync_entity_positions,
         animate_walk_sprites,
         animate_loot_drops,
+        apply_invisible_alpha,
         camera_follow,
         update_fov_visuals,
         update_tile_hover_highlight,
@@ -834,7 +839,6 @@ fn scatter_loot_tiles(ex: i32, ey: i32, level: &level::Level, count: usize) -> V
     if level.walkable(cx, cy)
       && cx >= 0 && cy >= 0
       && (cx as usize) < level.width && (cy as usize) < level.height
-      && level.items[cy as usize][cx as usize].is_none()
       && !tiles.contains(&(cx, cy))
     {
       tiles.push((cx, cy));
@@ -860,7 +864,7 @@ fn enemy_death_check(
         commands.entity(entity)
           .remove::<(Enemy, Stats, Loadout, entities::Character, entities::FactionComp,
                      entities::Gravity, entities::TimeSinceAction, entities::Path,
-                     entities::DriftChance, Glyph, Sprite, GlyphVisual)>()
+                     entities::DriftChance, Glyph, Sprite, GlyphVisual, WalkAnim)>()
           .insert((
             entities::Corpse { loot: vec![], looted: true },
             Collidable(false),
@@ -878,7 +882,6 @@ fn enemy_death_check(
 
       for (i, &(item, _qty)) in loot.iter().enumerate() {
         if let Some(&(tx, ty)) = drop_tiles.get(i) {
-          level.set_item(tx, ty, Some(item));
           let (primary, secondary) = item.loot_colors();
           let img = palette_sprite_handle(
             item.loot_texture(), primary, secondary,
@@ -899,7 +902,7 @@ fn enemy_death_check(
               start_frame: frame.0,
               duration_frames: 12,
             },
-            ItemGlyph { x: tx as usize, y: ty as usize, z: ez },
+            ItemGlyph { x: tx as usize, y: ty as usize, z: ez, item },
           ));
         }
       }
@@ -907,7 +910,7 @@ fn enemy_death_check(
       commands.entity(entity)
         .remove::<(Enemy, Stats, Loadout, entities::Character, entities::FactionComp,
                    entities::Gravity, entities::TimeSinceAction, entities::Path,
-                   entities::DriftChance, Glyph, Sprite, GlyphVisual)>()
+                   entities::DriftChance, Glyph, Sprite, GlyphVisual, WalkAnim)>()
         .insert((
           entities::Corpse { loot: vec![], looted: true },
           Collidable(false),
@@ -943,6 +946,20 @@ fn animate_loot_drops(
       sprite.color = Color::srgba(1.0, 1.0, 1.0, (t * 2.0).min(1.0));
     }
   }
+}
+
+fn apply_invisible_alpha(
+  mut glyph_q: Query<(&mut Sprite, Option<&entities::Invisible>), With<GlyphVisual>>,
+  mut player_q: Query<(&mut Sprite, Option<&entities::Invisible>), (With<Player>, Without<GlyphVisual>)>
+) {
+  let set_alpha = |sprite: &mut Sprite, invis: Option<&entities::Invisible>| {
+    let target = if invis.is_some() { 0.25 } else { 1.0 };
+    if (sprite.color.alpha() - target).abs() > 0.01 {
+      sprite.color.set_alpha(target);
+    }
+  };
+  for (mut sprite, invis) in glyph_q.iter_mut() { set_alpha(&mut sprite, invis); }
+  for (mut sprite, invis) in player_q.iter_mut() { set_alpha(&mut sprite, invis); }
 }
 
 // ---------------------------------------------------------------------------
@@ -1211,8 +1228,7 @@ fn update_fov_visuals(
       }
     }
     for (entity, item, mut vis) in item_q.iter_mut() {
-      let visible_in_fov = item.z == pos.z && fov.0.is_visible(item.x, item.y)
-        && level.items[item.y][item.x].is_some();
+      let visible_in_fov = item.z == pos.z && fov.0.is_visible(item.x, item.y);
       if !visible_in_fov {
         *vis = Visibility::Hidden;
       } else if let Some(list) = stacks.get(&(item.x as i32, item.y as i32))
@@ -1527,7 +1543,8 @@ fn handle_menus(
   )>,
   mut deferred: ResMut<DeferredActions>,
   mut exit: MessageWriter<AppExit>,
-  mut menu_click: ResMut<MenuClickPending>
+  mut menu_click: ResMut<MenuClickPending>,
+  item_glyph_q: Query<(Entity, &ItemGlyph)>
 ) {
   // Extract what we need before any mutation so the borrow checker is happy.
   let n_opts =
@@ -1634,7 +1651,8 @@ fn handle_menus(
           &mut door_q,
           &asset_server,
           &mut palette_cache,
-          &mut images
+          &mut images,
+          &item_glyph_q
         );
         if is_loadout
           && let Ok((_, inventory, equipped)) = player_query.single()
@@ -2017,13 +2035,14 @@ fn handle_utility_menus(
 
 fn execute_interaction(
   action: &InteractionAction,
-  zone: &mut ActiveZone,
+  _zone: &mut ActiveZone,
   clock: &mut Clock,
   tb: &mut TurnBasedWorldState,
   ui: &mut UiState,
   log: &mut LogEntries,
   commands: &mut Commands,
-  player_query: &mut Query<(&mut PlayerPos, &mut Inventory, &mut Loadout), With<Player>>
+  player_query: &mut Query<(&mut PlayerPos, &mut Inventory, &mut Loadout), With<Player>>,
+  item_glyph_q: &Query<(Entity, &ItemGlyph)>
 ) {
   // No player/position needed; must not sit behind `player_query` or logging can be skipped.
   if let InteractionAction::Talk { speaker, tree, speaker_color } = action {
@@ -2044,11 +2063,10 @@ fn execute_interaction(
         clock.spend_turn(tb);
       }
       InteractionAction::PickUpItem(wx, wy) => {
-        let level = zone.level_mut(pos.z);
-        if (*wy as usize) < level.height && (*wx as usize) < level.width {
-          if let Some(item) = level.items[*wy as usize][*wx as usize] {
-            *inventory.0.entry(item).or_insert(0) += 1;
-            level.set_item(*wx, *wy, None);
+        for (ig_ent, ig) in item_glyph_q.iter() {
+          if ig.x == *wx as usize && ig.y == *wy as usize && ig.z == pos.z {
+            *inventory.0.entry(ig.item).or_insert(0) += 1;
+            commands.entity(ig_ent).despawn();
           }
         }
         clock.spend_turn(tb);
@@ -2163,7 +2181,8 @@ fn dispatch_interactive_choice(
   )>,
   asset_server: &AssetServer,
   palette_cache: &mut PaletteImageCache,
-  images: &mut Assets<Image>
+  images: &mut Assets<Image>,
+  item_glyph_q: &Query<(Entity, &ItemGlyph)>
 ) {
   match &option.action {
     InteractionAction::OpenChest(ent) => {
@@ -2215,7 +2234,7 @@ fn dispatch_interactive_choice(
       }
     }
     other => {
-      execute_interaction(other, zone, clock, tb, ui, log, commands, player_query);
+      execute_interaction(other, zone, clock, tb, ui, log, commands, player_query, item_glyph_q);
     }
   }
 }
@@ -2328,195 +2347,146 @@ fn is_disabled(action: &InteractionAction, loadout: &Loadout) -> bool {
   }
 }
 
+#[derive(bevy::ecs::system::SystemParam)]
+struct InteractQueries<'w, 's> {
+  tree_q: Query<'w, 's, Entity, With<Tree>>,
+  dialogue_q: Query<'w, 's, (&'static Named, &'static Dialogue)>,
+  glyph_q: Query<'w, 's, &'static Glyph, Without<LootChest>>,
+  loot_chest_q: Query<'w, 's, (&'static mut LootChest, &'static mut Glyph, &'static Location)>,
+  door_q: Query<'w, 's, &'static Door>,
+  elevator_q: Query<'w, 's, &'static Elevator>,
+  named_q: Query<'w, 's, (&'static Named, Option<&'static entities::Corpse>, Option<&'static Bed>)>,
+  console_q: Query<'w, 's, (Option<&'static FlightConsole>, Option<&'static LoadoutConsole>, Option<&'static CraftingTable>)>,
+  follower_q: Query<'w, 's, &'static FollowerState>,
+  item_glyph_q: Query<'w, 's, (Entity, &'static ItemGlyph)>,
+}
+
 fn gather_interactions_at_tile(
   wx: i32,
   wy: i32,
   dir_label: &str,
-  level: &level::Level,
   tile_entities: Option<&Vec<Entity>>,
-  tree_q: &Query<Entity, With<Tree>>,
-  dialogue_q: &Query<(&Named, &Dialogue)>,
-  glyph_q: &Query<&Glyph, Without<LootChest>>,
-  loot_chest_q: &mut Query<(&mut LootChest, &mut Glyph, &Location)>,
-  door_q: &Query<&Door>,
-  elevator_q: &Query<&Elevator>,
-  named_q: &Query<(&Named, Option<&entities::Corpse>, Option<&Bed>)>,
-  console_q: &Query<(Option<&FlightConsole>, Option<&LoadoutConsole>, Option<&CraftingTable>)>,
-  follower_q: &Query<&FollowerState>,
+  iq: &mut InteractQueries,
   galaxy: &galaxy::Galaxy,
   inventory: &Inventory,
-  equipped: &Loadout
+  equipped: &Loadout,
+  has_ground_items: bool
 ) -> Vec<InteractionOption> {
-  tile_entities
-    .into_iter()
-    .flat_map(|entities| entities.iter().copied())
-    .flat_map(|e| {
-      std::iter::empty::<InteractionOption>()
-        .chain(
-          tree_q
-            .get(e)
-            .ok()
-            .map(|_| InteractionOption {
-              label: format!("Chop tree ({dir_label})"),
-              action: InteractionAction::ChopTree(e)
-            })
-            .into_iter()
-        )
-        .chain(
-          dialogue_q
-            .get(e)
-            .ok()
-            .map(|(named, dialogue)| {
-              let speaker_color = glyph_q
-                .get(e)
-                .ok()
-                .map(|g| g.sprite_palette.map(|(primary, _)| primary).unwrap_or(g.color))
-                .unwrap_or(Color::srgb(0.78, 0.80, 0.86));
-              InteractionOption {
-                label: format!("Talk to {}", named.name),
-                action: InteractionAction::Talk {
-                  speaker: named.name,
-                  tree: dialogue.0,
-                  speaker_color
-                }
-              }
-            })
-            .into_iter()
-        )
-        .chain(
-          follower_q
-            .get(e)
-            .ok()
-            .and_then(|state| named_q.get(e).ok().map(|(named, ..)| (state, named.name)))
-            .map(|(state, name)| match *state {
-              FollowerState::Available | FollowerState::Dismissed => InteractionOption {
-                label: "Follow me".into(),
-                action: InteractionAction::RecruitFollower { entity: e, name }
-              },
-              FollowerState::Following => InteractionOption {
-                label: "Go home".into(),
-                action: InteractionAction::DismissFollower { entity: e, name }
-              }
-            })
-            .into_iter()
-        )
-        .chain(
-          loot_chest_q
-            .get_mut(e)
-            .ok()
-            .filter(|(c, _, _)| !c.opened)
-            .map(|_| InteractionOption {
-              label: format!("Open chest ({dir_label})"),
-              action: InteractionAction::OpenChest(e)
-            })
-            .into_iter()
-        )
-        .chain(
-          named_q
-            .get(e)
-            .ok()
-            .and_then(|(named, corpse, _)| corpse.filter(|c| !c.looted).map(|_| named.name))
-            .map(|name| InteractionOption {
-              label: format!("Loot dead {name} ({dir_label})"),
-              action: InteractionAction::LootCorpse(e)
-            })
-            .into_iter()
-        )
-        .chain(
-          named_q
-            .get(e)
-            .ok()
-            .and_then(|(_, _, bed)| bed.map(|_| InteractionOption {
-              label: format!("Sleep ({dir_label})"),
-              action: InteractionAction::SaveAtBed
-            }))
-            .into_iter()
-        )
-        .chain(door_q.get(e).ok().into_iter().map(move |door| {
-          let verb = if door.open { "Close" } else { "Open" };
-          let name = named_q.get(e).map_or("door", |(n, ..)| n.name);
-          InteractionOption {
-            label: format!("{verb} {name} ({dir_label})"),
-            action: InteractionAction::ToggleDoor(e)
+  let mut opts = Vec::new();
+  if let Some(entities) = tile_entities {
+    for &e in entities {
+      if iq.tree_q.get(e).is_ok() {
+        opts.push(InteractionOption {
+          label: format!("Chop tree ({dir_label})"),
+          action: InteractionAction::ChopTree(e)
+        });
+      }
+      if let Ok((named, dialogue)) = iq.dialogue_q.get(e) {
+        let speaker_color = iq.glyph_q
+          .get(e)
+          .ok()
+          .map(|g| g.sprite_palette.map(|(primary, _)| primary).unwrap_or(g.color))
+          .unwrap_or(Color::srgb(0.78, 0.80, 0.86));
+        opts.push(InteractionOption {
+          label: format!("Talk to {}", named.name),
+          action: InteractionAction::Talk { speaker: named.name, tree: dialogue.0, speaker_color }
+        });
+      }
+      if let Ok(state) = iq.follower_q.get(e)
+        && let Ok((named, ..)) = iq.named_q.get(e)
+      {
+        opts.push(match *state {
+          FollowerState::Available | FollowerState::Dismissed => InteractionOption {
+            label: "Follow me".into(),
+            action: InteractionAction::RecruitFollower { entity: e, name: named.name }
+          },
+          FollowerState::Following => InteractionOption {
+            label: "Go home".into(),
+            action: InteractionAction::DismissFollower { entity: e, name: named.name }
           }
-        }))
-        .chain(
-          elevator_q
-            .get(e)
-            .ok()
-            .into_iter()
-            .flat_map(move |elev| {
-              let is_cave = named_q.get(e).is_ok_and(|(n, ..)| n.name.contains("Cave"));
-              elev
-                .floors
-                .iter()
-                .filter(|&&(z, _, _)| z != elev.current_z)
-                .map(move |&(z, dx, dy)| InteractionOption {
-                  label: if is_cave {
-                    if z == 0 { "Return to surface".into() } else { "Enter cave".into() }
-                  } else {
-                    format!("Elevator — Deck {}", z + 1)
-                  },
-                  action: InteractionAction::TakeElevator { dest_z: z, dest_x: dx, dest_y: dy }
-                })
-                .collect::<Vec<_>>()
+        });
+      }
+      if iq.loot_chest_q.get_mut(e).is_ok_and(|(c, _, _)| !c.opened) {
+        opts.push(InteractionOption {
+          label: format!("Open chest ({dir_label})"),
+          action: InteractionAction::OpenChest(e)
+        });
+      }
+      if let Ok((named, Some(corpse), _)) = iq.named_q.get(e) {
+        if !corpse.looted {
+          opts.push(InteractionOption {
+            label: format!("Loot dead {} ({dir_label})", named.name),
+            action: InteractionAction::LootCorpse(e)
+          });
+        }
+      }
+      if let Ok((_, _, Some(_bed))) = iq.named_q.get(e) {
+        opts.push(InteractionOption {
+          label: format!("Sleep ({dir_label})"),
+          action: InteractionAction::SaveAtBed
+        });
+      }
+      if let Ok(door) = iq.door_q.get(e) {
+        let verb = if door.open { "Close" } else { "Open" };
+        let name = iq.named_q.get(e).map_or("door", |(n, ..)| n.name);
+        opts.push(InteractionOption {
+          label: format!("{verb} {name} ({dir_label})"),
+          action: InteractionAction::ToggleDoor(e)
+        });
+      }
+      if let Ok(elev) = iq.elevator_q.get(e) {
+        let is_cave = iq.named_q.get(e).is_ok_and(|(n, ..)| n.name.contains("Cave"));
+        for &(z, dx, dy) in elev.floors.iter().filter(|&&(z, _, _)| z != elev.current_z) {
+          opts.push(InteractionOption {
+            label: if is_cave {
+              if z == 0 { "Return to surface".into() } else { "Enter cave".into() }
+            } else {
+              format!("Elevator — Deck {}", z + 1)
+            },
+            action: InteractionAction::TakeElevator { dest_z: z, dest_x: dx, dest_y: dy }
+          });
+        }
+      }
+      if let Ok((flight, loadout, craft_table)) = iq.console_q.get(e) {
+        if let Some(_) = flight {
+          let mut dests: Vec<_> = galaxy.locations.iter()
+            .filter(|(_, loc)| loc.location_type != LocationType::ShipInterior)
+            .map(|(&id, loc)| InteractionOption {
+              label: format!("Chart course — {}", loc.name),
+              action: InteractionAction::Navigate { dest: id }
             })
-        )
-        .chain(console_q.get(e).ok().into_iter().flat_map(|(flight, loadout, craft_table)| {
-          let flight_opts: Vec<InteractionOption> = flight.map(|_| {
-            let mut dests: Vec<InteractionOption> = galaxy
-              .locations
-              .iter()
-              .filter(|(_, loc)| loc.location_type != LocationType::ShipInterior)
-              .map(|(&id, loc)| InteractionOption {
-                label: format!("Chart course — {}", loc.name),
-                action: InteractionAction::Navigate { dest: id }
-              })
-              .collect();
-            dests.sort_by_key(|o| o.label.clone());
-            dests
-          }).unwrap_or_default();
-          let loadout_opts: Vec<InteractionOption> = loadout
-            .map(|_| loadout_options(inventory, equipped))
-            .unwrap_or_default();
-          let craft_opts: Vec<InteractionOption> = craft_table
-            .map(|_| vec![InteractionOption {
-              label: "Crafting Table".into(),
-              action: InteractionAction::OpenCraftingTable,
-            }])
-            .unwrap_or_default();
-          flight_opts.into_iter().chain(loadout_opts).chain(craft_opts)
-        }))
-    })
-    .chain(
-      ((wy as usize) < level.height
-        && (wx as usize) < level.width
-        && level.items[wy as usize][wx as usize].is_some())
-      .then_some(InteractionOption {
-        label: format!("Pick up item ({dir_label})"),
-        action: InteractionAction::PickUpItem(wx, wy)
-      })
-      .into_iter()
-    )
-    .collect()
+            .collect();
+          dests.sort_by_key(|o| o.label.clone());
+          opts.extend(dests);
+        }
+        if let Some(_) = loadout {
+          opts.extend(loadout_options(inventory, equipped));
+        }
+        if let Some(_) = craft_table {
+          opts.push(InteractionOption {
+            label: "Crafting Table".into(),
+            action: InteractionAction::OpenCraftingTable,
+          });
+        }
+      }
+    }
+  }
+  if has_ground_items {
+    opts.push(InteractionOption {
+      label: format!("Pick up item ({dir_label})"),
+      action: InteractionAction::PickUpItem(wx, wy)
+    });
+  }
+  opts
 }
 
 fn resolve_bump_interact(
   mut pending: ResMut<PendingBumpInteract>,
   mut flash: ResMut<BumpInteractFlash>,
   mut ui: ResMut<UiState>,
-  current: Res<CurrentZone>,
   index: Res<TileEntityIndex>,
   galaxy: Res<galaxy::Galaxy>,
-  dialogue_q: Query<(&Named, &Dialogue)>,
-  tree_q: Query<Entity, With<Tree>>,
-  glyph_q: Query<&Glyph, Without<LootChest>>,
-  mut loot_chest_q: Query<(&mut LootChest, &mut Glyph, &Location)>,
-  door_q: Query<&Door>,
-  elevator_q: Query<&Elevator>,
-  named_q: Query<(&Named, Option<&entities::Corpse>, Option<&Bed>)>,
-  console_q: Query<(Option<&FlightConsole>, Option<&LoadoutConsole>, Option<&CraftingTable>)>,
-  follower_q: Query<&FollowerState>,
+  mut iq: InteractQueries,
   player: Single<(&Inventory, &Loadout), With<Player>>
 ) {
   let Some((tx, ty, tz)) = pending.0.take() else {
@@ -2524,25 +2494,11 @@ fn resolve_bump_interact(
     return;
   };
   let (inventory, equipped) = *player;
-  let level = current.0.level(tz);
+  let has_items = iq.item_glyph_q.iter().any(|(_, ig)| ig.x == tx as usize && ig.y == ty as usize && ig.z == tz);
   let opts = gather_interactions_at_tile(
-    tx,
-    ty,
-    "ahead",
-    level,
+    tx, ty, "ahead",
     index.0.get(&(tx, ty, tz)),
-    &tree_q,
-    &dialogue_q,
-    &glyph_q,
-    &mut loot_chest_q,
-    &door_q,
-    &elevator_q,
-    &named_q,
-    &console_q,
-    &follower_q,
-    &galaxy,
-    inventory,
-    equipped
+    &mut iq, &galaxy, inventory, equipped, has_items
   );
   let highlighted = utils::mapv(|o: &_| is_equipped(&o.action, equipped), &opts);
   let disabled = utils::mapv(|o: &_| is_disabled(&o.action, equipped), &opts);
@@ -2574,7 +2530,8 @@ fn apply_bump_auto_interact(
   )>,
   asset_server: Res<AssetServer>,
   mut palette_cache: ResMut<PaletteImageCache>,
-  mut images: ResMut<Assets<Image>>
+  mut images: ResMut<Assets<Image>>,
+  item_glyph_q: Query<(Entity, &ItemGlyph)>
 ) {
   if let Some((entity, dir)) = pending_bump.1.take() {
     commands.entity(entity).insert(BumpLunge { dir, start_frame: frame.0 });
@@ -2596,7 +2553,8 @@ fn apply_bump_auto_interact(
     &mut door_q,
     &asset_server,
     &mut palette_cache,
-    &mut images
+    &mut images,
+    &item_glyph_q
   );
 }
 
@@ -2691,21 +2649,12 @@ fn player_death_check(
 
 fn handle_interact(
   keys: Res<ButtonInput<KeyCode>>,
-  current: Res<CurrentZone>,
   galaxy: Res<galaxy::Galaxy>,
   mut ui: ResMut<UiState>,
   mut flash: ResMut<BumpInteractFlash>,
   index: Res<TileEntityIndex>,
   player: Single<(&PlayerPos, &Inventory, &Loadout), With<Player>>,
-  dialogue_q: Query<(&Named, &Dialogue)>,
-  tree_q: Query<Entity, With<Tree>>,
-  glyph_q: Query<&Glyph, Without<LootChest>>,
-  mut loot_chest_q: Query<(&mut LootChest, &mut Glyph, &Location)>,
-  door_q: Query<&Door>,
-  elevator_q: Query<&Elevator>,
-  named_q: Query<(&Named, Option<&entities::Corpse>, Option<&Bed>)>,
-  console_q: Query<(Option<&FlightConsole>, Option<&LoadoutConsole>, Option<&CraftingTable>)>,
-  follower_q: Query<&FollowerState>
+  mut iq: InteractQueries
 ) {
   let space_consumed = std::mem::take(&mut ui.space_consumed);
   if ui.any_open() || space_consumed || !keys.just_pressed(KeyCode::Space) {
@@ -2713,21 +2662,19 @@ fn handle_interact(
   }
 
   let (pos, inventory, equipped) = *player;
-  let level = current.0.level(pos.z);
-  let options: Vec<_> = (-1i32..=1)
-    .flat_map(|dy| (-1i32..=1).map(move |dx| (dx, dy)))
-    .flat_map(|(dx, dy)| {
+  let mut options = Vec::new();
+  for dy in -1i32..=1 {
+    for dx in -1i32..=1 {
       let (wx, wy) = (pos.x + dx, pos.y + dy);
       let dir = if dx == 0 && dy == 0 { "here".to_string() } else { direction_name(dx, dy) };
-      gather_interactions_at_tile(
-        wx, wy, &dir, level,
+      let has_items = iq.item_glyph_q.iter().any(|(_, ig)| ig.x == wx as usize && ig.y == wy as usize && ig.z == pos.z);
+      options.extend(gather_interactions_at_tile(
+        wx, wy, &dir,
         index.0.get(&(wx, wy, pos.z)),
-        &tree_q, &dialogue_q, &glyph_q, &mut loot_chest_q,
-        &door_q, &elevator_q, &named_q, &console_q, &follower_q,
-        &galaxy, inventory, equipped
-      )
-    })
-    .collect();
+        &mut iq, &galaxy, inventory, equipped, has_items
+      ));
+    }
+  }
 
   let highlighted = utils::mapv(|o: &_| is_equipped(&o.action, equipped), &options);
   let disabled = utils::mapv(|o: &_| is_disabled(&o.action, equipped), &options);
@@ -2828,17 +2775,6 @@ fn spawn_zone_geometry(
   spawn_item_glyphs(commands, zone, palette_cache, images);
 }
 
-fn fov_recompute(
-  fov: &mut FovGrid,
-  zone: &active_zone::ActiveZone,
-  x: i32,
-  y: i32,
-  z: usize,
-  is_blocked: impl Fn(i32, i32) -> bool
-) {
-  compute_fov(fov, zone.level(z), x, y, FOV_RADIUS, is_blocked);
-}
-
 fn apply_pending_navigation(
   mut pending: ResMut<DeferredActions>,
   mut commands: Commands,
@@ -2923,11 +2859,6 @@ fn apply_pending_navigation(
       tile_screen_pos(lx as f32, ly as f32, current.0.width, current.0.height)
         + Vec3::Z;
   }
-  // Compute FOV immediately so tile visuals are correct on the next frame.
-  // New tilemaps are spawned via deferred Commands so they arrive one frame later;
-  // update_fov_visuals detects the empty chunks and populates them then.
-  // No entity blockers yet — update_fov will fix them on the first sim step.
-  fov_recompute(&mut fov.0, &current.0, local_x, local_y, 0, |_, _| false);
   clock.spend_turn(&mut tb);
   let dest_name = galaxy.get(dest).map_or("destination", |loc| loc.name);
   log_message(&mut *log, format!("Astrogation: docked — {dest_name} sector."));
@@ -3079,41 +3010,15 @@ fn update_fov(
       }
     })
     .collect();
-  fov_recompute(&mut fov.0, &current.0, x, y, z as usize, |tx, ty| blockers.contains(&(tx, ty)));
+  compute_fov(&mut fov.0, current.0.level(z as usize), x, y, FOV_RADIUS, |tx, ty| blockers.contains(&(tx, ty)));
 }
 
 fn spawn_item_glyphs(
-  commands: &mut Commands,
-  zone: &active_zone::ActiveZone,
-  palette_cache: &mut PaletteImageCache,
-  images: &mut Assets<Image>,
+  _commands: &mut Commands,
+  _zone: &active_zone::ActiveZone,
+  _palette_cache: &mut PaletteImageCache,
+  _images: &mut Assets<Image>,
 ) {
-  for z in 0..zone.depth {
-    let level = zone.level(z);
-    for y in 0..level.height {
-      for x in 0..level.width {
-        if let Some(item) = level.items[y][x] {
-          let (primary, secondary) = item.loot_colors();
-          let img = palette_sprite_handle(
-            item.loot_texture(), primary, secondary, palette_cache, images,
-          );
-          commands.spawn((
-            Sprite {
-              image: img,
-              custom_size: Some(Vec2::splat(TILE_SIZE)),
-              ..default()
-            },
-            Transform::from_translation(
-              tile_screen_pos(x as f32, y as f32, zone.width, zone.height)
-                + Vec3::new(0.0, 0.0, 1.5)
-            ),
-            Visibility::Hidden,
-            ItemGlyph { x, y, z }
-          ));
-        }
-      }
-    }
-  }
 }
 
 fn camera_follow(
@@ -3150,9 +3055,11 @@ fn player_input(
   mut time_mode_auto: ResMut<TimeModeAuto>,
   index: Res<TileEntityIndex>,
   mut pending_bump: ResMut<PendingBumpInteract>,
-  player: Single<(Entity, &mut PlayerPos, &Stats, &mut Inventory, &Loadout), With<Player>>,
+  player: Single<(Entity, &mut PlayerPos, &Stats, &mut Inventory, &Loadout, Option<&entities::Grabbed>), With<Player>>,
   mut enemy_query: Query<&mut Stats, (With<Enemy>, Without<Player>)>,
-  collidable_q: Query<&Collidable>
+  collidable_q: Query<&Collidable>,
+  item_glyph_q: Query<(Entity, &ItemGlyph)>,
+  mut log: ResMut<ui::LogEntries>
 ) {
   if !ui.any_open() && keys.just_pressed(KeyCode::KeyT) {
     if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
@@ -3172,7 +3079,7 @@ fn player_input(
   if !ui.any_open()
     && !ui.dir_consumed
   {
-    let (player_entity, mut pos, stats, mut inventory, equipped) = player.into_inner();
+    let (player_entity, mut pos, stats, mut inventory, equipped, grabbed) = player.into_inner();
     let player_attack = stats.attack + equipped.weapon_attack_bonus();
     let turn_based_block = clock.mode == TimeMode::TurnBased
       && (clock.move_cooldown_frames > 0 || tb.world_tick_pending);
@@ -3180,7 +3087,14 @@ fn player_input(
     let wait_pressed = keys.just_pressed(KeyCode::Period)
       || (clock.mode == TimeMode::TurnBased && keys.pressed(KeyCode::Space));
 
-    if !turn_based_block && wait_pressed {
+    if grabbed.is_some()
+      && !turn_based_block
+      && (wait_pressed || any_direction_pressed(&keys) || acc.up || acc.down || acc.left || acc.right)
+    {
+      *acc = AccumulatedDir::default();
+      ui::log_message(&mut log, "You are grabbed and can't move!".into());
+      clock.spend_turn(&mut tb);
+    } else if !turn_based_block && wait_pressed {
       clock.spend_turn(&mut tb);
     } else if !turn_based_block
       && (any_direction_pressed(&keys) || acc.up || acc.down || acc.left || acc.right)
@@ -3236,10 +3150,10 @@ fn player_input(
           pos.x = target_x;
           pos.y = target_y;
 
-          let lvl = current.0.level(pos.z);
-          if (pos.y as usize) < lvl.height && (pos.x as usize) < lvl.width {
-            if let Some(item) = lvl.items[pos.y as usize][pos.x as usize] {
-              *inventory.0.entry(item).or_insert(0) += 1;
+          for (ig_ent, ig) in item_glyph_q.iter() {
+            if ig.x == pos.x as usize && ig.y == pos.y as usize && ig.z == pos.z {
+              *inventory.0.entry(ig.item).or_insert(0) += 1;
+              commands.entity(ig_ent).despawn();
             }
           }
         }

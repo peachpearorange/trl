@@ -96,6 +96,7 @@ pub enum Gear {
   Weapon(crate::level::Item),
   Armor(crate::level::Item),
   Grenade(crate::level::Item),
+  Device(crate::level::Item),
   Loot(crate::level::Item),
   InnateGun { damage: i32 },
   InnateGrenadeThrow { min_range: i32 },
@@ -180,6 +181,13 @@ impl Loadout {
 
   pub fn grenade_at(&self, idx: usize) -> Option<crate::level::Item> {
     self.grenade_slots().get(idx).map(|&(_, item)| item)
+  }
+
+  pub fn device_slots(&self) -> Vec<(usize, crate::level::Item)> {
+    self.gear.iter().enumerate().filter_map(|(i, s)| match s.gear {
+      Gear::Device(item) => Some((i, item)),
+      _ => None
+    }).collect()
   }
 
   pub fn gun_mut(&mut self) -> Option<&mut GearSlot> {
@@ -278,7 +286,7 @@ impl Loadout {
 
   pub fn lootable_items(&self) -> Vec<(crate::level::Item, u32)> {
     self.gear.iter().filter_map(|s| match s.gear {
-      Gear::Weapon(item) | Gear::Armor(item) | Gear::Grenade(item) | Gear::Loot(item) => Some((item, s.count)),
+      Gear::Weapon(item) | Gear::Armor(item) | Gear::Grenade(item) | Gear::Device(item) | Gear::Loot(item) => Some((item, s.count)),
       _ => None
     }).collect()
   }
@@ -458,6 +466,23 @@ pub struct Gravity;
 /// Per-move probability of stepping to a random walkable neighbor instead of toward the player.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct DriftChance(pub f32);
+
+/// Marker: this enemy type can grab the player, holding them in place.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct CanGrab;
+
+/// The player (or entity) is grabbed by another entity and cannot move.
+/// Decremented each sim step; removed when it reaches 0.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Grabbed {
+  pub by: Entity,
+  pub turns_remaining: u32,
+}
+
+/// Entity is invisible: enemies ignore it, rendered translucent.
+/// Decremented each sim step; removed when it reaches 0.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Invisible(pub u32);
 
 /// NPC wander behavior: move to a random adjacent passable tile every `interval` sim steps.
 #[derive(Component, Clone, Copy, Debug)]
@@ -1105,7 +1130,10 @@ impl Object {
       },
       Stats { hp: 5, max_hp: 5, attack: 3, move_speed: 12.0, attack_speed: 1.5 },
       DriftChance(0.3),
-      Loadout::new(vec![GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 1)]),
+      Loadout::new(vec![
+        GearSlot::stacked(Gear::Device(crate::level::Item::StealthDevice), 1),
+        GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 1),
+      ]),
       Glyph::palette_sprite(
         "textures/space_qud/alien1.png",
         'x',
@@ -1123,6 +1151,7 @@ impl Object {
       },
       Stats { hp: 14, max_hp: 14, attack: 5, move_speed: 4.0, attack_speed: 0.9 },
       DriftChance(0.05),
+      CanGrab,
       Loadout::new(vec![
         GearSlot::passive(Gear::NaturalArmor { dr: 3 }),
         GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 3),
@@ -1144,7 +1173,10 @@ impl Object {
       },
       Stats { hp: 6, max_hp: 6, attack: 5, move_speed: 10.0, attack_speed: 2.0 },
       DriftChance(0.5),
-      Loadout::new(vec![GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 2)]),
+      Loadout::new(vec![
+        GearSlot::stacked(Gear::Device(crate::level::Item::StealthDevice), 1),
+        GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 2),
+      ]),
       Glyph::palette_sprite(
         "textures/space_qud/mantis alien.png",
         'M',
@@ -1169,6 +1201,7 @@ impl Object {
       },
       Stats { hp: 10, max_hp: 10, attack: 4, move_speed: 3.5, attack_speed: 0.8 },
       DriftChance(0.1),
+      CanGrab,
       Loadout::new(vec![
         GearSlot::passive(Gear::NaturalArmor { dr: 1 }),
         GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 2),

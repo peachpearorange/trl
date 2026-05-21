@@ -47,13 +47,15 @@ pub struct PlayerData {
   pub y: i32,
   pub z: usize,
   pub equipped_weapon: Option<String>,
-  pub equipped_armor: Option<String>
+  pub equipped_armor: Option<String>,
+  pub status_effects: Vec<String>
 }
 
 #[derive(Resource, Clone, Default)]
 pub struct HoverInfo {
   pub coords: (i32, i32),
   pub tile_name: String,
+  pub item_name: Option<String>,
   pub entity_name: Option<String>,
   pub entity_hp: Option<(i32, i32)>,
   pub flavor: Option<String>
@@ -358,6 +360,7 @@ fn stats_panel() -> impl Element {
     ))
     .item(z_level_label())
     .item(time_mode_label())
+    .item(status_effects_row())
 }
 
 fn hp_bar_row() -> impl Element {
@@ -424,6 +427,24 @@ fn stat_row(
     })
     .item(static_text(label, FONT_SIZE_SMALL, DIM_TEXT, W_UI))
     .item(reactive_text(value_sig, FONT_SIZE_SMALL, LIGHT_TEXT, W_UI))
+}
+
+fn status_effects_row() -> impl Element {
+  Row::<Node>::new()
+    .with_node(|mut n| {
+      n.width = Val::Percent(100.);
+      n.flex_wrap = FlexWrap::Wrap;
+      n.column_gap = Val::Px(6.0);
+    })
+    .item(reactive_text(
+      signal::from_resource::<PlayerData>().map_in(|d| {
+        if d.status_effects.is_empty() { String::new() }
+        else { d.status_effects.join("  ") }
+      }),
+      FONT_SIZE_SMALL,
+      HP_RED,
+      W_UI
+    ))
 }
 
 fn z_level_label() -> impl Element {
@@ -539,8 +560,13 @@ fn hover_entity_lines() -> impl Element {
 }
 
 fn format_entity_hover_block(h: &HoverInfo) -> String {
-  h.entity_name.as_deref().map_or_else(String::new, |name| {
-    let mut s = name.to_string();
+  let mut s = String::new();
+  if let Some(ref item) = h.item_name {
+    s.push_str(item);
+  }
+  if let Some(ref name) = h.entity_name {
+    if !s.is_empty() { s.push('\n'); }
+    s.push_str(name);
     if let Some((hp, max)) = h.entity_hp {
       s.push('\n');
       s.push_str(&format_hp_line(hp, max));
@@ -549,8 +575,8 @@ fn format_entity_hover_block(h: &HoverInfo) -> String {
       s.push('\n');
       s.push_str(f);
     }
-    s
-  })
+  }
+  s
 }
 
 fn format_hp_line(hp: i32, max_hp: i32) -> String {
@@ -967,19 +993,17 @@ fn sync_interact_display(
 
 fn sync_ui(
   clock: Res<Clock>,
-  player_q: Query<(&crate::PlayerPos, &Stats, &crate::Inventory, &Loadout), With<crate::Player>>,
+  player_q: Query<(&crate::PlayerPos, &Stats, &crate::Inventory, &Loadout, Option<&crate::entities::Grabbed>, Option<&crate::entities::Invisible>), With<crate::Player>>,
   ui: Res<crate::UiState>,
   current: Res<crate::CurrentZone>,
   fov: Res<crate::Fov>,
   index: Res<crate::combat::TileEntityIndex>,
   named_q: Query<(&Named, Option<&Stats>, Option<&crate::entities::Corpse>)>,
+  item_glyph_q: Query<&crate::ItemGlyph>,
   windows: Query<&Window>,
   camera_q: Query<(&Camera, &GlobalTransform), With<crate::post_process::GameCamera>>,
-  mut clock_data: ResMut<ClockData>,
-  mut player_data: ResMut<PlayerData>,
-  mut hover_info: ResMut<HoverInfo>,
-  mut inv_display: ResMut<InvDisplayData>,
-  mut overlay: ResMut<OverlayData>,
+  (mut clock_data, mut player_data, mut hover_info, mut inv_display, mut overlay):
+    (ResMut<ClockData>, ResMut<PlayerData>, ResMut<HoverInfo>, ResMut<InvDisplayData>, ResMut<OverlayData>),
   res_log: Res<LogEntries>,
   mut log_display: ResMut<LogDisplayData>
 ) {
@@ -993,7 +1017,10 @@ fn sync_ui(
   };
 
   // ── Player stats ──
-  if let Ok((pos, stats, inv, loadout)) = player_q.single() {
+  if let Ok((pos, stats, inv, loadout, grabbed, invisible)) = player_q.single() {
+    let mut effects = Vec::new();
+    if let Some(g) = grabbed { effects.push(format!("GRABBED ({})", g.turns_remaining)); }
+    if let Some(i) = invisible { effects.push(format!("INVISIBLE ({})", i.0)); }
     *player_data = PlayerData {
       hp: stats.hp,
       max_hp: stats.max_hp,
@@ -1003,7 +1030,8 @@ fn sync_ui(
       y: pos.y,
       z: pos.z,
       equipped_weapon: loadout.weapon().map(|w| w.name().to_string()),
-      equipped_armor: loadout.armor_item().map(|a| a.name().to_string())
+      equipped_armor: loadout.armor_item().map(|a| a.name().to_string()),
+      status_effects: effects
     };
 
     inv_display.formatted = if inv.0.is_empty() {
@@ -1015,7 +1043,7 @@ fn sync_ui(
 
   // ── Hover info ──
   *hover_info =
-    compute_hover_info(&windows, &camera_q, &current, player_q, &fov, &index, &named_q);
+    compute_hover_info(&windows, &camera_q, &current, player_q, &fov, &index, &named_q, &item_glyph_q);
 
   // ── Overlay state — only write when the value actually changes ──
   let new_overlay_kind = match ui.pause {
@@ -1073,14 +1101,16 @@ fn compute_hover_info(
   windows: &Query<&Window>,
   camera_q: &Query<(&Camera, &GlobalTransform), With<crate::post_process::GameCamera>>,
   current: &crate::CurrentZone,
-  player_q: Query<(&crate::PlayerPos, &Stats, &crate::Inventory, &Loadout), With<crate::Player>>,
+  player_q: Query<(&crate::PlayerPos, &Stats, &crate::Inventory, &Loadout, Option<&crate::entities::Grabbed>, Option<&crate::entities::Invisible>), With<crate::Player>>,
   fov: &crate::Fov,
   index: &crate::combat::TileEntityIndex,
-  named_q: &Query<(&Named, Option<&Stats>, Option<&crate::entities::Corpse>)>
+  named_q: &Query<(&Named, Option<&Stats>, Option<&crate::entities::Corpse>)>,
+  item_glyph_q: &Query<&crate::ItemGlyph>
 ) -> HoverInfo {
   let empty = HoverInfo {
     coords: (0, 0),
     tile_name: "—".into(),
+    item_name: None,
     entity_name: None,
     entity_hp: None,
     flavor: None
@@ -1088,7 +1118,7 @@ fn compute_hover_info(
 
   if let Ok(window) = windows.single()
     && let Ok((camera, cam_tf)) = camera_q.single()
-    && let Ok((pos, _, _, _)) = player_q.single()
+    && let Ok((pos, _, _, _, _, _)) = player_q.single()
   {
     let level = current.0.level(pos.z);
     let pick = |w: &Window,
@@ -1135,7 +1165,31 @@ fn compute_hover_info(
           (None, None, None)
         };
 
-        HoverInfo { coords: (tx, ty), tile_name, entity_name, entity_hp, flavor }
+        let item_name = {
+          let mut items: Vec<_> = item_glyph_q.iter()
+            .filter(|ig| ig.x == tx as usize && ig.y == ty as usize && ig.z == pos.z)
+            .map(|ig| ig.item)
+            .collect();
+          if items.is_empty() {
+            None
+          } else {
+            items.sort_by_key(|i| i.name());
+            let mut parts = Vec::new();
+            let mut i = 0;
+            while i < items.len() {
+              let item = items[i];
+              let count = items[i..].iter().take_while(|&&it| it == item).count();
+              parts.push(if count > 1 {
+                format!("{} x{}", item.name(), count)
+              } else {
+                item.name().to_string()
+              });
+              i += count;
+            }
+            Some(parts.join(", "))
+          }
+        };
+        HoverInfo { coords: (tx, ty), tile_name, item_name, entity_name, entity_hp, flavor }
       } else {
         empty
       }

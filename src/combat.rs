@@ -2,8 +2,8 @@ use {bevy::prelude::*,
      rand::seq::SliceRandom,
      std::collections::{BinaryHeap, HashMap, HashSet, VecDeque},
      std::cmp::Reverse,
-     crate::{entities::{Collidable, DamageCloud, Enemy, FollowerData, FollowerState,
-                        Gear, Glyph, GrenadeInFlight, Loadout, Location, Named,
+     crate::{entities::{CanGrab, Collidable, DamageCloud, Enemy, FollowerData, FollowerState,
+                        Gear, Glyph, Grabbed, GrenadeInFlight, Invisible, Loadout, Location, Named,
                         Object, Path, Stats, TimeSinceAction,
                         WalkAroundRandomly},
              path_overlay::{bresenham_path, euclidean_los_point},
@@ -308,26 +308,30 @@ pub fn enemy_ai(
   flow: Res<FlowField>,
   fov: Res<crate::Fov>,
   player: Single<
-    (&crate::PlayerPos, &mut Stats, &Loadout),
+    (Entity, &crate::PlayerPos, &mut Stats, &Loadout, Option<&Invisible>),
     (With<crate::Player>, Without<Enemy>)
   >,
   mut enemy_q: Query<
-    (Entity, &mut Location, &mut TimeSinceAction, &Stats, &Loadout, Option<&Named>, Option<&crate::entities::DriftChance>),
+    (Entity, &mut Location, &mut TimeSinceAction, &Stats, &Loadout, Option<&Named>, Option<&crate::entities::DriftChance>, Option<&CanGrab>),
     (With<Enemy>, Without<crate::Player>)
   >,
   collidable_q: Query<&Collidable>
 ) {
-  let (player_pos, ref mut player_stats, player_loadout) = player.into_inner();
+  let (player_entity, player_pos, ref mut player_stats, player_loadout, player_invis) = player.into_inner();
   let (px, py, pz) = (player_pos.x, player_pos.y, player_pos.z);
+  let player_invisible = player_invis.is_some();
 
   let mut claimed: HashSet<(i32, i32)> = HashSet::new();
 
   let mut rng = rand::rng();
-  for (enemy_entity, mut location, mut timer, enemy_stats, _enemy_loadout, enemy_named, drift) in enemy_q.iter_mut() {
+  for (enemy_entity, mut location, mut timer, enemy_stats, _enemy_loadout, enemy_named, drift, can_grab) in enemy_q.iter_mut() {
     timer.0 = timer.0.saturating_add(1);
 
     if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location {
       let dist = (px - ex).abs().max((py - ey).abs());
+      if player_invisible && dist > 1 {
+        continue;
+      }
       if dist > 24 || !fov.0.is_visible(ex as usize, ey as usize) {
         continue;
       }
@@ -342,6 +346,10 @@ pub fn enemy_ai(
           log_message(&mut log, format!("{name} hits you for {dmg}."));
         } else {
           log_message(&mut log, format!("{name} hits you but deals no damage."));
+        }
+        if can_grab.is_some() {
+          commands.entity(player_entity).insert(Grabbed { by: enemy_entity, turns_remaining: 3 });
+          log_message(&mut log, format!("{name} grabs you!"));
         }
         if player_stats.hp == 0 {
           log_message(&mut log, "You died.".into());
@@ -426,10 +434,11 @@ fn spawn_cloud_area(
 pub fn mushroom_spore_attack(
   mut commands: Commands,
   mut log: ResMut<LogEntries>,
-  player_pos: Single<&crate::PlayerPos, With<crate::Player>>,
+  player_q: Single<(&crate::PlayerPos, Option<&Invisible>), With<crate::Player>>,
   mut emitter_q: Query<(&Location, &mut Loadout, Option<&Named>), With<Enemy>>
 ) {
-  let &crate::PlayerPos { x: px, y: py, z: pz } = *player_pos;
+  let (&crate::PlayerPos { x: px, y: py, z: pz }, player_invis) = *player_q;
+  if player_invis.is_some() { return; }
   for (location, mut loadout, named) in emitter_q.iter_mut() {
     let Some(slot) = loadout.spore_mut() else { continue };
     slot.timer = slot.timer.saturating_add(1);
@@ -450,10 +459,11 @@ pub fn mushroom_spore_attack(
 pub fn grenade_thrower_ai(
   mut commands: Commands,
   mut log: ResMut<LogEntries>,
-  player_pos: Single<&crate::PlayerPos, With<crate::Player>>,
+  player_q: Single<(&crate::PlayerPos, Option<&Invisible>), With<crate::Player>>,
   mut thrower_q: Query<(&Location, &mut Loadout, Option<&Named>), With<Enemy>>
 ) {
-  let &crate::PlayerPos { x: px, y: py, z: pz } = *player_pos;
+  let (&crate::PlayerPos { x: px, y: py, z: pz }, player_invis) = *player_q;
+  if player_invis.is_some() { return; }
   for (location, mut loadout, named) in thrower_q.iter_mut() {
     let Some(slot) = loadout.grenade_throw_mut() else { continue };
     let Gear::InnateGrenadeThrow { min_range } = slot.gear else { continue };
@@ -486,12 +496,13 @@ pub fn gun_attacker_ai(
   mut log: ResMut<LogEntries>,
   current: Res<crate::CurrentZone>,
   effects: Res<ParticleEffects>,
-  player_pos: Single<&crate::PlayerPos, With<crate::Player>>,
+  player_q: Single<(&crate::PlayerPos, Option<&Invisible>), (With<crate::Player>, Without<Enemy>)>,
   mut player_stats: Single<&mut Stats, (With<crate::Player>, Without<Enemy>)>,
   player_loadout: Single<&Loadout, (With<crate::Player>, Without<Enemy>)>,
   mut gunner_q: Query<(&Location, &mut Loadout, Option<&Named>), (With<Enemy>, Without<crate::Player>)>
 ) {
-  let &crate::PlayerPos { x: px, y: py, z: pz } = *player_pos;
+  let (&crate::PlayerPos { x: px, y: py, z: pz }, player_invis) = *player_q;
+  if player_invis.is_some() { return; }
   let level = current.0.level(pz);
   let player_dr = player_loadout.armor_dr();
   for (location, mut loadout, named) in gunner_q.iter_mut() {
@@ -605,6 +616,71 @@ pub fn damage_cloud_tick(
       } else {
         cloud.ticks_remaining -= 1;
       }
+    }
+  }
+}
+
+pub fn tick_grabbed(
+  mut commands: Commands,
+  mut log: ResMut<LogEntries>,
+  mut grabbed_q: Query<(Entity, &mut Grabbed)>,
+  enemy_q: Query<(&Location, Option<&Named>), With<Enemy>>
+) {
+  for (entity, mut grabbed) in grabbed_q.iter_mut() {
+    if enemy_q.get(grabbed.by).is_err() {
+      commands.entity(entity).remove::<Grabbed>();
+      log_message(&mut log, "You break free!".into());
+    } else if grabbed.turns_remaining <= 1 {
+      commands.entity(entity).remove::<Grabbed>();
+      log_message(&mut log, "You break free from the grab!".into());
+    } else {
+      grabbed.turns_remaining -= 1;
+    }
+  }
+}
+
+pub fn tick_invisible(
+  mut commands: Commands,
+  mut log: ResMut<LogEntries>,
+  mut invis_q: Query<(Entity, &mut Invisible, Option<&Named>)>
+) {
+  for (entity, mut invis, named) in invis_q.iter_mut() {
+    if invis.0 <= 1 {
+      commands.entity(entity).remove::<Invisible>();
+      let name = named.map(|n| n.name).unwrap_or("You");
+      log_message(&mut log, format!("{name} shimmer back into visibility."));
+    } else {
+      invis.0 -= 1;
+    }
+  }
+}
+
+pub fn enemy_stealth_ai(
+  mut commands: Commands,
+  mut log: ResMut<LogEntries>,
+  player_pos: Single<&crate::PlayerPos, With<crate::Player>>,
+  fov: Res<crate::Fov>,
+  mut enemy_q: Query<(Entity, &Location, &mut Loadout, Option<&Named>, Option<&Invisible>), With<Enemy>>
+) {
+  let &crate::PlayerPos { x: px, y: py, z: pz } = *player_pos;
+  for (entity, location, mut loadout, named, already_invis) in enemy_q.iter_mut() {
+    if already_invis.is_some() { continue; }
+    let has_device = loadout.gear.iter().any(|s| matches!(s.gear, Gear::Device(crate::level::Item::StealthDevice)));
+    if !has_device { continue; }
+    if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location
+      && ez == pz
+      && (px - ex).abs().max((py - ey).abs()) <= 12
+      && fov.0.is_visible(ex as usize, ey as usize)
+    {
+      if let Some(idx) = loadout.gear.iter().position(|s| matches!(s.gear, Gear::Device(crate::level::Item::StealthDevice))) {
+        loadout.gear[idx].count -= 1;
+        if loadout.gear[idx].count == 0 {
+          loadout.gear.remove(idx);
+        }
+      }
+      commands.entity(entity).insert(Invisible(10));
+      let name = named.map(|n| n.name).unwrap_or("Something");
+      log_message(&mut log, format!("{name} activates a stealth device!"));
     }
   }
 }

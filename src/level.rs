@@ -123,7 +123,11 @@ pub enum Item {
   #[assoc(name = "Pulse Cannon", glyph = "\\", color = [0.7, 0.2, 1.0],
           equip_slot = EquipSlot::Weapon, attack_bonus = 12, is_ranged = true,
           scrap_yield = &[(Item::Crystal, 2), (Item::SyntheticMaterial, 3), (Item::Glass, 2), (Item::Screws, 2)])]
-  PulseCannon
+  PulseCannon,
+  #[assoc(name = "Stealth Device", glyph = "d", color = [0.7, 0.2, 1.0],
+          equip_slot = EquipSlot::Device,
+          scrap_yield = &[(Item::Crystal, 2), (Item::SyntheticMaterial, 2), (Item::Screws, 1)])]
+  StealthDevice
 }
 
 impl Item {
@@ -133,15 +137,23 @@ impl Item {
   pub fn is_grenade(self) -> bool { self.equip_slot() == Some(EquipSlot::Grenade) }
 
   pub fn loot_texture(self) -> &'static str {
-    if self.is_ranged() { "textures/space_qud/gun.png" }
-    else { "textures/space_qud/box with highlight border.png" }
+    match self {
+      Item::StealthDevice => "textures/space_qud/stealth device.png",
+      _ if self.is_ranged() => "textures/space_qud/gun.png",
+      _ => "textures/space_qud/box with highlight border.png"
+    }
   }
 
   pub fn loot_colors(self) -> (Color, Color) {
-    let [r, g, b] = self.color();
-    let primary = Color::srgb(r, g, b);
-    let secondary = Color::srgb((r + 0.3).min(1.0), (g + 0.3).min(1.0), (b + 0.3).min(1.0));
-    (primary, secondary)
+    match self {
+      Item::StealthDevice => (Color::srgb(0.75, 0.75, 0.78), Color::srgb(0.55, 0.15, 1.0)),
+      _ => {
+        let [r, g, b] = self.color();
+        let primary = Color::srgb(r, g, b);
+        let secondary = Color::srgb((r + 0.3).min(1.0), (g + 0.3).min(1.0), (b + 0.3).min(1.0));
+        (primary, secondary)
+      }
+    }
   }
 
   pub fn is_laser(self) -> bool { matches!(self, Item::LaserRifle) }
@@ -156,7 +168,8 @@ impl Item {
 pub enum EquipSlot {
   Weapon,
   Armor,
-  Grenade
+  Grenade,
+  Device
 }
 
 
