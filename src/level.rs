@@ -1,4 +1,5 @@
 use bevy::prelude::Color;
+use enum_assoc::Assoc;
 
 /// What kind of place a Location is. Determines atmosphere, procgen strategy, and flavor.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -14,216 +15,122 @@ pub enum LocationType {
 
 pub use crate::tiles::Tile;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+#[derive(Assoc, Clone, Copy, PartialEq, Eq, Debug, Hash)]
+#[func(pub fn name(&self) -> &'static str)]
+#[func(pub fn glyph(&self) -> &'static str)]
+#[func(pub fn color(&self) -> [f32; 3])]
+#[func(pub fn equip_slot(&self) -> Option<EquipSlot> { None })]
+#[func(pub fn attack_bonus(&self) -> i32 { 0 })]
+#[func(pub fn defense_bonus(&self) -> i32 { 0 })]
+#[func(pub fn scrap_yield(&self) -> &'static [(Item, u32)] { &[] })]
+#[func(pub fn is_ranged(&self) -> bool { false })]
 pub enum Item {
+  #[assoc(name = "Gold Coin", glyph = "$", color = [1.0, 0.85, 0.0])]
   GoldCoin,
+  #[assoc(name = "Health Potion", glyph = "!", color = [0.9, 0.2, 0.3],
+          scrap_yield = &[(Item::Glass, 1), (Item::OrganicMaterial, 2), (Item::Crystal, 1)])]
   HealthPotion,
+  #[assoc(name = "Torch", glyph = "/", color = [1.0, 0.6, 0.1],
+          scrap_yield = &[(Item::Wood, 1), (Item::OrganicMaterial, 1)])]
   Torch,
+  #[assoc(name = "Rock", glyph = "`", color = [0.5, 0.5, 0.5],
+          scrap_yield = &[(Item::Crystal, 1)])]
   Rock,
+  #[assoc(name = "Mushroom", glyph = "%", color = [0.6, 0.3, 0.7],
+          scrap_yield = &[(Item::OrganicMaterial, 2)])]
   Mushroom,
-  /// Base scrap / crafting: wood (existing chop + recipes).
+  #[assoc(name = "Wood", glyph = "/", color = [0.55, 0.35, 0.15])]
   Wood,
+  #[assoc(name = "Steel", glyph = "]", color = [0.75, 0.78, 0.82])]
   Steel,
+  #[assoc(name = "Copper", glyph = "}", color = [0.82, 0.55, 0.35])]
   Copper,
+  #[assoc(name = "Screws", glyph = ":", color = [0.9, 0.88, 0.85])]
   Screws,
+  #[assoc(name = "Crystal", glyph = "*", color = [0.65, 0.85, 1.0])]
   Crystal,
+  #[assoc(name = "Synthetic Material", glyph = ">", color = [0.85, 0.45, 0.75])]
   SyntheticMaterial,
+  #[assoc(name = "Glass", glyph = "=", color = [0.75, 0.88, 0.95])]
   Glass,
+  #[assoc(name = "Organic Material", glyph = "~", color = [0.45, 0.65, 0.35])]
   OrganicMaterial,
+  #[assoc(name = "Iron Sword", glyph = ")", color = [0.82, 0.82, 0.88],
+          equip_slot = EquipSlot::Weapon, attack_bonus = 3,
+          scrap_yield = &[(Item::Steel, 2), (Item::Wood, 1), (Item::Screws, 1)])]
   IronSword,
+  #[assoc(name = "Steel Axe", glyph = "(", color = [0.7, 0.72, 0.76],
+          equip_slot = EquipSlot::Weapon, attack_bonus = 4,
+          scrap_yield = &[(Item::Steel, 3), (Item::Wood, 2), (Item::Screws, 1)])]
   SteelAxe,
+  #[assoc(name = "Copper Knife", glyph = "-", color = [0.85, 0.6, 0.45],
+          equip_slot = EquipSlot::Weapon, attack_bonus = 2,
+          scrap_yield = &[(Item::Copper, 2), (Item::Screws, 1)])]
   CopperKnife,
+  #[assoc(name = "Combat Spear", glyph = "|", color = [0.78, 0.75, 0.65],
+          equip_slot = EquipSlot::Weapon, attack_bonus = 3,
+          scrap_yield = &[(Item::Wood, 2), (Item::Steel, 1), (Item::Screws, 1)])]
   CombatSpear,
+  #[assoc(name = "Pipe Revolver", glyph = "?", color = [0.55, 0.55, 0.58],
+          equip_slot = EquipSlot::Weapon, attack_bonus = 5, is_ranged = true,
+          scrap_yield = &[(Item::Steel, 2), (Item::Copper, 1), (Item::Screws, 2)])]
   PipeRevolver,
+  #[assoc(name = "Leather Vest", glyph = "[", color = [0.55, 0.4, 0.22],
+          equip_slot = EquipSlot::Armor, defense_bonus = 1,
+          scrap_yield = &[(Item::OrganicMaterial, 3), (Item::Screws, 2)])]
   LeatherVest,
+  #[assoc(name = "Chain Mail", glyph = "{", color = [0.72, 0.74, 0.78],
+          equip_slot = EquipSlot::Armor, defense_bonus = 2,
+          scrap_yield = &[(Item::Steel, 4), (Item::Screws, 3)])]
   ChainMail,
+  #[assoc(name = "Steel Boots", glyph = "b", color = [0.68, 0.7, 0.74],
+          equip_slot = EquipSlot::Armor, defense_bonus = 1,
+          scrap_yield = &[(Item::Steel, 2), (Item::OrganicMaterial, 1), (Item::Screws, 1)])]
   SteelBoots,
+  #[assoc(name = "Synth Helmet", glyph = "^", color = [0.55, 0.72, 0.62],
+          equip_slot = EquipSlot::Armor, defense_bonus = 1,
+          scrap_yield = &[(Item::SyntheticMaterial, 3), (Item::Glass, 1), (Item::Screws, 2)])]
   SynthHelmet,
+  #[assoc(name = "Stim Pack", glyph = "+", color = [0.95, 0.35, 0.45],
+          scrap_yield = &[(Item::OrganicMaterial, 2), (Item::Crystal, 1), (Item::Glass, 1)])]
   StimPack,
+  #[assoc(name = "Canned Goods", glyph = "o", color = [0.85, 0.35, 0.12],
+          scrap_yield = &[(Item::Steel, 1), (Item::OrganicMaterial, 2)])]
   CannedGoods,
+  #[assoc(name = "Filtered Water", glyph = "u", color = [0.35, 0.65, 0.95],
+          scrap_yield = &[(Item::Glass, 2), (Item::OrganicMaterial, 1)])]
   FilterWater,
+  #[assoc(name = "Frag Grenade", glyph = "g", color = [0.55, 0.78, 0.35],
+          equip_slot = EquipSlot::Grenade,
+          scrap_yield = &[(Item::Steel, 1), (Item::Copper, 1), (Item::Screws, 2)])]
   FragGrenade,
+  #[assoc(name = "Stun Grenade", glyph = "g", color = [0.35, 0.72, 0.92],
+          equip_slot = EquipSlot::Grenade,
+          scrap_yield = &[(Item::Crystal, 1), (Item::Copper, 1), (Item::Screws, 2)])]
   StunGrenade,
+  #[assoc(name = "Laser Rifle", glyph = "\\", color = [0.0, 0.9, 1.0],
+          equip_slot = EquipSlot::Weapon, attack_bonus = 8, is_ranged = true,
+          scrap_yield = &[(Item::Crystal, 2), (Item::SyntheticMaterial, 2), (Item::Glass, 1), (Item::Screws, 2)])]
   LaserRifle,
+  #[assoc(name = "Plasma Rifle", glyph = "\\", color = [0.2, 1.0, 0.3],
+          equip_slot = EquipSlot::Weapon, attack_bonus = 6, is_ranged = true,
+          scrap_yield = &[(Item::Crystal, 3), (Item::SyntheticMaterial, 1), (Item::Screws, 2)])]
   PlasmaRifle,
+  #[assoc(name = "Scatter Gun", glyph = "?", color = [1.0, 0.4, 0.2],
+          equip_slot = EquipSlot::Weapon, attack_bonus = 3, is_ranged = true,
+          scrap_yield = &[(Item::Steel, 3), (Item::Copper, 2), (Item::Screws, 3)])]
   ScatterGun,
+  #[assoc(name = "Pulse Cannon", glyph = "\\", color = [0.7, 0.2, 1.0],
+          equip_slot = EquipSlot::Weapon, attack_bonus = 12, is_ranged = true,
+          scrap_yield = &[(Item::Crystal, 2), (Item::SyntheticMaterial, 3), (Item::Glass, 2), (Item::Screws, 2)])]
   PulseCannon
 }
 
 impl Item {
-  pub fn name(self) -> &'static str {
-    match self {
-      Item::GoldCoin => "Gold Coin",
-      Item::HealthPotion => "Health Potion",
-      Item::Torch => "Torch",
-      Item::Rock => "Rock",
-      Item::Mushroom => "Mushroom",
-      Item::Wood => "Wood",
-      Item::Steel => "Steel",
-      Item::Copper => "Copper",
-      Item::Screws => "Screws",
-      Item::Crystal => "Crystal",
-      Item::SyntheticMaterial => "Synthetic Material",
-      Item::Glass => "Glass",
-      Item::OrganicMaterial => "Organic Material",
-      Item::IronSword => "Iron Sword",
-      Item::SteelAxe => "Steel Axe",
-      Item::CopperKnife => "Copper Knife",
-      Item::CombatSpear => "Combat Spear",
-      Item::PipeRevolver => "Pipe Revolver",
-      Item::LeatherVest => "Leather Vest",
-      Item::ChainMail => "Chain Mail",
-      Item::SteelBoots => "Steel Boots",
-      Item::SynthHelmet => "Synth Helmet",
-      Item::StimPack => "Stim Pack",
-      Item::CannedGoods => "Canned Goods",
-      Item::FilterWater => "Filtered Water",
-      Item::FragGrenade => "Frag Grenade",
-      Item::StunGrenade => "Stun Grenade",
-      Item::LaserRifle => "Laser Rifle",
-      Item::PlasmaRifle => "Plasma Rifle",
-      Item::ScatterGun => "Scatter Gun",
-      Item::PulseCannon => "Pulse Cannon"
-    }
-  }
-
-  pub fn glyph(self) -> &'static str {
-    match self {
-      Item::GoldCoin => "$",
-      Item::HealthPotion => "!",
-      Item::Torch => "/",
-      Item::Rock => "`",
-      Item::Mushroom => "%",
-      Item::Wood => "/",
-      Item::Steel => "]",
-      Item::Copper => "}",
-      Item::Screws => ":",
-      Item::Crystal => "*",
-      Item::SyntheticMaterial => ">",
-      Item::Glass => "=",
-      Item::OrganicMaterial => "~",
-      Item::IronSword => ")",
-      Item::SteelAxe => "(",
-      Item::CopperKnife => "-",
-      Item::CombatSpear => "|",
-      Item::PipeRevolver => "?",
-      Item::LeatherVest => "[",
-      Item::ChainMail => "{",
-      Item::SteelBoots => "b",
-      Item::SynthHelmet => "^",
-      Item::StimPack => "+",
-      Item::CannedGoods => "o",
-      Item::FilterWater => "u",
-      Item::FragGrenade => "g",
-      Item::StunGrenade => "g",
-      Item::LaserRifle => "\\",
-      Item::PlasmaRifle => "\\",
-      Item::ScatterGun => "?",
-      Item::PulseCannon => "\\"
-    }
-  }
-
-  pub fn color(self) -> [f32; 3] {
-    match self {
-      Item::GoldCoin => [1.0, 0.85, 0.0],
-      Item::HealthPotion => [0.9, 0.2, 0.3],
-      Item::Torch => [1.0, 0.6, 0.1],
-      Item::Rock => [0.5, 0.5, 0.5],
-      Item::Mushroom => [0.6, 0.3, 0.7],
-      Item::Wood => [0.55, 0.35, 0.15],
-      Item::Steel => [0.75, 0.78, 0.82],
-      Item::Copper => [0.82, 0.55, 0.35],
-      Item::Screws => [0.9, 0.88, 0.85],
-      Item::Crystal => [0.65, 0.85, 1.0],
-      Item::SyntheticMaterial => [0.85, 0.45, 0.75],
-      Item::Glass => [0.75, 0.88, 0.95],
-      Item::OrganicMaterial => [0.45, 0.65, 0.35],
-      Item::IronSword => [0.82, 0.82, 0.88],
-      Item::SteelAxe => [0.7, 0.72, 0.76],
-      Item::CopperKnife => [0.85, 0.6, 0.45],
-      Item::CombatSpear => [0.78, 0.75, 0.65],
-      Item::PipeRevolver => [0.55, 0.55, 0.58],
-      Item::LeatherVest => [0.55, 0.4, 0.22],
-      Item::ChainMail => [0.72, 0.74, 0.78],
-      Item::SteelBoots => [0.68, 0.7, 0.74],
-      Item::SynthHelmet => [0.55, 0.72, 0.62],
-      Item::StimPack => [0.95, 0.35, 0.45],
-      Item::CannedGoods => [0.85, 0.35, 0.12],
-      Item::FilterWater => [0.35, 0.65, 0.95],
-      Item::FragGrenade => [0.55, 0.78, 0.35],
-      Item::StunGrenade => [0.35, 0.72, 0.92],
-      Item::LaserRifle => [0.0, 0.9, 1.0],
-      Item::PlasmaRifle => [0.2, 1.0, 0.3],
-      Item::ScatterGun => [1.0, 0.4, 0.2],
-      Item::PulseCannon => [0.7, 0.2, 1.0]
-    }
-  }
-
-  /// Fallout-style breakdown: gear and some junk salvage into base components.
-  pub fn scrap_yield(self) -> &'static [(Item, u32)] {
-    match self {
-      Item::IronSword => &[(Item::Steel, 2), (Item::Wood, 1), (Item::Screws, 1)],
-      Item::SteelAxe => &[(Item::Steel, 3), (Item::Wood, 2), (Item::Screws, 1)],
-      Item::CopperKnife => &[(Item::Copper, 2), (Item::Screws, 1)],
-      Item::CombatSpear => &[(Item::Wood, 2), (Item::Steel, 1), (Item::Screws, 1)],
-      Item::PipeRevolver => &[(Item::Steel, 2), (Item::Copper, 1), (Item::Screws, 2)],
-      Item::LeatherVest => &[(Item::OrganicMaterial, 3), (Item::Screws, 2)],
-      Item::ChainMail => &[(Item::Steel, 4), (Item::Screws, 3)],
-      Item::SteelBoots => {
-        &[(Item::Steel, 2), (Item::OrganicMaterial, 1), (Item::Screws, 1)]
-      }
-      Item::SynthHelmet => {
-        &[(Item::SyntheticMaterial, 3), (Item::Glass, 1), (Item::Screws, 2)]
-      }
-      Item::HealthPotion => {
-        &[(Item::Glass, 1), (Item::OrganicMaterial, 2), (Item::Crystal, 1)]
-      }
-      Item::StimPack => {
-        &[(Item::OrganicMaterial, 2), (Item::Crystal, 1), (Item::Glass, 1)]
-      }
-      Item::CannedGoods => &[(Item::Steel, 1), (Item::OrganicMaterial, 2)],
-      Item::FilterWater => &[(Item::Glass, 2), (Item::OrganicMaterial, 1)],
-      Item::FragGrenade => &[(Item::Steel, 1), (Item::Copper, 1), (Item::Screws, 2)],
-      Item::StunGrenade => &[(Item::Crystal, 1), (Item::Copper, 1), (Item::Screws, 2)],
-      Item::LaserRifle => {
-        &[(Item::Crystal, 2), (Item::SyntheticMaterial, 2), (Item::Glass, 1), (Item::Screws, 2)]
-      }
-      Item::PlasmaRifle => {
-        &[(Item::Crystal, 3), (Item::SyntheticMaterial, 1), (Item::Screws, 2)]
-      }
-      Item::ScatterGun => &[(Item::Steel, 3), (Item::Copper, 2), (Item::Screws, 3)],
-      Item::PulseCannon => {
-        &[(Item::Crystal, 2), (Item::SyntheticMaterial, 3), (Item::Glass, 2), (Item::Screws, 2)]
-      }
-      Item::Torch => &[(Item::Wood, 1), (Item::OrganicMaterial, 1)],
-      Item::Rock => &[(Item::Crystal, 1)],
-      Item::Mushroom => &[(Item::OrganicMaterial, 2)],
-      _ => &[]
-    }
-  }
-
   pub fn can_salvage(self) -> bool { !self.scrap_yield().is_empty() }
-
-  /// Which loadout slot this item occupies, if any.
-  /// None = not directly equippable (crafting material, consumable, junk).
-  pub fn equip_slot(self) -> Option<EquipSlot> {
-    match self {
-      Item::IronSword | Item::SteelAxe | Item::CopperKnife
-      | Item::CombatSpear | Item::PipeRevolver | Item::LaserRifle
-      | Item::PlasmaRifle | Item::ScatterGun | Item::PulseCannon => Some(EquipSlot::Weapon),
-      Item::LeatherVest | Item::ChainMail | Item::SteelBoots
-      | Item::SynthHelmet => Some(EquipSlot::Armor),
-      Item::FragGrenade | Item::StunGrenade => Some(EquipSlot::Grenade),
-      _ => None
-    }
-  }
-
   pub fn is_weapon(self) -> bool { self.equip_slot() == Some(EquipSlot::Weapon) }
   pub fn is_armor(self) -> bool { self.equip_slot() == Some(EquipSlot::Armor) }
   pub fn is_grenade(self) -> bool { self.equip_slot() == Some(EquipSlot::Grenade) }
-  pub fn is_ranged(self) -> bool {
-    matches!(self, Item::PipeRevolver | Item::LaserRifle | Item::PlasmaRifle | Item::ScatterGun | Item::PulseCannon)
-  }
 
   pub fn loot_texture(self) -> &'static str {
     if self.is_ranged() { "textures/space_qud/gun.png" }
@@ -236,37 +143,11 @@ impl Item {
     let secondary = Color::srgb((r + 0.3).min(1.0), (g + 0.3).min(1.0), (b + 0.3).min(1.0));
     (primary, secondary)
   }
+
   pub fn is_laser(self) -> bool { matches!(self, Item::LaserRifle) }
   pub fn is_plasma(self) -> bool { matches!(self, Item::PlasmaRifle) }
   pub fn is_scatter(self) -> bool { matches!(self, Item::ScatterGun) }
   pub fn is_pulse(self) -> bool { matches!(self, Item::PulseCannon) }
-
-  /// Bonus attack power when this item is wielded.
-  pub fn attack_bonus(self) -> i32 {
-    match self {
-      Item::IronSword => 3,
-      Item::SteelAxe => 4,
-      Item::CopperKnife => 2,
-      Item::CombatSpear => 3,
-      Item::PipeRevolver => 5,
-      Item::LaserRifle => 8,
-      Item::PlasmaRifle => 6,
-      Item::ScatterGun => 3,
-      Item::PulseCannon => 12,
-      _ => 0
-    }
-  }
-
-  /// Damage reduction when this item is worn.
-  pub fn defense_bonus(self) -> i32 {
-    match self {
-      Item::LeatherVest => 1,
-      Item::ChainMail => 2,
-      Item::SteelBoots => 1,
-      Item::SynthHelmet => 1,
-      _ => 0
-    }
-  }
 }
 
 /// The loadout slot an equippable item occupies.
@@ -282,7 +163,6 @@ pub enum EquipSlot {
 #[derive(Clone, Debug)]
 pub struct Level {
   pub tiles: Vec<Vec<Tile>>,
-  pub items: Vec<Vec<Option<Item>>>,
   pub width: usize,
   pub height: usize
 }
@@ -291,7 +171,6 @@ impl Level {
   pub fn new(width: usize, height: usize, fill: Tile) -> Self {
     Level {
       tiles: vec![vec![fill; width]; height],
-      items: vec![vec![None; width]; height],
       width,
       height
     }
@@ -305,19 +184,6 @@ impl Level {
     (ux < self.width && uy < self.height).then(|| self.tiles[uy][ux])
   }
 
-  pub fn get_item(&self, x: i32, y: i32) -> Option<Item> {
-    if x < 0 || y < 0 {
-      return None;
-    }
-    let (ux, uy) = (x as usize, y as usize);
-    (ux < self.width && uy < self.height).then(|| self.items[uy][ux]).flatten()
-  }
-
-  pub fn set_item(&mut self, x: i32, y: i32, item: Option<Item>) {
-    if x >= 0 && y >= 0 && (x as usize) < self.width && (y as usize) < self.height {
-      self.items[y as usize][x as usize] = item;
-    }
-  }
 
   pub fn set(&mut self, x: i32, y: i32, tile: Tile) {
     if x >= 0 && y >= 0 && (x as usize) < self.width && (y as usize) < self.height {
