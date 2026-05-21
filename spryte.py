@@ -409,8 +409,8 @@ class Spryte:
             )
 
     def _cancel_tool(self):
-        if self._tool == "move" and self._move_phase == "floating" and not self._move_is_copy:
-            self._move_restore()
+        if (self._tool == "move" or self._tool == "copy") and self._move_phase == "floating" and self._history:
+            self.pixels = self._history.pop()
         self._rect_start = self._rect_end = None
         self._move_phase = "select"
         self._move_sel_start = self._move_sel_end = None
@@ -543,6 +543,7 @@ class Spryte:
             nc0, nc1 = min(c0, c1), max(c0, c1)
             nr0, nr1 = min(r0, r1), max(r0, r1)
             self._move_rect = (nc0, nr0, nc1, nr1)
+            self._snapshot()
             # lift pixels
             self._move_lifted = [
                 [self.pixels[row][col] for col in range(nc0, nc1 + 1)]
@@ -582,7 +583,6 @@ class Spryte:
         """Paste lifted pixels at current offset and end move."""
         if not self._move_rect or not self._move_lifted:
             return
-        self._snapshot()
         mc0, mr0, mc1, mr1 = self._move_rect
         dc, dr = self._move_offset
         for row in range(mr0, mr1 + 1):
