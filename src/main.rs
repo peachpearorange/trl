@@ -268,7 +268,10 @@ pub struct TurnBasedWorldState {
 
 /// Filled by [`player_input`] when a move is blocked; [`resolve_bump_interact`] reads it the same frame.
 #[derive(Resource, Default)]
-struct PendingBumpInteract(pub Option<(i32, i32, usize)>);
+struct PendingBumpInteract(
+  pub Option<(i32, i32, usize)>,
+  pub Option<(Entity, Vec2)>,
+);
 
 /// Deferred actions set by menu selection, applied next frame by dedicated systems.
 #[derive(Resource, Default)]
@@ -391,6 +394,12 @@ struct GlyphVisual;
 #[derive(Component)]
 struct TileHoverHighlight;
 
+#[derive(Component)]
+pub struct BumpLunge {
+  dir: Vec2,
+  start_frame: u64,
+}
+
 
 // ---------------------------------------------------------------------------
 // Glyph rendering systems
@@ -473,6 +482,29 @@ fn interpolate_visual_positions(
   if let Ok((pos, mut vis)) = params.p1().single_mut() {
     let local = Vec2::new(pos.x as f32, pos.y as f32);
     interpolate_visual_one(&mut vis, f, local);
+  }
+}
+
+fn apply_bump_lunge(
+  frame: Res<RenderFrame>,
+  mut commands: Commands,
+  mut query: Query<(Entity, &BumpLunge, &mut Visuals)>
+) {
+  let n = u64::from(RENDER_FRAMES_PER_SIM_STEP);
+  for (entity, lunge, mut vis) in query.iter_mut() {
+    let elapsed = frame.0.saturating_sub(lunge.start_frame);
+    if elapsed >= n {
+      commands.entity(entity).remove::<BumpLunge>();
+    } else {
+      let half = n as f32 / 2.0;
+      let peak = 0.5;
+      let offset = if (elapsed as f32) < half {
+        peak * (elapsed + 1) as f32 / half
+      } else {
+        peak * (n - elapsed) as f32 / half
+      };
+      vis.display += lunge.dir * offset;
+    }
   }
 }
 
@@ -736,6 +768,7 @@ fn main() {
       (
         track_movement,
         interpolate_visual_positions,
+        apply_bump_lunge,
         sync_entity_positions,
         animate_walk_sprites,
         camera_follow,
@@ -1222,7 +1255,7 @@ fn resolve_move(
   py: i32,
   dx: i32,
   dy: i32,
-  entity_blocked: impl Fn(i32, i32) -> bool
+  entity_blocked: &impl Fn(i32, i32) -> bool
 ) -> (i32, i32) {
   let passable = |x, y| level.walkable(x, y) && !entity_blocked(x, y);
   if dx != 0 && dy != 0 {
@@ -2389,6 +2422,7 @@ fn resolve_bump_interact(
   player: Single<(&Inventory, &Loadout), With<Player>>
 ) {
   let Some((tx, ty, tz)) = pending.0.take() else {
+    pending.1 = None;
     return;
   };
   let (inventory, equipped) = *player;
@@ -2415,7 +2449,7 @@ fn resolve_bump_interact(
   let highlighted = utils::mapv(|o: &_| is_equipped(&o.action, equipped), &opts);
   let disabled = utils::mapv(|o: &_| is_disabled(&o.action, equipped), &opts);
   match opts.len() {
-    0 => {}
+    0 => { pending.1 = None; }
     1 => flash.0 = opts.into_iter().next(),
     _ => ui.interact = InteractMenu::Open { options: opts, selected: 0, highlighted, disabled }
   }
@@ -2423,6 +2457,8 @@ fn resolve_bump_interact(
 
 fn apply_bump_auto_interact(
   mut flash: ResMut<BumpInteractFlash>,
+  mut pending_bump: ResMut<PendingBumpInteract>,
+  frame: Res<RenderFrame>,
   mut commands: Commands,
   mut gw: ResMut<CurrentZone>,
   mut clock: ResMut<Clock>,
@@ -2442,6 +2478,10 @@ fn apply_bump_auto_interact(
   mut palette_cache: ResMut<PaletteImageCache>,
   mut images: ResMut<Assets<Image>>
 ) {
+  if let Some((entity, dir)) = pending_bump.1.take() {
+    commands.entity(entity).insert(BumpLunge { dir, start_frame: frame.0 });
+    clock.move_cooldown_frames = RENDER_FRAMES_PER_SIM_STEP;
+  }
   let Some(option) = flash.0.take() else {
     return;
   };
@@ -2983,6 +3023,8 @@ fn camera_follow(
 }
 
 fn player_input(
+  mut commands: Commands,
+  frame: Res<RenderFrame>,
   keys: Res<ButtonInput<KeyCode>>,
   mut acc: ResMut<AccumulatedDir>,
   current: Res<CurrentZone>,
@@ -2992,7 +3034,7 @@ fn player_input(
   mut time_mode_auto: ResMut<TimeModeAuto>,
   index: Res<TileEntityIndex>,
   mut pending_bump: ResMut<PendingBumpInteract>,
-  player: Single<(&mut PlayerPos, &Stats, &mut Inventory, &Loadout), With<Player>>,
+  player: Single<(Entity, &mut PlayerPos, &Stats, &mut Inventory, &Loadout), With<Player>>,
   mut enemy_query: Query<&mut Stats, (With<Enemy>, Without<Player>)>,
   collidable_q: Query<&Collidable>
 ) {
@@ -3014,7 +3056,7 @@ fn player_input(
   if !ui.any_open()
     && !ui.dir_consumed
   {
-    let (mut pos, stats, mut inventory, equipped) = player.into_inner();
+    let (player_entity, mut pos, stats, mut inventory, equipped) = player.into_inner();
     let player_attack = stats.attack + equipped.weapon_attack_bonus();
     let turn_based_block = clock.mode == TimeMode::TurnBased
       && (clock.move_cooldown_frames > 0 || tb.world_tick_pending);
@@ -3047,11 +3089,16 @@ fn player_input(
             .any(|&e| collidable_q.get(e).is_ok_and(|c| c.0) && enemy_query.get(e).is_err())
         })
       };
-      let (dx, dy) = resolve_move(level, pos.x, pos.y, raw_dx, raw_dy, is_entity_blocked);
+      let (dx, dy) = resolve_move(level, pos.x, pos.y, raw_dx, raw_dy, &is_entity_blocked);
 
-      if (dx, dy) == (0, 0) {
-        // Fully blocked — trigger bump interaction on the raw target so doors/NPCs/etc. respond.
+      // Diagonal into a non-passable entity: bump-interact with it instead of sliding.
+      let diagonal_bump = raw_dx != 0 && raw_dy != 0
+        && (dx, dy) != (raw_dx, raw_dy)
+        && is_entity_blocked(pos.x + raw_dx, pos.y + raw_dy);
+
+      if (dx, dy) == (0, 0) || diagonal_bump {
         pending_bump.0 = Some((pos.x + raw_dx, pos.y + raw_dy, pos.z));
+        pending_bump.1 = Some((player_entity, Vec2::new(raw_dx as f32, raw_dy as f32)));
       } else {
         let target_x = pos.x + dx;
         let target_y = pos.y + dy;
@@ -3064,6 +3111,10 @@ fn player_input(
           if let Ok(mut es) = enemy_query.get_mut(hostile) {
             es.hp -= player_attack;
           }
+          commands.entity(player_entity).insert(BumpLunge {
+            dir: Vec2::new(dx as f32, dy as f32),
+            start_frame: frame.0,
+          });
         } else {
           // resolve_move already ensured target is passable (tile + entity).
           pos.x = target_x;

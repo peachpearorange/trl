@@ -298,6 +298,8 @@ pub fn follower_ai(
 }
 
 pub fn enemy_ai(
+  mut commands: Commands,
+  frame: Res<crate::RenderFrame>,
   index: Res<TileEntityIndex>,
   current: Res<crate::CurrentZone>,
   clock: Res<crate::Clock>,
@@ -310,7 +312,7 @@ pub fn enemy_ai(
     (With<crate::Player>, Without<Enemy>)
   >,
   mut enemy_q: Query<
-    (&mut Location, &mut TimeSinceAction, &Stats, &Loadout, Option<&Named>, Option<&crate::entities::DriftChance>),
+    (Entity, &mut Location, &mut TimeSinceAction, &Stats, &Loadout, Option<&Named>, Option<&crate::entities::DriftChance>),
     (With<Enemy>, Without<crate::Player>)
   >,
   collidable_q: Query<&Collidable>
@@ -321,7 +323,7 @@ pub fn enemy_ai(
   let mut claimed: HashSet<(i32, i32)> = HashSet::new();
 
   let mut rng = rand::rng();
-  for (mut location, mut timer, enemy_stats, _enemy_loadout, enemy_named, drift) in enemy_q.iter_mut() {
+  for (enemy_entity, mut location, mut timer, enemy_stats, _enemy_loadout, enemy_named, drift) in enemy_q.iter_mut() {
     timer.0 = timer.0.saturating_add(1);
 
     if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location {
@@ -344,6 +346,10 @@ pub fn enemy_ai(
         if player_stats.hp == 0 {
           log_message(&mut log, "You died.".into());
         }
+        commands.entity(enemy_entity).insert(crate::BumpLunge {
+          dir: Vec2::new((px - ex) as f32, (py - ey) as f32),
+          start_frame: frame.0,
+        });
         timer.0 = 0;
       } else if ez == pz && timer.0 >= mov_fr {
         let level = current.0.level(ez);
