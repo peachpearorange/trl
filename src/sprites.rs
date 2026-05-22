@@ -133,6 +133,16 @@ fn bake_palette_png(img: &RgbaImage, primary: Color, secondary: Color) -> Vec<u8
 #[derive(Resource, Default)]
 pub struct PaletteImageCache(pub HashMap<PaletteKey, Handle<Image>>);
 
+pub fn bake_palette_rgba(path: &str, primary: Color, secondary: Color) -> RgbaImage {
+  let bytes = load_asset_bytes(path);
+  let dyn_img = image::load_from_memory(&bytes)
+    .unwrap_or_else(|e| panic!("bake_palette_rgba: failed to decode {path}: {e}"));
+  let rgba = dyn_img.to_rgba8();
+  let (w, h) = rgba.dimensions();
+  let data = bake_palette_png(&rgba, primary, secondary);
+  RgbaImage::from_raw(w, h, data).unwrap()
+}
+
 /// Loads `assets/<path>`, remaps black→`primary` and white→`secondary`, caches by key.
 pub fn palette_sprite_handle(
   path: &'static str,

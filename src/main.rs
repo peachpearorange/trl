@@ -394,6 +394,15 @@ struct LootDrop {
   duration_frames: u64,
 }
 
+#[derive(Component)]
+struct DeathShrink {
+  start_frame: u64,
+  frames_per_texel: u64,
+  total_texels: u64,
+  prev_texels: u64,
+  source: image::RgbaImage,
+}
+
 
 #[derive(Component, Default)]
 pub struct Inventory(pub HashMap<Item, u32>);
@@ -790,6 +799,7 @@ fn main() {
         sync_entity_positions,
         animate_walk_sprites,
         animate_loot_drops,
+        animate_death_shrink,
         apply_invisible_alpha,
         camera_follow,
         update_fov_visuals,
@@ -860,26 +870,15 @@ fn enemy_death_check(
   frame: Res<RenderFrame>,
   mut palette_cache: ResMut<PaletteImageCache>,
   mut images: ResMut<Assets<Image>>,
-  enemy_q: Query<(Entity, &Stats, &Loadout, &Location, Option<&Named>), With<Enemy>>
+  enemy_q: Query<(Entity, &Stats, &Loadout, &Location, Option<&Named>, &Glyph), With<Enemy>>
 ) {
-  for (entity, stats, loadout, location, _) in enemy_q.iter() {
+  for (entity, stats, loadout, location, _, glyph) in enemy_q.iter() {
     if stats.hp <= 0 {
       let loot = loadout.lootable_items();
       let (ex, ey, ez) = if let Location::Coords { x, y, z, .. } = *location {
         (x, y, z)
       } else {
-        commands.entity(entity)
-          .remove::<(Enemy, Stats, Loadout, entities::Character, entities::FactionComp,
-                     entities::Gravity, entities::TimeSinceAction, entities::Path,
-                     entities::DriftChance, Glyph, Sprite, GlyphVisual, WalkAnim)>()
-          .insert((
-            entities::Corpse { loot: vec![], looted: true },
-            Collidable(false),
-            Glyph::palette_sprite(
-              "textures/space_qud/bones.png", '%',
-              Color::srgb(0.90, 0.88, 0.85), Color::srgb(0.75, 0.72, 0.68),
-            ),
-          ));
+        commands.entity(entity).despawn();
         continue;
       };
 
@@ -915,19 +914,30 @@ fn enemy_death_check(
         }
       }
 
-      commands.entity(entity)
-        .remove::<(Enemy, Stats, Loadout, entities::Character, entities::FactionComp,
-                   entities::Gravity, entities::TimeSinceAction, entities::Path,
-                   entities::DriftChance, entities::Invisible,
-                   Glyph, Sprite, GlyphVisual, WalkAnim)>()
-        .insert((
-          entities::Corpse { loot: vec![], looted: true },
-          Collidable(false),
-          Glyph::palette_sprite(
-            "textures/space_qud/bones.png", '%',
-            Color::srgb(0.90, 0.88, 0.85), Color::srgb(0.75, 0.72, 0.68),
-          ),
-        ));
+      let source = glyph.texture.map(|path| {
+        let (primary, secondary) = glyph.sprite_palette
+          .unwrap_or((glyph.color, glyph.color));
+        sprites::bake_palette_rgba(path, primary, secondary)
+      });
+      if let Some(source) = source {
+        commands.entity(entity)
+          .remove::<(Enemy, Stats, Loadout, entities::Character, entities::FactionComp,
+                     entities::Gravity, entities::TimeSinceAction, entities::Path,
+                     entities::DriftChance, entities::Invisible,
+                     Glyph, GlyphVisual, WalkAnim)>()
+          .insert((
+            Collidable(false),
+            DeathShrink {
+              start_frame: frame.0,
+              frames_per_texel: 6,
+              total_texels: SPRITE_TEXELS as u64,
+              prev_texels: SPRITE_TEXELS as u64,
+              source,
+            },
+          ));
+      } else {
+        commands.entity(entity).despawn();
+      }
     }
   }
 }
@@ -953,6 +963,41 @@ fn animate_loot_drops(
       tf.translation = tile_screen_pos(pos.x, pos.y, w, h)
         + Vec3::new(0.0, arc * TILE_SIZE, 5.0);
       sprite.color = Color::srgba(1.0, 1.0, 1.0, (t * 2.0).min(1.0));
+    }
+  }
+}
+
+fn animate_death_shrink(
+  mut commands: Commands,
+  frame: Res<RenderFrame>,
+  mut images: ResMut<Assets<Image>>,
+  mut query: Query<(Entity, &mut DeathShrink, &mut Sprite)>,
+) {
+  use bevy::{asset::RenderAssetUsages,
+             render::render_resource::{Extent3d, TextureDimension, TextureFormat}};
+  for (entity, mut shrink, mut sprite) in query.iter_mut() {
+    let elapsed = frame.0.saturating_sub(shrink.start_frame);
+    let texels_lost = elapsed / shrink.frames_per_texel;
+    if texels_lost >= shrink.total_texels {
+      commands.entity(entity).despawn();
+    } else {
+      let remaining = shrink.total_texels - texels_lost;
+      if remaining != shrink.prev_texels {
+        shrink.prev_texels = remaining;
+        let n = remaining as u32;
+        let resized = image::imageops::resize(
+          &shrink.source, n, n, image::imageops::FilterType::Nearest,
+        );
+        let handle = images.add(Image::new(
+          Extent3d { width: n, height: n, depth_or_array_layers: 1 },
+          TextureDimension::D2,
+          resized.into_raw(),
+          TextureFormat::Rgba8UnormSrgb,
+          RenderAssetUsages::RENDER_WORLD,
+        ));
+        sprite.image = handle;
+        sprite.custom_size = Some(Vec2::splat(n as f32 * SCREEN_PIXELS_PER_TEXEL));
+      }
     }
   }
 }
@@ -1167,7 +1212,8 @@ fn update_fov_visuals(
               }
             };
             if fov.0.is_visible(x, y) {
-              Some(TileData { tileset_index, color: Color::WHITE, visible: true })
+              let color = if tile.is_liquid() { Color::srgba(1.0, 1.0, 1.0, 254.0 / 255.0) } else { Color::WHITE };
+              Some(TileData { tileset_index, color, visible: true })
             } else {
               None
             }
