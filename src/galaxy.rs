@@ -53,13 +53,28 @@ impl Location {
 /// The sparse galaxy map. Locations are lazily generated when first visited.
 #[derive(Clone, Resource)]
 pub struct Galaxy {
-  pub locations: HashMap<LocationId, Location>
+  pub locations: HashMap<LocationId, Location>,
+  generators: HashMap<LocationId, fn(LocationId) -> Option<Location>>,
+  deferred_names: HashMap<LocationId, &'static str>,
 }
 
 impl Galaxy {
-  pub fn new() -> Self { Galaxy { locations: HashMap::new() } }
+  pub fn new() -> Self {
+    Galaxy { locations: HashMap::new(), generators: HashMap::new(), deferred_names: HashMap::new() }
+  }
 
   pub fn get(&self, id: LocationId) -> Option<&Location> { self.locations.get(&id) }
+
+  pub fn get_or_generate(&mut self, id: LocationId) -> Option<&Location> {
+    if !self.locations.contains_key(&id) {
+      if let Some(make) = self.generators.remove(&id) {
+        if let Some(loc) = make(id) {
+          self.locations.insert(id, loc);
+        }
+      }
+    }
+    self.locations.get(&id)
+  }
 
   pub fn get_mut(&mut self, id: LocationId) -> Option<&mut Location> {
     self.locations.get_mut(&id)
@@ -67,6 +82,16 @@ impl Galaxy {
 
   pub fn insert(&mut self, id: LocationId, location: Location) {
     self.locations.insert(id, location);
+  }
+
+  pub fn register_deferred(&mut self, id: LocationId, name: &'static str, make: fn(LocationId) -> Option<Location>) {
+    self.generators.insert(id, make);
+    self.deferred_names.insert(id, name);
+  }
+
+  pub fn all_location_names(&self) -> impl Iterator<Item = (LocationId, &str)> {
+    self.locations.iter().map(|(&id, loc)| (id, loc.name))
+      .chain(self.deferred_names.iter().map(|(&id, &name)| (id, name)))
   }
 
   /// Euclidean distance between two location coordinates.

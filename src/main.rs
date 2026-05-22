@@ -657,8 +657,8 @@ fn main() {
   galaxy.insert(locations::lava_planet::ID, locations::lava_planet::generate());
   galaxy.insert(locations::mushroom_planet::ID, locations::mushroom_planet::generate());
   galaxy.insert(locations::gamma_station::ID, locations::gamma_station::generate());
-  for (id, loc) in locations::planet_gen::all() {
-    galaxy.insert(id, loc);
+  for (id, name) in locations::planet_gen::all_ids() {
+    galaxy.register_deferred(id, name, |id| locations::planet_gen::generate_by_id(id));
   }
   for (id, loc) in locations::station_gen::all() {
     galaxy.insert(id, loc);
@@ -2540,10 +2540,10 @@ fn gather_interactions_at_tile(
       }
       if let Ok((flight, loadout, craft_table)) = iq.console_q.get(e) {
         if let Some(_) = flight {
-          let mut dests: Vec<_> = galaxy.locations.iter()
-            .filter(|(_, loc)| loc.location_type != LocationType::ShipInterior)
-            .map(|(&id, loc)| InteractionOption {
-              label: format!("Chart course — {}", loc.name),
+          let mut dests: Vec<_> = galaxy.all_location_names()
+            .filter(|&(id, _)| galaxy.get(id).map_or(true, |loc| loc.location_type != LocationType::ShipInterior))
+            .map(|(id, name)| InteractionOption {
+              label: format!("Chart course — {name}"),
               action: InteractionAction::Navigate { dest: id }
             })
             .collect();
@@ -2869,7 +2869,7 @@ fn spawn_zone_geometry(
 fn apply_pending_navigation(
   mut pending: ResMut<DeferredActions>,
   mut commands: Commands,
-  galaxy: Res<galaxy::Galaxy>,
+  mut galaxy: ResMut<galaxy::Galaxy>,
   mut ship: ResMut<ship::Ship>,
   mut current: ResMut<CurrentZone>,
   mut fov: ResMut<Fov>,
@@ -2901,7 +2901,7 @@ fn apply_pending_navigation(
     );
     return;
   }
-  let Some(new_zone) = docking::dock(&galaxy, &mut ship, dest) else {
+  let Some(new_zone) = docking::dock(&mut galaxy, &mut ship, dest) else {
     log_message(
       &mut *log,
       "Astrogation: cannot plot a dock for that destination.".into()

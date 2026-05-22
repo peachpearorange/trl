@@ -19,55 +19,27 @@ pub const ID_DESERT_WORLD: LocationId = (1, 1, 0);
 pub const ID_LAVA_WORLD: LocationId = (7, 0, 0);
 pub const ID_BRIGHT_WORLD: LocationId = (8, 0, 0);
 
-pub fn all() -> Vec<(LocationId, Location)> {
+pub fn all_ids() -> Vec<(LocationId, &'static str)> {
   vec![
-    (
-      ID_ALIEN_JUNGLE,
-      generate(
-        &PlanetParams::alien("Xel-Nara IV")
-          .with_water(0.35)
-          .with_vegetation(0.6)
-      )
-    ),
-    (
-      ID_CRYSTAL_CAVES,
-      generate(
-        &PlanetParams::crystal("Keth Caverns")
-          .with_rocks(0.4)
-          .with_vegetation(0.4)
-      )
-    ),
-    (
-      ID_ARCTIC_WASTE,
-      generate(
-        &PlanetParams::arctic("Boreas Prime")
-          .with_water(0.25)
-          .with_rocks(0.3)
-      )
-    ),
-    (
-      ID_DESERT_WORLD,
-      generate(
-        &PlanetParams::desert("Khamsin Reach")
-          .with_water(0.08)
-          .with_rocks(0.35)
-      )
-    ),
-    (
-      ID_LAVA_WORLD,
-      generate_lava(
-        &PlanetParams::lava("Pyros Maw").with_rocks(0.5)
-      )
-    ),
-    (
-      ID_BRIGHT_WORLD,
-      generate(
-        &PlanetParams::bright("Lumos Reach")
-          .with_water(0.15)
-          .with_rocks(0.3)
-      )
-    ),
+    (ID_ALIEN_JUNGLE, "Xel-Nara IV"),
+    (ID_CRYSTAL_CAVES, "Keth Caverns"),
+    (ID_ARCTIC_WASTE, "Boreas Prime"),
+    (ID_DESERT_WORLD, "Khamsin Reach"),
+    (ID_LAVA_WORLD, "Pyros Maw"),
+    (ID_BRIGHT_WORLD, "Lumos Reach"),
   ]
+}
+
+pub fn generate_by_id(id: LocationId) -> Option<Location> {
+  match id {
+    ID_ALIEN_JUNGLE => Some(generate(&PlanetParams::alien("Xel-Nara IV").with_water(0.35).with_vegetation(0.6))),
+    ID_CRYSTAL_CAVES => Some(generate(&PlanetParams::crystal("Keth Caverns").with_rocks(0.4).with_vegetation(0.4))),
+    ID_ARCTIC_WASTE => Some(generate(&PlanetParams::arctic("Boreas Prime").with_water(0.25).with_rocks(0.3))),
+    ID_DESERT_WORLD => Some(generate(&PlanetParams::desert("Khamsin Reach").with_water(0.08).with_rocks(0.35))),
+    ID_LAVA_WORLD => Some(generate_lava(&PlanetParams::lava("Pyros Maw").with_rocks(0.5))),
+    ID_BRIGHT_WORLD => Some(generate(&PlanetParams::bright("Lumos Reach").with_water(0.15).with_rocks(0.3))),
+    _ => None,
+  }
 }
 
 pub const PLANET_SIZE: usize = 300;

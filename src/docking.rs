@@ -4,7 +4,8 @@ use crate::{active_zone::ActiveZone,
 
 /// Dock the ship at the destination location.
 /// Returns the new merged ActiveZone, or None if docking failed.
-pub fn dock(galaxy: &Galaxy, ship: &mut Ship, dest_id: LocationId) -> Option<ActiveZone> {
+pub fn dock(galaxy: &mut Galaxy, ship: &mut Ship, dest_id: LocationId) -> Option<ActiveZone> {
+  galaxy.get_or_generate(dest_id);
   let ship_loc = galaxy.get(ship.location_id)?;
   let dest = galaxy.get(dest_id)?;
   let merged = ActiveZone::docked(ship_loc, dest)?;
