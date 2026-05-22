@@ -30,7 +30,7 @@ use {bevy::{prelude::*, camera::visibility::RenderLayers},
      combat::{FlowField, TileEntityIndex, compute_flow_field, damage_cloud_tick, enemy_ai,
               enemy_stealth_ai, follower_ai, grenade_thrower_ai, gun_attacker_ai,
               maintain_tile_index, mushroom_spore_attack, tick_grabbed, tick_grenade_in_flight,
-              tick_invisible, npc_wander},
+              tick_invisible, tick_phasing, npc_wander},
      level::{FovGrid, Item, LocationType, Tile, compute_fov},
      std::collections::{HashMap, HashSet},
      crate::entities::{AirlockDoor, Bed, BlocksSight, Collidable, Dialogue, DialogueNode,
@@ -64,7 +64,7 @@ pub const PLAYER_PRIMARY: Color = Color::srgb(0.72, 0.72, 0.72);
 pub const RENDER_FRAMES_PER_SIM_STEP: u32 = 8;
 /// How many sim steps run per real-time second (= assumed display Hz / render frames per step).
 pub const SIM_STEPS_PER_SEC: f32 = 60.0 / RENDER_FRAMES_PER_SIM_STEP as f32;
-const FOV_RADIUS: i32 = 99;
+const FOV_RADIUS: i32 = 18;
 /// Haalka layout: game view is left of the sidebar (`GAME_VIEWPORT_WIDTH_FRAC`); sidebar is
 /// `SIDEBAR_WIDTH_FRAC`. Status bar is `STATUS_BAR_HEIGHT` along the bottom.
 pub const GAME_VIEWPORT_WIDTH_FRAC: f32 = 0.70;
@@ -750,6 +750,8 @@ fn main() {
     .add_systems(Update, handle_utility_menus.in_set(FramePipeline::UtilityMenus))
     .add_systems(Update, abilities::handle_ability_keys.in_set(FramePipeline::UtilityMenus))
     .add_systems(Update, abilities::handle_ability_click.in_set(FramePipeline::UtilityMenus))
+    .add_systems(Update, abilities::detect_ability_bar_clicks.in_set(FramePipeline::UtilityMenus))
+    .add_systems(Update, abilities::handle_ability_scroll.in_set(FramePipeline::UtilityMenus))
     .add_systems(Update, abilities::sync_ability_bar.after(FramePipeline::PlayerMove))
     .add_systems(
       Update,
@@ -780,6 +782,7 @@ fn main() {
         enemy_stealth_ai.in_set(SimStep),
         tick_grabbed.in_set(SimStep),
         tick_invisible.in_set(SimStep),
+        tick_phasing.in_set(SimStep),
         tick_grenade_in_flight.in_set(SimStep),
         damage_cloud_tick.in_set(SimStep),
         player_death_check.in_set(SimStep),
@@ -1421,9 +1424,10 @@ fn resolve_move(
   py: i32,
   dx: i32,
   dy: i32,
+  phasing: bool,
   entity_blocked: &impl Fn(i32, i32) -> bool
 ) -> (i32, i32) {
-  let passable = |x, y| level.walkable(x, y) && !entity_blocked(x, y);
+  let passable = |x, y| (phasing || level.walkable(x, y)) && !entity_blocked(x, y);
   if dx != 0 && dy != 0 {
     // Diagonal blocked only when both cardinal neighbours are impassable
     if passable(px + dx, py + dy) && (passable(px + dx, py) || passable(px, py + dy)) {
@@ -3051,8 +3055,16 @@ fn setup(
     PlayerPos { x: local_x, y: local_y, z: 0 },
     Location::xyz(local_x, local_y, 0),
     Stats { hp: 20, max_hp: 20, attack: 5, move_speed: 3.0, attack_speed: 1.0 },
-    Inventory::default(),
-    Loadout::default(),
+    {
+      let mut inv = Inventory::default();
+      inv.0.insert(Item::PhaseDevice, 3);
+      inv
+    },
+    {
+      let mut l = Loadout::default();
+      l.equip_device(Item::PhaseDevice);
+      l
+    },
     Glyph::palette_sprite(
       "textures/space_qud/tough guy 1.png",
       '@',
@@ -3169,7 +3181,7 @@ fn player_input(
   mut time_mode_auto: ResMut<TimeModeAuto>,
   index: Res<TileEntityIndex>,
   mut pending_bump: ResMut<PendingBumpInteract>,
-  player: Single<(Entity, &mut PlayerPos, &Stats, &mut Inventory, &Loadout, Option<&entities::Grabbed>), With<Player>>,
+  player: Single<(Entity, &mut PlayerPos, &Stats, &mut Inventory, &Loadout, Option<&entities::Grabbed>, Option<&entities::Phasing>), With<Player>>,
   mut enemy_query: Query<&mut Stats, (With<Enemy>, Without<Player>)>,
   collidable_q: Query<&Collidable>,
   item_glyph_q: Query<(Entity, &ItemGlyph)>,
@@ -3193,7 +3205,7 @@ fn player_input(
   if !ui.any_open()
     && !ui.dir_consumed
   {
-    let (player_entity, mut pos, stats, mut inventory, equipped, grabbed) = player.into_inner();
+    let (player_entity, mut pos, stats, mut inventory, equipped, grabbed, phasing) = player.into_inner();
     let player_attack = stats.attack + equipped.weapon_attack_bonus();
     let turn_based_block = clock.mode == TimeMode::TurnBased
       && (clock.move_cooldown_frames > 0 || tb.world_tick_pending);
@@ -3233,7 +3245,7 @@ fn player_input(
             .any(|&e| collidable_q.get(e).is_ok_and(|c| c.0) && enemy_query.get(e).is_err())
         })
       };
-      let (dx, dy) = resolve_move(level, pos.x, pos.y, raw_dx, raw_dy, &is_entity_blocked);
+      let (dx, dy) = resolve_move(level, pos.x, pos.y, raw_dx, raw_dy, phasing.is_some(), &is_entity_blocked);
 
       // Diagonal into a non-passable entity: bump-interact with it instead of sliding.
       let diagonal_bump = raw_dx != 0 && raw_dy != 0

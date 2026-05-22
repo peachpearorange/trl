@@ -96,6 +96,8 @@ fn chebyshev(a: (i32, i32), b: (i32, i32)) -> i32 {
 
 /// BFS flow field from `origin` outward. Each reachable tile maps to the adjacent tile
 /// one step closer to `origin`, so enemies can look up their next move in O(1).
+const FLOW_FIELD_RADIUS: i32 = 26;
+
 fn bfs_flow_field(origin: (i32, i32), level: &crate::level::Level) -> HashMap<(i32, i32), (i32, i32)> {
   let mut came_from: HashMap<(i32, i32), (i32, i32)> = HashMap::new();
   let mut queue: VecDeque<(i32, i32)> = VecDeque::new();
@@ -104,7 +106,8 @@ fn bfs_flow_field(origin: (i32, i32), level: &crate::level::Level) -> HashMap<(i
   while let Some((x, y)) = queue.pop_front() {
     for &(dx, dy) in &NEIGHBOR_DIRS {
       let (nx, ny) = (x + dx, y + dy);
-      if !came_from.contains_key(&(nx, ny))
+      if (nx - origin.0).abs().max((ny - origin.1).abs()) <= FLOW_FIELD_RADIUS
+          && !came_from.contains_key(&(nx, ny))
           && level.walkable(nx, ny)
           && (dx == 0 || dy == 0 || level.walkable(x + dx, y) || level.walkable(x, y + dy))
       {
