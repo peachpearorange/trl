@@ -507,6 +507,9 @@ pub struct Grabbed {
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Invisible(pub u32);
 
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Phasing(pub u32);
+
 /// NPC wander behavior: move to a random adjacent passable tile every `interval` sim steps.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct WalkAroundRandomly {
@@ -906,7 +909,7 @@ impl Object {
         floors: vec![(0, surface_x, surface_y), (1, cave_x, cave_y)],
       })
       .add(Glyph::palette_sprite(
-        "textures/space_qud/stairs up down.png",
+        "textures/space_qud/stairs up.png",
         '<',
         Color::srgb(0.55, 0.50, 0.40),
         Color::srgb(0.35, 0.32, 0.28),

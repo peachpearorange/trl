@@ -3,7 +3,7 @@ use {bevy::prelude::*,
      std::collections::{BinaryHeap, HashMap, HashSet, VecDeque},
      std::cmp::Reverse,
      crate::{entities::{Collidable, DamageCloud, Enemy, FollowerData, FollowerState,
-                        Gear, Glyph, Grabbed, GrenadeInFlight, Invisible, Loadout, Location, Named,
+                        Gear, Glyph, Grabbed, GrenadeInFlight, Invisible, Loadout, Location, Named, Phasing,
                         Object, Path, Stats, TimeSinceAction,
                         WalkAroundRandomly},
              path_overlay::{bresenham_path, euclidean_los_point},
@@ -332,6 +332,7 @@ pub fn enemy_ai(
     }
 
     if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location {
+      if ez != pz { continue; }
       let dist = (px - ex).abs().max((py - ey).abs());
       if player_invisible && dist > 1 {
         continue;
@@ -659,6 +660,21 @@ pub fn tick_invisible(
       log_message(&mut log, format!("{name} shimmer back into visibility."));
     } else {
       invis.0 -= 1;
+    }
+  }
+}
+
+pub fn tick_phasing(
+  mut commands: Commands,
+  mut log: ResMut<LogEntries>,
+  mut q: Query<(Entity, &mut Phasing)>
+) {
+  for (entity, mut p) in q.iter_mut() {
+    if p.0 <= 1 {
+      commands.entity(entity).remove::<Phasing>();
+      log_message(&mut log, "You resolidify.".into());
+    } else {
+      p.0 -= 1;
     }
   }
 }
