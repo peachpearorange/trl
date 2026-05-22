@@ -8,10 +8,14 @@ default-run = "trl"
 name = "trl"
 path = "src/main.rs"
 
+[[bin]]
+name = "editor"
+path = "src/editor.rs"
+
 [dependencies]
 bevy = { version = "0.18.1" }
 bevy_hanabi = "0.18"
-rand = "*"
+rand = { version = "0.8", features = ["small_rng"] }
 serde = { version = "*", features = ["derive"] }
 image = "*"
 enum-assoc = "*"
@@ -19,6 +23,12 @@ haalka = "*"
 noise = "*"
 bevy_ghx_proc_gen = "0.8.0"
 num_enum = "0.7.6"
+wfc = "0.10.7"
+coord_2d = "0.3.7"
+grid_2d = "0.15.3"
+
+[build-dependencies]
+ghx_proc_gen = "0.8.0"
 
 # Optimize dependencies at opt-level 3 even in debug builds; game code stays
 # unoptimized so recompiles stay fast but Bevy/rendering is not a bottleneck.

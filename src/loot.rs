@@ -36,12 +36,12 @@ pub fn roll_chest_loot(world_seed: u64, wx: i32, wy: i32, z: usize) -> Vec<(Item
       ^ (z as u64).wrapping_mul(0xC2B2_AE3D_21D0_4E21)
   );
   let depth = 0u32;
-  let tier: f32 = 1.0 + rng.random_range(0.15..0.65);
+  let tier: f32 = 1.0 + rng.gen_range(0.15..0.65);
   let slot_bonus = ((tier - 1.0_f32).floor() as usize).clamp(0, 4);
-  let rolls = 2 + slot_bonus + rng.random_range(0..=depth.min(3) as usize);
+  let rolls = 2 + slot_bonus + rng.gen_range(0..=depth.min(3) as usize);
   let mut out: Vec<(Item, u32)> = Vec::new();
   for _ in 0..rolls {
-    let pick = rng.random::<f32>() * tier;
+    let pick = rng.r#gen::<f32>() * tier;
     let pool = if pick < 0.21 {
       WEAPONS
     } else if pick < 0.40 {
@@ -51,17 +51,17 @@ pub fn roll_chest_loot(world_seed: u64, wx: i32, wy: i32, z: usize) -> Vec<(Item
     } else {
       COMPONENTS
     };
-    let idx = rng.random_range(0..pool.len());
+    let idx = rng.gen_range(0..pool.len());
     let item = pool[idx];
     let qty = stack_qty(&mut rng, tier, item);
     merge(&mut out, item, qty);
   }
   let gold_p = 0.40_f64;
-  if rng.random_bool(gold_p) {
+  if rng.gen_bool(gold_p) {
     merge(
       &mut out,
       Item::GoldCoin,
-      rng.random_range(2..=15u32.saturating_add(depth.saturating_mul(6)))
+      rng.gen_range(2..=15u32.saturating_add(depth.saturating_mul(6)))
     );
   }
   out
@@ -82,7 +82,7 @@ fn stack_qty(rng: &mut impl Rng, tier: f32, item: Item) -> u32 {
   if !components {
     return 1;
   }
-  let base = rng.random_range(2..=7);
+  let base = rng.gen_range(2..=7);
   let bonus = (tier * 0.5).floor() as u32;
   base + bonus
 }

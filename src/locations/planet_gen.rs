@@ -1,14 +1,6 @@
 use {crate::{entities::Object,
              galaxy::{Location, LocationId},
              level::{Level, LocationType, Tile}},
-     bevy_ghx_proc_gen::proc_gen::{generator::{RngMode,
-                                               builder::GeneratorBuilder,
-                                               model::ModelCollection,
-                                               rules::RulesBuilder,
-                                               socket::{SocketCollection,
-                                                        SocketsCartesian2D}},
-                                   ghx_grid::cartesian::{coordinates::Cartesian2D,
-                                                         grid::CartesianGrid}},
      rand::{Rng, SeedableRng, rngs::SmallRng},
      std::collections::VecDeque};
 
@@ -30,14 +22,21 @@ pub fn all_ids() -> Vec<(LocationId, &'static str)> {
   ]
 }
 
+const GRID_ALIEN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/planet_alien.bin"));
+const GRID_CRYSTAL: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/planet_crystal.bin"));
+const GRID_ARCTIC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/planet_arctic.bin"));
+const GRID_DESERT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/planet_desert.bin"));
+const GRID_BRIGHT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/planet_bright.bin"));
+const GRID_LAVA: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/planet_lava.bin"));
+
 pub fn generate_by_id(id: LocationId) -> Option<Location> {
   match id {
-    ID_ALIEN_JUNGLE => Some(generate(&PlanetParams::alien("Xel-Nara IV").with_water(0.35).with_vegetation(0.6))),
-    ID_CRYSTAL_CAVES => Some(generate(&PlanetParams::crystal("Keth Caverns").with_rocks(0.4).with_vegetation(0.4))),
-    ID_ARCTIC_WASTE => Some(generate(&PlanetParams::arctic("Boreas Prime").with_water(0.25).with_rocks(0.3))),
-    ID_DESERT_WORLD => Some(generate(&PlanetParams::desert("Khamsin Reach").with_water(0.08).with_rocks(0.35))),
-    ID_LAVA_WORLD => Some(generate_lava(&PlanetParams::lava("Pyros Maw").with_rocks(0.5))),
-    ID_BRIGHT_WORLD => Some(generate(&PlanetParams::bright("Lumos Reach").with_water(0.15).with_rocks(0.3))),
+    ID_ALIEN_JUNGLE => Some(generate(&PlanetParams::alien("Xel-Nara IV"), GRID_ALIEN)),
+    ID_CRYSTAL_CAVES => Some(generate(&PlanetParams::crystal("Keth Caverns"), GRID_CRYSTAL)),
+    ID_ARCTIC_WASTE => Some(generate(&PlanetParams::arctic("Boreas Prime"), GRID_ARCTIC)),
+    ID_DESERT_WORLD => Some(generate(&PlanetParams::desert("Khamsin Reach"), GRID_DESERT)),
+    ID_LAVA_WORLD => Some(generate_lava(&PlanetParams::lava("Pyros Maw"), GRID_LAVA)),
+    ID_BRIGHT_WORLD => Some(generate(&PlanetParams::bright("Lumos Reach"), GRID_BRIGHT)),
     _ => None,
   }
 }
@@ -167,115 +166,59 @@ fn is_solid_ground(tile: Tile) -> bool {
 
 fn scaled(param: f32, scale: f32) -> f32 { (param * scale).max(0.05) }
 
-pub fn generate(params: &PlanetParams) -> Location {
-  let mut sockets = SocketCollection::new();
-  let ground = sockets.create();
-  let feature = sockets.create();
-  let shallow = sockets.create();
-  let deep = sockets.create();
-  let rock = sockets.create();
-
-  sockets.add_connections([
-    (ground, vec![ground, feature, shallow, rock]),
-    (feature, vec![feature, ground]),
-    (shallow, vec![shallow, deep, ground]),
-    (deep, vec![deep, shallow]),
-    (rock, vec![rock, ground])
-  ]);
-
-  let mut models = ModelCollection::<Cartesian2D>::new();
-  // (tile, optional entity to spawn when this model is placed)
+fn generate(params: &PlanetParams, grid_indices: &[u8]) -> Location {
   let mut tile_map: Vec<(Tile, Option<fn() -> Object>)> = Vec::new();
-
-  macro_rules! tile {
-    ($sock:expr, $weight:expr, $t:expr) => {{
-      models.create(SocketsCartesian2D::Mono($sock)).with_weight($weight);
-      tile_map.push(($t, None));
-    }};
-    ($sock:expr, $weight:expr, $t:expr, $e:expr) => {{
-      models.create(SocketsCartesian2D::Mono($sock)).with_weight($weight);
-      tile_map.push(($t, Some($e as fn() -> Object)));
-    }};
-  }
-
-  let &PlanetParams {
-    water_coverage: wc,
-    vegetation_density: vd,
-    rock_frequency: rf,
-    ..
-  } = params;
-
-  // let (wc, vd, rf) = (params.water_coverage, params.vegetation_density, params.rock_frequency);
 
   match params.biome {
     PlanetBiome::Grassland => {
-      tile!(ground, 10.0, Tile::Grass);
-      tile!(feature, scaled(vd, 8.0), Tile::TallGrass); // tall grass clusters
-      tile!(feature, scaled(vd, 4.0), Tile::Bush); // bush clusters
-      tile!(shallow, scaled(wc, 8.0), Tile::ShallowWater);
-      tile!(deep, scaled(wc, 4.0), Tile::DeepWater);
-      tile!(rock, scaled(rf, 8.0), Tile::Wall);
+      tile_map.push((Tile::Grass, None));
+      tile_map.push((Tile::TallGrass, None));
+      tile_map.push((Tile::Bush, None));
+      tile_map.push((Tile::ShallowWater, None));
+      tile_map.push((Tile::DeepWater, None));
+      tile_map.push((Tile::Wall, None));
     }
     PlanetBiome::Desert => {
-      tile!(ground, 10.0, Tile::Ash);
-      tile!(feature, scaled(rf, 5.0), Tile::CaveFloor); // hardpan patches
-      tile!(rock, scaled(rf, 8.0), Tile::CaveWall);
-      tile!(shallow, scaled(wc, 4.0), Tile::AlienFluid);
-      tile!(deep, scaled(wc, 2.0), Tile::AcidPool);
+      tile_map.push((Tile::Ash, None));
+      tile_map.push((Tile::CaveFloor, None));
+      tile_map.push((Tile::CaveWall, None));
+      tile_map.push((Tile::AlienFluid, None));
+      tile_map.push((Tile::AcidPool, None));
     }
     PlanetBiome::Crystal => {
-      tile!(ground, 8.0, Tile::CaveFloor);
-      tile!(rock, scaled(rf, 8.0), Tile::CaveWall);
-      tile!(feature, scaled(vd, 6.0), Tile::CrystalFormation); // crystal clusters
-      tile!(feature, scaled(vd, 3.0), Tile::Ash);
-      tile!(shallow, scaled(wc, 3.0), Tile::BioluminescentPool);
-      tile!(deep, scaled(wc, 2.0), Tile::AcidPool);
-      // Mantis: ambush predators lurking among crystal formations
-      tile!(feature, 0.35, Tile::CrystalFormation, Object::mantis_alien);
+      tile_map.push((Tile::CaveFloor, None));
+      tile_map.push((Tile::CaveWall, None));
+      tile_map.push((Tile::CrystalFormation, None));
+      tile_map.push((Tile::Ash, None));
+      tile_map.push((Tile::BioluminescentPool, None));
+      tile_map.push((Tile::AcidPool, None));
+      tile_map.push((Tile::CrystalFormation, Some(Object::mantis_alien as fn() -> Object)));
     }
     PlanetBiome::Alien => {
-      tile!(ground, 10.0, Tile::AlienSoil);
-      tile!(feature, scaled(vd, 8.0), Tile::AlienGrass); // grass clusters in patches
-      tile!(shallow, scaled(wc, 5.0), Tile::AlienFluid);
-      tile!(deep, scaled(wc, 3.0), Tile::BioluminescentPool);
-      tile!(rock, scaled(rf, 5.0), Tile::CaveWall);
-      // Hunters: rare, WFC-placed on feature cells; underlying tile stays walkable
-      tile!(feature, 0.4, Tile::AlienSoil, Object::alien_runner);
-      // Crawlers: slower and tankier, spawn on ground
-      tile!(ground, 0.3, Tile::AlienSoil, Object::crab_alien);
+      tile_map.push((Tile::AlienSoil, None));
+      tile_map.push((Tile::AlienGrass, None));
+      tile_map.push((Tile::AlienFluid, None));
+      tile_map.push((Tile::BioluminescentPool, None));
+      tile_map.push((Tile::CaveWall, None));
+      tile_map.push((Tile::AlienSoil, Some(Object::alien_runner as fn() -> Object)));
+      tile_map.push((Tile::AlienSoil, Some(Object::crab_alien as fn() -> Object)));
     }
     PlanetBiome::Arctic => {
-      tile!(ground, 10.0, Tile::IceFloor);
-      tile!(rock, scaled(rf, 8.0), Tile::IceWall);
-      tile!(shallow, scaled(wc, 6.0), Tile::ShallowWater);
-      tile!(deep, scaled(wc, 3.0), Tile::DeepWater);
+      tile_map.push((Tile::IceFloor, None));
+      tile_map.push((Tile::IceWall, None));
+      tile_map.push((Tile::ShallowWater, None));
+      tile_map.push((Tile::DeepWater, None));
     }
     PlanetBiome::Lava => unreachable!("lava uses generate_lava"),
     PlanetBiome::Bright => {
-      tile!(ground, 10.0, Tile::BrightGround);
-      tile!(rock, scaled(rf, 8.0), Tile::BrightCobbleWall);
-      tile!(shallow, scaled(wc, 5.0), Tile::ShallowWater);
-      tile!(deep, scaled(wc, 2.0), Tile::DeepWater);
-      tile!(ground, 0.4, Tile::BrightGround, Object::gunman);
-      tile!(ground, 0.1, Tile::BrightGround, Object::grenade_thrower);
+      tile_map.push((Tile::BrightGround, None));
+      tile_map.push((Tile::BrightCobbleWall, None));
+      tile_map.push((Tile::ShallowWater, None));
+      tile_map.push((Tile::DeepWater, None));
+      tile_map.push((Tile::BrightGround, Some(Object::gunman as fn() -> Object)));
+      tile_map.push((Tile::BrightGround, Some(Object::grenade_thrower as fn() -> Object)));
     }
   }
-
-  let rules = RulesBuilder::new_cartesian_2d(models, sockets)
-    .build()
-    .expect("planet_gen: rules build failed");
-  let grid =
-    CartesianGrid::new_cartesian_2d(PLANET_SIZE as u32, PLANET_SIZE as u32, false, false);
-  let mut generator = GeneratorBuilder::new()
-    .with_rules(rules)
-    .with_grid(grid)
-    .with_rng(RngMode::Seeded(SEED))
-    .with_max_retry_count(100)
-    .build()
-    .expect("planet_gen: generator build failed");
-
-  let (_info, grid_data) =
-    generator.generate_grid().expect("planet_gen: generation failed");
 
   let fill = tile_map[0].0;
   let mut loc = Location::new(
@@ -289,18 +232,20 @@ pub fn generate(params: &PlanetParams) -> Location {
 
   {
     let level = loc.level_mut(0);
-    for y in 0..PLANET_SIZE as u32 {
-      for x in 0..PLANET_SIZE as u32 {
-        let (tile, _) = tile_map[grid_data.get_2d(x, y).model_index];
+    for y in 0..PLANET_SIZE {
+      for x in 0..PLANET_SIZE {
+        let idx = grid_indices[y * PLANET_SIZE + x] as usize;
+        let (tile, _) = tile_map[idx];
         level.set(x as i32, y as i32, tile);
       }
     }
     place_ship_dock(level, fill);
   }
 
-  for y in 0..PLANET_SIZE as u32 {
-    for x in 0..PLANET_SIZE as u32 {
-      let (_, entity_fn) = tile_map[grid_data.get_2d(x, y).model_index];
+  for y in 0..PLANET_SIZE {
+    for x in 0..PLANET_SIZE {
+      let idx = grid_indices[y * PLANET_SIZE + x] as usize;
+      let (_, entity_fn) = tile_map[idx];
       if let Some(spawn) = entity_fn {
         loc.spawn_objects.push((x as i32, y as i32, 0, spawn()));
       }
@@ -331,7 +276,7 @@ fn generate_cave_sublevel(loc: &mut Location) {
   let mut cells = vec![vec![false; size]; size];
   for y in 2..size - 2 {
     for x in 2..size - 2 {
-      cells[y][x] = rng.random_bool(CAVE_FILL_CHANCE);
+      cells[y][x] = rng.gen_bool(CAVE_FILL_CHANCE);
     }
   }
   for _ in 0..CAVE_SMOOTH_PASSES {
@@ -523,85 +468,9 @@ fn place_ship_dock(level: &mut Level, fill: Tile) {
   level.set(sx, sy, Tile::ShipDock);
 }
 
-fn generate_lava(params: &PlanetParams) -> Location {
-  let mut sockets = SocketCollection::new();
-  let s_wall = sockets.create();
-  let s_edge = sockets.create();
-  let s_run = sockets.create();
-
-  sockets.add_connections([
-    (s_wall, vec![s_wall, s_edge]),
-    (s_edge, vec![s_wall, s_edge, s_run]),
-    (s_run, vec![s_run, s_edge])
-  ]);
-
-  let mut models = ModelCollection::<Cartesian2D>::new();
-  let mut tile_map: Vec<Tile> = Vec::new();
-
-  // Rock
-  models.create(SocketsCartesian2D::Mono(s_wall)).with_weight(3.0);
-  tile_map.push(Tile::CaveWall);
-
-  // Edge (corridor terminator / flexible transition)
-  models.create(SocketsCartesian2D::Mono(s_edge)).with_weight(1.5);
-  tile_map.push(Tile::Ash);
-
-  // Straight corridor (extends along x, stackable along y for width)
-  models
-    .create(SocketsCartesian2D::Simple {
-      x_pos: s_run,
-      x_neg: s_run,
-      y_pos: s_edge,
-      y_neg: s_edge
-    })
-    .with_weight(5.0)
-    // .with_all_rotations()
-  ;
-  tile_map.push(Tile::Ash);
-
-  // Corner (s_run on two adjacent sides)
-  models
-    .create(SocketsCartesian2D::Simple {
-      x_pos: s_run,
-      x_neg: s_edge,
-      y_pos: s_run,
-      y_neg: s_edge
-    })
-    .with_weight(0.1)
-    .with_all_rotations();
-  tile_map.push(Tile::Ash);
-
-  // T-junction (s_run on three sides)
-  models
-    .create(SocketsCartesian2D::Simple {
-      x_pos: s_run,
-      x_neg: s_run,
-      y_pos: s_run,
-      y_neg: s_edge
-    })
-    .with_weight(0.5)
-    .with_all_rotations();
-  tile_map.push(Tile::Ash);
-
-  // Cross (s_run on all sides — full intersection)
-  models.create(SocketsCartesian2D::Mono(s_run)).with_weight(0.5);
-  tile_map.push(Tile::Ash);
-
-  let rules = RulesBuilder::new_cartesian_2d(models, sockets)
-    .build()
-    .expect("lava_gen: rules build failed");
-  let grid =
-    CartesianGrid::new_cartesian_2d(PLANET_SIZE as u32, PLANET_SIZE as u32, false, false);
-  let mut generator = GeneratorBuilder::new()
-    .with_rules(rules)
-    .with_grid(grid)
-    .with_rng(RngMode::Seeded(SEED))
-    .with_max_retry_count(100)
-    .build()
-    .expect("lava_gen: generator build failed");
-
-  let (_info, grid_data) =
-    generator.generate_grid().expect("lava_gen: generation failed");
+fn generate_lava(params: &PlanetParams, grid_indices: &[u8]) -> Location {
+  // model_index → tile: 0=CaveWall, 1=Ash(edge), 2=Ash(straight), 3=Ash(corner), 4=Ash(T), 5=Ash(cross), 6=CaveWall(patches)
+  let tile_map: &[Tile] = &[Tile::CaveWall, Tile::Ash, Tile::Ash, Tile::Ash, Tile::Ash, Tile::Ash, Tile::CaveWall];
 
   let mut loc = Location::new(
     params.name,
@@ -614,9 +483,9 @@ fn generate_lava(params: &PlanetParams) -> Location {
 
   {
     let level = loc.level_mut(0);
-    for y in 0..PLANET_SIZE as u32 {
-      for x in 0..PLANET_SIZE as u32 {
-        level.set(x as i32, y as i32, tile_map[grid_data.get_2d(x, y).model_index]);
+    for y in 0..PLANET_SIZE {
+      for x in 0..PLANET_SIZE {
+        level.set(x as i32, y as i32, tile_map[grid_indices[y * PLANET_SIZE + x] as usize]);
       }
     }
 
@@ -625,7 +494,7 @@ fn generate_lava(params: &PlanetParams) -> Location {
     for y in 0..size {
       for x in 0..size {
         if level.get(x, y) == Some(Tile::Ash) {
-          let r: f64 = rng.random();
+          let r: f64 = rng.r#gen();
           if r < 0.03 {
             level.set(x, y, Tile::Lava);
           } else if r < 0.04 {
@@ -649,11 +518,12 @@ fn generate_lava(params: &PlanetParams) -> Location {
   for y in 0..size {
     for x in 0..size {
       if loc.level(0).get(x, y) != Some(Tile::Ash) {
-        continue;
-      }
-      let _: f64 = rng.random();
-      if rng.random_bool(0.01) {
-        loc.spawn_objects.push((x, y, 0, Object::lava_crab()));
+        let _: f64 = rng.r#gen();
+      } else {
+        let _: f64 = rng.r#gen();
+        if rng.gen_bool(0.01) {
+          loc.spawn_objects.push((x, y, 0, Object::lava_crab()));
+        }
       }
     }
   }

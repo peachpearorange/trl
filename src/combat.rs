@@ -204,7 +204,7 @@ pub fn npc_wander(
   collidable_q: Query<&Collidable>,
   mut npc_q: Query<(&mut Location, &mut WalkAroundRandomly, Option<&FollowerState>), Without<Enemy>>
 ) {
-  let mut rng = rand::rng();
+  let mut rng = rand::thread_rng();
   for (mut location, mut wander, follower_state) in npc_q.iter_mut() {
     let wandering = follower_state.map_or(true, |s| *s == FollowerState::Available);
     wander.timer += 1;
@@ -325,7 +325,7 @@ pub fn enemy_ai(
 
   let mut claimed: HashSet<(i32, i32)> = HashSet::new();
 
-  let mut rng = rand::rng();
+  let mut rng = rand::thread_rng();
   for (enemy_entity, mut location, mut timer, enemy_stats, mut enemy_loadout, enemy_named, drift) in enemy_q.iter_mut() {
     timer.attack = timer.attack.saturating_add(1);
     timer.movement = timer.movement.saturating_add(1);
@@ -369,7 +369,7 @@ pub fn enemy_ai(
       }
       if timer.movement >= mov_fr && dist > 1 {
         let level = current.0.level(ez);
-        let next = if drift.is_some_and(|d| rand::Rng::random::<f32>(&mut rng) < d.0) {
+        let next = if drift.is_some_and(|d| rand::Rng::r#gen::<f32>(&mut rng) < d.0) {
           let mut dirs = NEIGHBOR_DIRS;
           dirs.shuffle(&mut rng);
           dirs.iter().find_map(|&(dx, dy)| {

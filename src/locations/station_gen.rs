@@ -75,13 +75,13 @@ impl BspNode {
         let can_split = self.cell.w >= min_size * 2 || self.cell.h >= min_size * 2;
         // Stop early only for medium-sized cells so we get fat-but-not-giant hub rooms.
         let medium = self.cell.w <= 22 && self.cell.h <= 22;
-        let early_stop = can_split && depth > 0 && medium && rng.random_bool(0.25);
+        let early_stop = can_split && depth > 0 && medium && rng.gen_bool(0.25);
         if depth == 0 || !can_split || early_stop {
             // Leaf: carve a room. Fat rooms get a small inset; regular rooms get a random one.
             let max_inset_x = if early_stop { 1 } else { (self.cell.w / 4).max(1) };
             let max_inset_y = if early_stop { 1 } else { (self.cell.h / 4).max(1) };
-            let inset_x = rng.random_range(1..=max_inset_x);
-            let inset_y = rng.random_range(1..=max_inset_y);
+            let inset_x = rng.gen_range(1..=max_inset_x);
+            let inset_y = rng.gen_range(1..=max_inset_y);
             let rw = self.cell.w.saturating_sub(inset_x * 2).max(3);
             let rh = self.cell.h.saturating_sub(inset_y * 2).max(3);
             self.room = Some(Rect {
@@ -95,19 +95,19 @@ impl BspNode {
 
         // Prefer splitting along the longer axis
         let split_h = if self.cell.w >= min_size * 2 && self.cell.h >= min_size * 2 {
-            rng.random_bool(0.5)
+            rng.gen_bool(0.5)
         } else {
             self.cell.w >= min_size * 2
         };
 
         if split_h {
-            let split = rng.random_range(min_size..=self.cell.w - min_size);
+            let split = rng.gen_range(min_size..=self.cell.w - min_size);
             let left_cell = Rect { x: self.cell.x, y: self.cell.y, w: split, h: self.cell.h };
             let right_cell = Rect { x: self.cell.x + split, y: self.cell.y, w: self.cell.w - split, h: self.cell.h };
             self.left = Some(Box::new(BspNode::leaf(left_cell).split(rng, min_size, depth - 1)));
             self.right = Some(Box::new(BspNode::leaf(right_cell).split(rng, min_size, depth - 1)));
         } else {
-            let split = rng.random_range(min_size..=self.cell.h - min_size);
+            let split = rng.gen_range(min_size..=self.cell.h - min_size);
             let left_cell = Rect { x: self.cell.x, y: self.cell.y, w: self.cell.w, h: split };
             let right_cell = Rect { x: self.cell.x, y: self.cell.y + split, w: self.cell.w, h: self.cell.h - split };
             self.left = Some(Box::new(BspNode::leaf(left_cell).split(rng, min_size, depth - 1)));
@@ -217,7 +217,7 @@ pub fn generate(params: &StationParams) -> Location {
 
         // Place conduit strips in some corridors for visual interest
         for ((ax, ay), (bx, by)) in &corridors {
-            if rng.random_bool(0.3) {
+            if rng.gen_bool(0.3) {
                 stamp_conduit(level, *ax, *ay, *bx, *by);
             }
         }
@@ -314,14 +314,14 @@ fn place_room_doors(level: &mut Level, room: &Rect, rng: &mut SmallRng) -> Vec<(
     for x in rx..rx + rw {
         if level.get(x, ry) == Some(Tile::StationWall)
             && level.get(x, ry - 1) == Some(Tile::DeckPlate)
-            && rng.random_bool(0.6)
+            && rng.gen_bool(0.6)
         {
             level.set(x, ry, Tile::StationFloor);
             doors.push((x, ry));
         }
         if level.get(x, ry + rh - 1) == Some(Tile::StationWall)
             && level.get(x, ry + rh) == Some(Tile::DeckPlate)
-            && rng.random_bool(0.6)
+            && rng.gen_bool(0.6)
         {
             level.set(x, ry + rh - 1, Tile::StationFloor);
             doors.push((x, ry + rh - 1));
@@ -331,14 +331,14 @@ fn place_room_doors(level: &mut Level, room: &Rect, rng: &mut SmallRng) -> Vec<(
     for y in ry..ry + rh {
         if level.get(rx, y) == Some(Tile::StationWall)
             && level.get(rx - 1, y) == Some(Tile::DeckPlate)
-            && rng.random_bool(0.6)
+            && rng.gen_bool(0.6)
         {
             level.set(rx, y, Tile::StationFloor);
             doors.push((rx, y));
         }
         if level.get(rx + rw - 1, y) == Some(Tile::StationWall)
             && level.get(rx + rw, y) == Some(Tile::DeckPlate)
-            && rng.random_bool(0.6)
+            && rng.gen_bool(0.6)
         {
             level.set(rx + rw - 1, y, Tile::StationFloor);
             doors.push((rx + rw - 1, y));
@@ -361,7 +361,7 @@ fn place_windows(level: &mut Level, size: usize, rng: &mut SmallRng) {
             let has_floor  = neighbors.iter().any(|&(nx, ny)| matches!(
                 level.get(nx, ny), Some(Tile::StationFloor) | Some(Tile::DeckPlate)
             ));
-            if has_vacuum && has_floor && rng.random_bool(0.45) {
+            if has_vacuum && has_floor && rng.gen_bool(0.45) {
                 level.set(x, y, Tile::Window);
             }
         }
@@ -381,12 +381,12 @@ fn add_internal_walls(level: &mut Level, room: &Rect, rng: &mut SmallRng) {
 /// Spine wall: a partial wall through the room centre with a doorway-width gap.
 /// The wall stops short of room edges so it never seals off a corridor entrance.
 fn add_spine_wall(level: &mut Level, inner: &Rect, rng: &mut SmallRng) {
-    let horizontal = rng.random_bool(0.5);
+    let horizontal = rng.gen_bool(0.5);
     let gap = 3usize; // passage width
     if horizontal && inner.w > gap + 4 {
         let wy = (inner.y + inner.h / 2) as i32;
         // Gap at a random position in the middle half of the room.
-        let gap_x = inner.x + rng.random_range(2..inner.w.saturating_sub(gap + 2));
+        let gap_x = inner.x + rng.gen_range(2..inner.w.saturating_sub(gap + 2));
         let wall_start = (inner.x + 1) as i32;
         let wall_end   = (inner.x + inner.w - 1) as i32;
         for x in wall_start..=wall_end {
@@ -397,7 +397,7 @@ fn add_spine_wall(level: &mut Level, inner: &Rect, rng: &mut SmallRng) {
         }
     } else if !horizontal && inner.h > gap + 4 {
         let wx = (inner.x + inner.w / 2) as i32;
-        let gap_y = inner.y + rng.random_range(2..inner.h.saturating_sub(gap + 2));
+        let gap_y = inner.y + rng.gen_range(2..inner.h.saturating_sub(gap + 2));
         let wall_start = (inner.y + 1) as i32;
         let wall_end   = (inner.y + inner.h - 1) as i32;
         for y in wall_start..=wall_end {
