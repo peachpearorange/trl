@@ -104,14 +104,13 @@ fn bfs_flow_field(origin: (i32, i32), level: &crate::level::Level) -> HashMap<(i
   while let Some((x, y)) = queue.pop_front() {
     for &(dx, dy) in &NEIGHBOR_DIRS {
       let (nx, ny) = (x + dx, y + dy);
-      if came_from.contains_key(&(nx, ny)) || !level.walkable(nx, ny) {
-        continue;
+      if !came_from.contains_key(&(nx, ny))
+          && level.walkable(nx, ny)
+          && (dx == 0 || dy == 0 || level.walkable(x + dx, y) || level.walkable(x, y + dy))
+      {
+        came_from.insert((nx, ny), (x, y));
+        queue.push_back((nx, ny));
       }
-      if dx != 0 && dy != 0 && !level.walkable(x + dx, y) && !level.walkable(x, y + dy) {
-        continue;
-      }
-      came_from.insert((nx, ny), (x, y));
-      queue.push_back((nx, ny));
     }
   }
   came_from
