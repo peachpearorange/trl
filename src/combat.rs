@@ -331,15 +331,12 @@ pub fn enemy_ai(
       grab_slot.timer = grab_slot.timer.saturating_add(1);
     }
 
-    if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location {
-      if ez != pz { continue; }
-      let dist = (px - ex).abs().max((py - ey).abs());
-      if player_invisible && dist > 1 {
-        continue;
-      }
-      if dist > 24 || !fov.0.is_visible(ex as usize, ey as usize) {
-        continue;
-      }
+    if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location
+        && ez == pz
+        && let dist = (px - ex).abs().max((py - ey).abs())
+        && !(player_invisible && dist > 1)
+        && dist <= 24 && fov.0.is_visible(ex as usize, ey as usize)
+    {
       let atk_fr = attack_interval(enemy_stats.attack_speed);
       let mov_fr = move_interval(enemy_stats.move_speed);
 
@@ -368,7 +365,7 @@ pub fn enemy_ai(
         });
         timer.attack = 0;
       }
-      if ez == pz && timer.movement >= mov_fr && dist > 1 {
+      if timer.movement >= mov_fr && dist > 1 {
         let level = current.0.level(ez);
         let next = if drift.is_some_and(|d| rand::Rng::random::<f32>(&mut rng) < d.0) {
           let mut dirs = NEIGHBOR_DIRS;
