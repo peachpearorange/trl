@@ -71,6 +71,7 @@ pub fn all() -> Vec<(LocationId, Location)> {
 }
 
 pub const PLANET_SIZE: usize = 300;
+pub const SEED: u64 = 0xDEAD_BEEF;
 
 #[derive(Clone, Copy, Debug)]
 pub enum PlanetBiome {
@@ -296,7 +297,7 @@ pub fn generate(params: &PlanetParams) -> Location {
   let mut generator = GeneratorBuilder::new()
     .with_rules(rules)
     .with_grid(grid)
-    .with_rng(RngMode::RandomSeed)
+    .with_rng(RngMode::Seeded(SEED))
     .with_max_retry_count(100)
     .build()
     .expect("planet_gen: generator build failed");
@@ -345,7 +346,7 @@ const CAVE_SMOOTH_PASSES: usize = 5;
 
 fn generate_cave_sublevel(loc: &mut Location) {
   let size = loc.width;
-  let mut rng = SmallRng::from_os_rng();
+  let mut rng = SmallRng::seed_from_u64(SEED);
 
   let cave = loc.level_mut(1);
   for y in 0..size {
@@ -622,7 +623,7 @@ fn generate_lava(params: &PlanetParams) -> Location {
   let mut generator = GeneratorBuilder::new()
     .with_rules(rules)
     .with_grid(grid)
-    .with_rng(RngMode::RandomSeed)
+    .with_rng(RngMode::Seeded(SEED))
     .with_max_retry_count(100)
     .build()
     .expect("lava_gen: generator build failed");
@@ -647,7 +648,7 @@ fn generate_lava(params: &PlanetParams) -> Location {
       }
     }
 
-    let mut rng = SmallRng::from_os_rng();
+    let mut rng = SmallRng::seed_from_u64(SEED);
     let size = PLANET_SIZE as i32;
     for y in 0..size {
       for x in 0..size {
@@ -671,7 +672,7 @@ fn generate_lava(params: &PlanetParams) -> Location {
     level.set(dock.0, dock.1, Tile::ShipDock);
   }
 
-  let mut rng = SmallRng::from_os_rng();
+  let mut rng = SmallRng::seed_from_u64(SEED);
   let size = PLANET_SIZE as i32;
   for y in 0..size {
     for x in 0..size {
