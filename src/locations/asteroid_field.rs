@@ -1,11 +1,11 @@
 use crate::{galaxy::{Location, LocationId},
-          level::{LocationType, Tile, ZONE_WIDTH, ZONE_HEIGHT}};
+          level::{LocationType, Tile}};
 
 pub const ID: LocationId = (1, 0, 0);
 
 pub fn generate() -> Location {
-  const W: usize = ZONE_WIDTH;
-  const H: usize = ZONE_HEIGHT;
+  const W: usize = 48;
+  const H: usize = 48;
   let mut loc = Location::new("Asteroid Field", W, H, 1, LocationType::AsteroidField, Tile::Vacuum);
   let level = loc.level_mut(0);
   let cx = W as f32 * 0.5;

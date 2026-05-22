@@ -101,6 +101,7 @@ pub enum Gear {
   InnateGun { damage: i32 },
   InnateGrenadeThrow { min_range: i32 },
   InnateSporeEmit,
+  InnateGrab,
   NaturalArmor { dr: i32 },
 }
 
@@ -109,7 +110,7 @@ impl Gear {
   pub fn is_armor(self) -> bool { matches!(self, Gear::Armor(_) | Gear::NaturalArmor { .. }) }
   pub fn is_grenade(self) -> bool { matches!(self, Gear::Grenade(_)) }
   pub fn is_ability(self) -> bool {
-    matches!(self, Gear::InnateGun { .. } | Gear::InnateGrenadeThrow { .. } | Gear::InnateSporeEmit)
+    matches!(self, Gear::InnateGun { .. } | Gear::InnateGrenadeThrow { .. } | Gear::InnateSporeEmit | Gear::InnateGrab)
   }
 
   pub fn weapon_capacity_bonus(self) -> u32 { 0 }
@@ -202,6 +203,10 @@ impl Loadout {
     self.gear.iter_mut().find(|s| matches!(s.gear, Gear::InnateSporeEmit))
   }
 
+  pub fn grab_mut(&mut self) -> Option<&mut GearSlot> {
+    self.gear.iter_mut().find(|s| matches!(s.gear, Gear::InnateGrab))
+  }
+
   pub fn weapon_count(&self) -> u32 {
     self.gear.iter().filter(|s| s.gear.is_weapon()).count() as u32
   }
@@ -271,6 +276,25 @@ impl Loadout {
     slots.get(slot_idx).map(|&real_idx| {
       let item = match self.gear[real_idx].gear {
         Gear::Grenade(item) => item,
+        _ => unreachable!()
+      };
+      self.gear.remove(real_idx);
+      item
+    })
+  }
+
+  pub fn equip_device(&mut self, item: crate::level::Item) {
+    self.gear.push(GearSlot::stacked(Gear::Device(item), 1));
+  }
+
+  pub fn unequip_device_at(&mut self, slot_idx: usize) -> Option<crate::level::Item> {
+    let slots: Vec<usize> = self.gear.iter().enumerate()
+      .filter(|(_, s)| matches!(s.gear, Gear::Device(_)))
+      .map(|(i, _)| i)
+      .collect();
+    slots.get(slot_idx).map(|&real_idx| {
+      let item = match self.gear[real_idx].gear {
+        Gear::Device(item) => item,
         _ => unreachable!()
       };
       self.gear.remove(real_idx);
@@ -455,9 +479,12 @@ pub struct Stats {
 }
 
 
-/// Tracks display frames since the entity last acted. Used by enemy AI.
+/// Tracks sim steps since the entity last attacked / moved. Used by enemy AI.
 #[derive(Component, Clone, Copy, Debug, Default)]
-pub struct TimeSinceAction(pub u32);
+pub struct TimeSinceAction {
+  pub attack: u32,
+  pub movement: u32,
+}
 
 /// Marker: this entity is affected by gravity and will fall through Air tiles.
 #[derive(Component, Clone, Copy, Debug)]
@@ -466,10 +493,6 @@ pub struct Gravity;
 /// Per-move probability of stepping to a random walkable neighbor instead of toward the player.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct DriftChance(pub f32);
-
-/// Marker: this enemy type can grab the player, holding them in place.
-#[derive(Component, Clone, Copy, Debug)]
-pub struct CanGrab;
 
 /// The player (or entity) is grabbed by another entity and cannot move.
 /// Decremented each sim step; removed when it reaches 0.
@@ -785,7 +808,7 @@ impl Object {
   }
   pub fn player() -> Self { Self::character(Faction::Player).add(Player) }
   pub fn enemy() -> Self {
-    Self::character(Faction::Hostile).add((Enemy, TimeSinceAction(0), Path::default()))
+    Self::character(Faction::Hostile).add((Enemy, TimeSinceAction::default(), Path::default()))
   }
   pub fn structure(blocks: bool) -> Self { Self::physical(blocks) }
   pub fn wall(material: Material) -> Self {
@@ -937,7 +960,13 @@ impl Object {
       Named { name: "Thruster", flavor: "A directional thruster assembly. Keeps the ship moving." },
     ))
   }
-  pub fn ground_item(item: crate::level::Item) -> Self { Self::new(GroundItem(item)) }
+  pub fn ground_item(item: crate::level::Item) -> Self {
+    let (primary, secondary) = item.loot_colors();
+    Self::new((
+      GroundItem(item),
+      Glyph::palette_sprite(item.loot_texture(), '*', primary, secondary),
+    ))
+  }
   pub fn torch(radius: u32) -> Self { Self::new(LightSource { radius }) }
 
   pub fn rat_soldier() -> Self {
@@ -1151,8 +1180,8 @@ impl Object {
       },
       Stats { hp: 14, max_hp: 14, attack: 5, move_speed: 4.0, attack_speed: 0.9 },
       DriftChance(0.05),
-      CanGrab,
       Loadout::new(vec![
+        GearSlot::ability(Gear::InnateGrab, 8),
         GearSlot::passive(Gear::NaturalArmor { dr: 3 }),
         GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 3),
       ]),
@@ -1201,8 +1230,8 @@ impl Object {
       },
       Stats { hp: 10, max_hp: 10, attack: 4, move_speed: 3.5, attack_speed: 0.8 },
       DriftChance(0.1),
-      CanGrab,
       Loadout::new(vec![
+        GearSlot::ability(Gear::InnateGrab, 8),
         GearSlot::passive(Gear::NaturalArmor { dr: 1 }),
         GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 2),
       ]),

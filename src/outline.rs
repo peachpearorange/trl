@@ -1,4 +1,4 @@
-use bevy::{prelude::*, reflect::TypePath, render::render_resource::AsBindGroup, shader::ShaderRef, sprite_render::{Material2d, Material2dPlugin}};
+use bevy::{prelude::*, camera::visibility::RenderLayers, reflect::TypePath, render::render_resource::AsBindGroup, shader::ShaderRef, sprite_render::{Material2d, Material2dPlugin}};
 
 #[derive(Component)]
 pub struct InteractOutline;
@@ -49,6 +49,7 @@ fn spawn_outline_pool(
       Mesh2d(quad.clone()),
       Transform::from_translation(Vec3::ZERO).with_scale(Vec3::new(padded, padded, 1.0)),
       Visibility::Hidden,
+      RenderLayers::layer(crate::post_process::LAYER_ENTITIES),
     )).id()
   }).collect();
   commands.insert_resource(OutlinePool { quad, entities });

@@ -2,7 +2,7 @@
 
 use {bevy::prelude::*,
      bevy_hanabi::prelude::*,
-     crate::{TILE_SIZE, level::{ZONE_WIDTH, ZONE_HEIGHT}}};
+     crate::TILE_SIZE};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -52,7 +52,7 @@ impl Plugin for ParticlesPlugin {
 
 /// Convert a grid cell to world-space Vec3 using the *actual* level dimensions.
 /// Mirrors `tile_screen_pos` — must use the same `w`/`h` that the renderer uses,
-/// not the hardcoded `ZONE_WIDTH`/`ZONE_HEIGHT` constants (which differ per location).
+/// not hardcoded zone-size constants (which differ per location).
 pub fn grid_world(x: i32, y: i32, w: usize, h: usize) -> Vec3 {
   Vec3::new(
     (x as f32 - w as f32 / 2.0) * TILE_SIZE,

@@ -26,12 +26,12 @@ mod outline;
 mod npcs;
 mod utils;
 
-use {bevy::prelude::*,
+use {bevy::{prelude::*, camera::visibility::RenderLayers},
      combat::{FlowField, TileEntityIndex, compute_flow_field, damage_cloud_tick, enemy_ai,
               enemy_stealth_ai, follower_ai, grenade_thrower_ai, gun_attacker_ai,
               maintain_tile_index, mushroom_spore_attack, tick_grabbed, tick_grenade_in_flight,
               tick_invisible, npc_wander},
-     level::{FovGrid, Item, LocationType, Tile, ZONE_HEIGHT, ZONE_WIDTH, compute_fov},
+     level::{FovGrid, Item, LocationType, Tile, compute_fov},
      std::collections::{HashMap, HashSet},
      crate::entities::{AirlockDoor, Bed, BlocksSight, Collidable, Dialogue, DialogueNode,
                        DialogueTree, Door, Elevator, Enemy, FixedChestLoot, FlightConsole,
@@ -113,6 +113,8 @@ enum InteractionAction {
   UnequipArmor,
   EquipGrenade { slot: usize, item: Item },
   UnequipGrenade { slot: usize },
+  EquipDevice(Item),
+  UnequipDevice { slot: usize },
   ShowLoadoutStatus,
   TakeElevator { dest_z: usize, dest_x: i32, dest_y: i32 },
   RecruitFollower { entity: Entity, name: &'static str },
@@ -523,6 +525,7 @@ fn setup_glyph_visuals(
   asset_server: Res<AssetServer>,
   mut images: ResMut<Assets<Image>>,
   mut palette_cache: ResMut<PaletteImageCache>,
+  current: Res<CurrentZone>,
   query: Query<(Entity, &Glyph, &Location), (Added<Glyph>, Without<GlyphVisual>)>
 ) {
   for (entity, glyph, location) in query.iter() {
@@ -530,7 +533,7 @@ fn setup_glyph_visuals(
       let lx = *x;
       let ly = *y;
       let local = Vec2::new(lx as f32, ly as f32);
-      let pos = tile_screen_pos(lx as f32, ly as f32, ZONE_WIDTH, ZONE_HEIGHT)
+      let pos = tile_screen_pos(lx as f32, ly as f32, current.0.width, current.0.height)
         + Vec3::new(0.0, 0.0, 2.0);
       if let Some(path) = glyph.texture {
         let img = if let Some((primary, secondary)) = glyph.sprite_palette {
@@ -547,6 +550,7 @@ fn setup_glyph_visuals(
           },
           Transform::from_translation(pos),
           GlyphVisual,
+          RenderLayers::layer(post_process::LAYER_ENTITIES),
           Visuals {
             prev: local,
             last_move_start_frame: None,
@@ -561,6 +565,7 @@ fn setup_glyph_visuals(
           TextColor(glyph.color),
           Transform::from_translation(pos),
           GlyphVisual,
+          RenderLayers::layer(post_process::LAYER_ENTITIES),
           Visuals {
             prev: local,
             last_move_start_frame: None,
@@ -727,7 +732,7 @@ fn main() {
       (bump_render_frame, sync_player_location).chain().in_set(FramePipeline::BumpRender)
     )
     .add_systems(Update, maintain_tile_index.in_set(FramePipeline::TileIndex))
-    .add_systems(Update, setup_glyph_visuals.in_set(FramePipeline::GlyphSetup))
+    .add_systems(Update, (setup_glyph_visuals, materialize_ground_items).in_set(FramePipeline::GlyphSetup))
     .add_systems(Update, update_time_mode.in_set(FramePipeline::TimeMode))
     .add_systems(Update, handle_dialogue.in_set(FramePipeline::DialogueKey))
     .add_systems(Update, (detect_menu_option_clicks, handle_menus, handle_crafting_menu).chain().in_set(FramePipeline::Menus))
@@ -828,12 +833,14 @@ pub(crate) fn world_to_level_cell(world: Vec2, w: usize, h: usize) -> (i32, i32)
 // ---------------------------------------------------------------------------
 
 fn scatter_loot_tiles(ex: i32, ey: i32, level: &level::Level, count: usize) -> Vec<(i32, i32)> {
+  use rand::seq::SliceRandom;
   let mut tiles = Vec::with_capacity(count);
-  let candidates = [
+  let mut candidates = [
     (ex - 1, ey), (ex + 1, ey), (ex, ey - 1), (ex, ey + 1),
     (ex - 1, ey - 1), (ex + 1, ey - 1), (ex - 1, ey + 1), (ex + 1, ey + 1),
     (ex, ey),
   ];
+  candidates.shuffle(&mut rand::rng());
   for &(cx, cy) in &candidates {
     if tiles.len() >= count { break }
     if level.walkable(cx, cy)
@@ -903,6 +910,7 @@ fn enemy_death_check(
               duration_frames: 12,
             },
             ItemGlyph { x: tx as usize, y: ty as usize, z: ez, item },
+            RenderLayers::layer(post_process::LAYER_ENTITIES),
           ));
         }
       }
@@ -910,7 +918,8 @@ fn enemy_death_check(
       commands.entity(entity)
         .remove::<(Enemy, Stats, Loadout, entities::Character, entities::FactionComp,
                    entities::Gravity, entities::TimeSinceAction, entities::Path,
-                   entities::DriftChance, Glyph, Sprite, GlyphVisual, WalkAnim)>()
+                   entities::DriftChance, entities::Invisible,
+                   Glyph, Sprite, GlyphVisual, WalkAnim)>()
         .insert((
           entities::Corpse { loot: vec![], looted: true },
           Collidable(false),
@@ -949,17 +958,14 @@ fn animate_loot_drops(
 }
 
 fn apply_invisible_alpha(
-  mut glyph_q: Query<(&mut Sprite, Option<&entities::Invisible>), With<GlyphVisual>>,
-  mut player_q: Query<(&mut Sprite, Option<&entities::Invisible>), (With<Player>, Without<GlyphVisual>)>
+  mut query: Query<(&mut Sprite, Option<&entities::Invisible>), With<GlyphVisual>>
 ) {
-  let set_alpha = |sprite: &mut Sprite, invis: Option<&entities::Invisible>| {
+  for (mut sprite, invis) in query.iter_mut() {
     let target = if invis.is_some() { 0.25 } else { 1.0 };
     if (sprite.color.alpha() - target).abs() > 0.01 {
       sprite.color.set_alpha(target);
     }
-  };
-  for (mut sprite, invis) in glyph_q.iter_mut() { set_alpha(&mut sprite, invis); }
-  for (mut sprite, invis) in player_q.iter_mut() { set_alpha(&mut sprite, invis); }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1439,7 +1445,9 @@ fn set_door_open_state(
   clock_time: u64,
   palette_cache: &mut PaletteImageCache,
   images: &mut Assets<Image>,
-  asset_server: &AssetServer
+  asset_server: &AssetServer,
+  zone_w: usize,
+  zone_h: usize,
 ) {
   door.open = open;
   if open {
@@ -1457,7 +1465,7 @@ fn set_door_open_state(
     let lx = x as f32;
     let ly = y as f32;
     let local = Vec2::new(lx, ly);
-    let pos = tile_screen_pos(lx, ly, ZONE_WIDTH, ZONE_HEIGHT) + Vec3::new(0.0, 0.0, 2.0);
+    let pos = tile_screen_pos(lx, ly, zone_w, zone_h) + Vec3::new(0.0, 0.0, 2.0);
     commands.entity(entity).remove::<Sprite>();
     commands.entity(entity).remove::<Text2d>();
     commands.entity(entity).remove::<TextFont>();
@@ -1479,6 +1487,7 @@ fn set_door_open_state(
         },
         Transform::from_translation(pos),
         GlyphVisual,
+        RenderLayers::layer(post_process::LAYER_ENTITIES),
         Visuals {
           prev: local,
           last_move_start_frame: None,
@@ -1493,6 +1502,7 @@ fn set_door_open_state(
         TextColor(glyph.color),
         Transform::from_translation(pos),
         GlyphVisual,
+        RenderLayers::layer(post_process::LAYER_ENTITIES),
         Visuals {
           prev: local,
           last_move_start_frame: None,
@@ -1635,7 +1645,8 @@ fn handle_menus(
         let is_loadout = matches!(option.action,
           InteractionAction::EquipWeapon(_) | InteractionAction::UnequipWeapon |
           InteractionAction::EquipArmor(_) | InteractionAction::UnequipArmor |
-          InteractionAction::EquipGrenade { .. } | InteractionAction::UnequipGrenade { .. }
+          InteractionAction::EquipGrenade { .. } | InteractionAction::UnequipGrenade { .. } |
+          InteractionAction::EquipDevice(_) | InteractionAction::UnequipDevice { .. }
         );
         ui.interact = InteractMenu::Closed;
         dispatch_interactive_choice(
@@ -2145,6 +2156,17 @@ fn execute_interaction(
         }
         clock.spend_turn(tb);
       }
+      InteractionAction::EquipDevice(item) => {
+        equipped.equip_device(*item);
+        log_message(log, format!("Equipped {}.", item.name()));
+        clock.spend_turn(tb);
+      }
+      InteractionAction::UnequipDevice { slot } => {
+        if let Some(d) = equipped.unequip_device_at(*slot) {
+          log_message(log, format!("Unequipped {}.", d.name()));
+        }
+        clock.spend_turn(tb);
+      }
       InteractionAction::ShowLoadoutStatus => {
         let wpn = equipped.weapon().map(|w| w.name()).unwrap_or("none");
         let arm = equipped.armor_item().map(|a| a.name()).unwrap_or("none");
@@ -2220,7 +2242,9 @@ fn dispatch_interactive_choice(
           clock.time,
           palette_cache,
           images,
-          asset_server
+          asset_server,
+          zone.width,
+          zone.height,
         );
       }
       clock.spend_turn(tb);
@@ -2242,6 +2266,7 @@ fn dispatch_interactive_choice(
 fn auto_close_airlocks(
   mut commands: Commands,
   clock: Res<Clock>,
+  current: Res<CurrentZone>,
   asset_server: Res<AssetServer>,
   mut palette_cache: ResMut<PaletteImageCache>,
   mut images: ResMut<Assets<Image>>,
@@ -2265,7 +2290,9 @@ fn auto_close_airlocks(
         clock.time,
         &mut palette_cache,
         &mut images,
-        &asset_server
+        &asset_server,
+        current.0.width,
+        current.0.height,
       );
     }
   }
@@ -2288,6 +2315,10 @@ fn is_equipped(action: &InteractionAction, loadout: &Loadout) -> bool {
     InteractionAction::EquipArmor(item) => loadout.armor_item() == Some(*item),
     InteractionAction::EquipGrenade { item, .. } => {
       loadout.grenade_slots().iter().any(|&(_, g)| g == *item)
+    }
+    InteractionAction::UnequipDevice { slot } => loadout.device_slots().get(*slot).is_some(),
+    InteractionAction::EquipDevice(item) => {
+      loadout.device_slots().iter().any(|&(_, d)| d == *item)
     }
     _ => false
   }
@@ -2329,6 +2360,16 @@ fn loadout_options(inventory: &Inventory, loadout: &Loadout) -> Vec<InteractionO
           label: item.name().to_string(),
           action: InteractionAction::EquipGrenade { slot, item }
         }
+      }
+    })
+  )
+  .chain(sorted(Item::is_device).into_iter()
+    .map(|item| {
+      let device_slots = loadout.device_slots();
+      if let Some((list_idx, _)) = device_slots.iter().enumerate().find(|(_, (_, d))| *d == item) {
+        InteractionOption { label: item.name().to_string(), action: InteractionAction::UnequipDevice { slot: list_idx } }
+      } else {
+        InteractionOption { label: item.name().to_string(), action: InteractionAction::EquipDevice(item) }
       }
     })
   )
@@ -2884,6 +2925,7 @@ fn setup(
   mut tb: ResMut<TurnBasedWorldState>,
   mut bed_save: ResMut<BedSave>,
   render_target: Res<post_process::GameRenderTarget>,
+  entity_rt: Res<post_process::EntityRenderTarget>,
 ) {
   clock.spend_turn(&mut tb);
   commands.spawn((
@@ -2892,6 +2934,18 @@ fn setup(
     post_process::GameCamera,
     post_process::game_render_target(&render_target),
     Camera { clear_color: ClearColorConfig::Custom(Color::srgba(0.0, 0.0, 0.0, 0.0)), ..default() },
+  ));
+  commands.spawn((
+    Camera2d,
+    Msaa::Off,
+    post_process::EntityCamera,
+    RenderLayers::layer(post_process::LAYER_ENTITIES),
+    post_process::entity_render_target(&entity_rt),
+    Camera {
+      order: 5,
+      clear_color: ClearColorConfig::Custom(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+      ..default()
+    },
   ));
 
   let tileset_info = sprites::build_tileset(&mut images);
@@ -2970,6 +3024,7 @@ fn setup(
       idle_interval: 30,
     },
     GlyphVisual,
+    RenderLayers::layer(post_process::LAYER_ENTITIES),
     Visuals {
       prev: start_local,
       last_move_start_frame: None,
@@ -3021,10 +3076,22 @@ fn spawn_item_glyphs(
 ) {
 }
 
+fn materialize_ground_items(
+  mut commands: Commands,
+  q: Query<(Entity, &entities::GroundItem, &Location), Without<ItemGlyph>>,
+) {
+  for (entity, gi, location) in q.iter() {
+    if let Location::Coords { x, y, z, .. } = *location {
+      commands.entity(entity).insert(ItemGlyph { x: x as usize, y: y as usize, z, item: gi.0 });
+    }
+  }
+}
+
 fn camera_follow(
   vis: Single<&Visuals, With<Player>>,
   current: Res<CurrentZone>,
-  mut cam_tf: Single<&mut Transform, With<post_process::GameCamera>>,
+  mut cam_tf: Single<&mut Transform, (With<post_process::GameCamera>, Without<post_process::EntityCamera>)>,
+  mut entity_cam_tf: Single<&mut Transform, (With<post_process::EntityCamera>, Without<post_process::GameCamera>)>,
   win: Single<&Window>,
 ) {
   let w = win.resolution.width();
@@ -3040,6 +3107,7 @@ fn camera_follow(
   let mut t = (world_pos - offset).extend(0.0);
   t.x = t.x.round();
   t.y = t.y.round();
+  entity_cam_tf.translation = cam_tf.translation;
   cam_tf.translation = t;
 }
 

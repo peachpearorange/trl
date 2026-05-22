@@ -84,13 +84,6 @@ impl ActiveZone {
           if lx >= 0 && ly >= 0 && (lx as usize) < total_w && (ly as usize) < total_h {
             levels[z].set(lx, ly, tile);
           }
-          if let Some(item) = dest.levels[z].items[y][x] {
-            let lx = dest_origin_shifted.0 + x as i32;
-            let ly = dest_origin_shifted.1 + y as i32;
-            if lx >= 0 && ly >= 0 && (lx as usize) < total_w && (ly as usize) < total_h {
-              levels[z].set_item(lx, ly, Some(item));
-            }
-          }
         }
       }
     }
@@ -105,13 +98,6 @@ impl ActiveZone {
           let ly = ship_origin.1 + y as i32;
           if lx >= 0 && ly >= 0 && (lx as usize) < total_w && (ly as usize) < total_h {
             levels[z].set(lx, ly, tile);
-          }
-          if let Some(item) = ship_loc.levels[z].items[y][x] {
-            let lx = ship_origin.0 + x as i32;
-            let ly = ship_origin.1 + y as i32;
-            if lx >= 0 && ly >= 0 && (lx as usize) < total_w && (ly as usize) < total_h {
-              levels[z].set_item(lx, ly, Some(item));
-            }
           }
         }
       }

@@ -135,6 +135,7 @@ impl Item {
   pub fn is_weapon(self) -> bool { self.equip_slot() == Some(EquipSlot::Weapon) }
   pub fn is_armor(self) -> bool { self.equip_slot() == Some(EquipSlot::Armor) }
   pub fn is_grenade(self) -> bool { self.equip_slot() == Some(EquipSlot::Grenade) }
+  pub fn is_device(self) -> bool { self.equip_slot() == Some(EquipSlot::Device) }
 
   pub fn loot_texture(self) -> &'static str {
     match self {
@@ -337,9 +338,6 @@ pub fn place_wide_corridor(level: &mut Level, x1: i32, y1: i32, x2: i32, y2: i32
 // ---------------------------------------------------------------------------
 // World: a stack of levels
 // ---------------------------------------------------------------------------
-
-pub const ZONE_WIDTH: usize = 48;
-pub const ZONE_HEIGHT: usize = 48;
 
 // ---------------------------------------------------------------------------
 // Visibility: BYOND-style dual-pass shadow propagation

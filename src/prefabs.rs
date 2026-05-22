@@ -226,7 +226,7 @@ impl Prefab {
     prefab(
       "
          #WW#WW###################
-        t#,B#,B#........XQ.......###
+        t#,B#,B#.......sXQ.......###
          #,L#,L#.......====......#.###
         t#l##l##.......====......#...###
          #,,,,L#.......====...k..#.....WW
@@ -267,6 +267,7 @@ impl Prefab {
     .assoc('H', (Tile::DeckPlate, [npcs::chronos::chronos()]))
     .assoc('U', (Tile::DeckPlate, [npcs::unit7::unit7()]))
     .assoc('G', (Tile::DeckPlate, [npcs::kong::kong()]))
+    .assoc('s', (Tile::DeckPlate, [Object::ground_item(Item::StealthDevice), Object::ground_item(Item::StealthDevice)]))
     .assoc('d', (Tile::DeckPlate, [npcs::guard::guard()]))
     .assoc('t', (Tile::Blank, [Object::thruster()]))
   }

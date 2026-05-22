@@ -23,6 +23,7 @@ use std::borrow::Cow;
 
 const WORKGROUP_SIZE: u32 = 8;
 const LAYER_DISPLAY: usize = 1;
+pub const LAYER_ENTITIES: usize = 2;
 const ORDER_DISPLAY: isize = 10;
 
 #[derive(Resource, Clone, ExtractResource)]
@@ -31,11 +32,17 @@ pub struct GameRenderTarget(pub Handle<Image>);
 #[derive(Resource, Clone, ExtractResource)]
 pub struct OutputImage(pub Handle<Image>);
 
+#[derive(Resource, Clone, ExtractResource)]
+pub struct EntityRenderTarget(pub Handle<Image>);
+
 #[derive(Resource, Clone, Copy, Default, ExtractResource)]
 pub struct CameraWorldOffset(pub IVec2);
 
 #[derive(Component)]
 pub struct GameCamera;
+
+#[derive(Component)]
+pub struct EntityCamera;
 
 #[derive(Component)]
 struct DisplayCam;
@@ -51,6 +58,9 @@ pub struct DisplayMaterial {
     #[texture(0)]
     #[sampler(1)]
     screen: Handle<Image>,
+    #[texture(2)]
+    #[sampler(3)]
+    entities: Handle<Image>,
 }
 impl Material2d for DisplayMaterial {
     fn fragment_shader() -> ShaderRef {
@@ -66,6 +76,7 @@ impl Plugin for PostProcessPlugin {
             Material2dPlugin::<DisplayMaterial>::default(),
             ExtractResourcePlugin::<GameRenderTarget>::default(),
             ExtractResourcePlugin::<OutputImage>::default(),
+            ExtractResourcePlugin::<EntityRenderTarget>::default(),
             ExtractResourcePlugin::<CameraWorldOffset>::default(),
         ))
         .init_resource::<CameraWorldOffset>()
@@ -96,6 +107,10 @@ fn make_output_image(w: u32, h: u32) -> Image {
     image
 }
 
+fn make_entity_image(w: u32, h: u32) -> Image {
+    Image::new_target_texture(w, h, TextureFormat::bevy_default(), None)
+}
+
 fn create_render_targets(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
@@ -104,6 +119,7 @@ fn create_render_targets(
     let (w, h) = (windows.physical_width(), windows.physical_height());
     commands.insert_resource(GameRenderTarget(images.add(make_game_image(w, h))));
     commands.insert_resource(OutputImage(images.add(make_output_image(w, h))));
+    commands.insert_resource(EntityRenderTarget(images.add(make_entity_image(w, h))));
 }
 
 fn setup_display(
@@ -111,11 +127,15 @@ fn setup_display(
     mut meshes: ResMut<Assets<Mesh>>,
     mut display_mats: ResMut<Assets<DisplayMaterial>>,
     output: Res<OutputImage>,
+    entity_rt: Res<EntityRenderTarget>,
     windows: Single<&Window>,
 ) {
     let (w, h) = (windows.width(), windows.height());
     let quad = meshes.add(Rectangle::new(1.0, 1.0));
-    let display_mat = display_mats.add(DisplayMaterial { screen: output.0.clone() });
+    let display_mat = display_mats.add(DisplayMaterial {
+        screen: output.0.clone(),
+        entities: entity_rt.0.clone(),
+    });
     commands.spawn((
         Mesh2d(quad),
         MeshMaterial2d(display_mat.clone()),
@@ -143,9 +163,11 @@ fn on_window_resized(
     mut images: ResMut<Assets<Image>>,
     mut game_rt: ResMut<GameRenderTarget>,
     mut output: ResMut<OutputImage>,
+    mut entity_rt: ResMut<EntityRenderTarget>,
     handle: Res<DisplayHandle>,
     mut display_mats: ResMut<Assets<DisplayMaterial>>,
-    mut game_cam_rt: Query<&mut RenderTarget, (With<GameCamera>, Without<DisplayCam>)>,
+    mut game_cam_rt: Query<&mut RenderTarget, (With<GameCamera>, Without<DisplayCam>, Without<EntityCamera>)>,
+    mut entity_cam_rt: Query<&mut RenderTarget, (With<EntityCamera>, Without<GameCamera>, Without<DisplayCam>)>,
     mut mesh_tfs: Query<&mut Transform, With<DisplayMesh>>,
     windows: Single<&Window>,
 ) {
@@ -156,13 +178,19 @@ fn on_window_resized(
     let (w, h) = (windows.width(), windows.height());
     let new_game = images.add(make_game_image(pw, ph));
     let new_output = images.add(make_output_image(pw, ph));
+    let new_entity = images.add(make_entity_image(pw, ph));
     game_rt.0 = new_game.clone();
     output.0 = new_output.clone();
+    entity_rt.0 = new_entity.clone();
     if let Ok(mut rt) = game_cam_rt.single_mut() {
         *rt = RenderTarget::Image(new_game.into());
     }
+    if let Ok(mut rt) = entity_cam_rt.single_mut() {
+        *rt = RenderTarget::Image(new_entity.clone().into());
+    }
     if let Some(m) = display_mats.get_mut(&handle.0) {
         m.screen = new_output;
+        m.entities = new_entity;
     }
     let scale = Vec3::new(w, h, 1.0);
     for mut tf in &mut mesh_tfs {
@@ -186,6 +214,10 @@ fn update_camera_world_offset(
 
 pub fn game_render_target(render_target: &GameRenderTarget) -> RenderTarget {
     RenderTarget::Image(render_target.0.clone().into())
+}
+
+pub fn entity_render_target(entity_rt: &EntityRenderTarget) -> RenderTarget {
+    RenderTarget::Image(entity_rt.0.clone().into())
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
