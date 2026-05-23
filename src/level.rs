@@ -127,7 +127,11 @@ pub enum Item {
   #[assoc(name = "Stealth Device", glyph = "d", color = [0.7, 0.2, 1.0],
           equip_slot = EquipSlot::Device,
           scrap_yield = &[(Item::Crystal, 2), (Item::SyntheticMaterial, 2), (Item::Screws, 1)])]
-  StealthDevice
+  StealthDevice,
+  #[assoc(name = "Phase Device", glyph = "d", color = [0.3, 0.8, 1.0],
+          equip_slot = EquipSlot::Device,
+          scrap_yield = &[(Item::Crystal, 3), (Item::SyntheticMaterial, 2), (Item::Screws, 2)])]
+  PhaseDevice
 }
 
 impl Item {
@@ -139,6 +143,7 @@ impl Item {
 
   pub fn loot_texture(self) -> &'static str {
     match self {
+      Item::GoldCoin => "textures/space_qud/coin.png",
       Item::StealthDevice => "textures/space_qud/stealth device.png",
       _ if self.is_ranged() => "textures/space_qud/gun.png",
       _ => "textures/space_qud/box with highlight border.png"
@@ -147,6 +152,7 @@ impl Item {
 
   pub fn loot_colors(self) -> (Color, Color) {
     match self {
+      Item::GoldCoin => (Color::srgb(1.0, 0.85, 0.0), Color::srgb(0.9, 0.75, 0.0)),
       Item::StealthDevice => (Color::srgb(0.75, 0.75, 0.78), Color::srgb(0.55, 0.15, 1.0)),
       _ => {
         let [r, g, b] = self.color();

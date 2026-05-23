@@ -149,6 +149,10 @@ pub enum OverlayKind {
 #[derive(Resource, Default)]
 pub struct MenuClickPending(pub Option<usize>);
 
+/// Tracks which ability slot a [`Button`] entity belongs to.
+#[derive(Component)]
+pub struct AbilitySlotIndex(pub usize);
+
 /// Formatted inventory string, updated by sync_ui.
 #[derive(Resource, Clone, Default)]
 pub struct InvDisplayData {
@@ -274,6 +278,58 @@ fn main_layout() -> impl Element {
     .item(status_bar())
 }
 
+const ABILITY_SELECTED_BG: Color = Color::srgb(1.0, 0.88, 0.35);
+const ABILITY_MAX_SLOTS: usize = 9;
+
+fn ability_slot_label(i: usize, data: &AbilityBarData) -> String {
+  data.slots.get(i).map(|slot| match slot.cooldown {
+    0 => format!(" {} {} ", i + 1, slot.name),
+    cd => format!(" {} {} ({}) ", i + 1, slot.name, cd),
+  }).unwrap_or_default()
+}
+
+fn ability_slot(i: usize) -> El<Node> {
+  El::<Node>::new()
+    .with_builder(move |b| {
+      b.component_signal::<Node>(
+        signal::from_resource::<AbilityBarData>()
+          .map_in(move |data: AbilityBarData| {
+            let visible = i < data.slots.len();
+            let mut node = Node::default();
+            node.padding = UiRect::axes(Val::Px(2.0), Val::Px(2.0));
+            node.display = if visible { Display::Flex } else { Display::None };
+            Some(node)
+          })
+      )
+      .component_signal::<BackgroundColor>(
+        signal::from_resource::<AbilityBarData>()
+          .map_in(move |data: AbilityBarData| {
+            let bg = if data.selected == Some(i) { ABILITY_SELECTED_BG } else { Color::NONE };
+            Some(BackgroundColor(bg))
+          })
+      )
+    })
+    .child(
+      El::<Text>::new()
+        .text_font(TextFont { font_size: FONT_SIZE_SMALL, weight: W_UI, ..default() })
+        .with_builder(move |b| {
+          b.component_signal::<Text>(
+            signal::from_resource::<AbilityBarData>()
+              .map_in(move |data: AbilityBarData| Some(Text::new(ability_slot_label(i, &data))))
+          )
+          .component_signal::<TextColor>(
+            signal::from_resource::<AbilityBarData>()
+              .map_in(move |data: AbilityBarData| {
+                let fg = if data.selected == Some(i) { PANEL_BG } else { LIGHT_TEXT };
+                Some(TextColor(fg))
+              })
+          )
+        })
+    )
+    .insert(Button)
+    .insert(AbilitySlotIndex(i))
+}
+
 fn ability_bar() -> impl Element {
   Row::<Node>::new()
     .with_node(|mut n| {
@@ -285,25 +341,13 @@ fn ability_bar() -> impl Element {
     })
     .background_color(BackgroundColor(PANEL_BG))
     .border_color(BorderColor::all(BORDER))
+    .item(static_text("Abilities: ", FONT_SIZE_SMALL, LIGHT_TEXT, W_UI))
     .item(reactive_text(
-      signal::from_resource_changed::<AbilityBarData>().map_in(|data| {
-        if data.slots.is_empty() {
-          return "Abilities: —".into();
-        }
-        let parts: Vec<String> = data.slots.iter().enumerate().map(|(i, slot)| {
-          let (l, r) = if data.selected == Some(i) { (">", "<") } else { ("[", "]") };
-          if slot.cooldown > 0 {
-            format!("{}{}{} {} ({})", l, i + 1, r, slot.name, slot.cooldown)
-          } else {
-            format!("{}{}{} {}", l, i + 1, r, slot.name)
-          }
-        }).collect();
-        format!("Abilities:  {}", parts.join("   "))
-      }),
-      FONT_SIZE_SMALL,
-      LIGHT_TEXT,
-      W_UI
+      signal::from_resource::<AbilityBarData>()
+        .map_in(|data| if data.slots.is_empty() { "—".into() } else { String::new() }),
+      FONT_SIZE_SMALL, DIM_TEXT, W_UI
     ))
+    .items(mapv(ability_slot, 0..ABILITY_MAX_SLOTS))
 }
 
 fn sidebar_column() -> impl Element {

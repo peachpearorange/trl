@@ -7,19 +7,18 @@ mod sprites;
 pub const SPRITE_TEXELS: f32 = 20.0;
 
 use bevy::{input::mouse::AccumulatedMouseScroll, prelude::*,
-           render::render_resource::{Extent3d, TextureDimension, TextureFormat},
-           asset::RenderAssetUsages};
+           sprite_render::{AlphaMode2d, TileData, TilemapChunk, TilemapChunkTileData}};
 use grid_2d::Grid;
 use std::{collections::HashMap, num::NonZeroU32};
 use tiles::{Tile, TileRenderMode};
 use wfc::{overlapping::OverlappingPatterns, retry::{NumTimes, RetryOwn}, RunOwn, Wave};
 
 const CELL: f32 = 20.0;
-const GAP: f32 = 1.0;
-const STEP: f32 = CELL + GAP;
+const STEP: f32 = CELL;
 const CANVAS_W: usize = 40;
 const CANVAS_H: usize = 40;
-const PALETTE_COLS: usize = 2;
+const PALETTE_COLS: usize = 4;
+const PAL_CELL: f32 = 24.0;
 
 const OBJECT_TEMPLATES: &[&str] = &[
     "tree", "boulder", "door", "airlock_door", "bed", "table", "chair",
@@ -39,7 +38,7 @@ fn tile_color(t: Tile) -> Color { to_color(t.color()) }
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum ToolMode { Draw, RectOutline, RectFill, Select, Paste }
+enum ToolMode { Draw, RectOutline, RectFill, Copy, Move, Paste }
 
 impl ToolMode {
     fn name(self) -> &'static str {
@@ -47,7 +46,8 @@ impl ToolMode {
             ToolMode::Draw => "Draw",
             ToolMode::RectOutline => "Rect",
             ToolMode::RectFill => "Fill",
-            ToolMode::Select => "Select",
+            ToolMode::Copy => "Copy",
+            ToolMode::Move => "Move",
             ToolMode::Paste => "Paste",
         }
     }
@@ -75,7 +75,6 @@ struct EditorState {
     selected_tile: Tile,
     selected_object: Option<u8>,
     drag_start: Option<(usize, usize)>,
-    selection: Option<(usize, usize, usize, usize)>,
     clipboard: Option<Clipboard>,
     pattern_size: u32,
     output_mult: u32,
@@ -95,6 +94,9 @@ struct PanState {
 struct TileImageCache(Vec<(Handle<Image>, Color)>);
 
 #[derive(Resource)]
+struct EditorTileset(sprites::TilesetInfo);
+
+#[derive(Resource)]
 struct UndoStack(Vec<(Vec<Vec<Tile>>, Vec<Vec<Option<u8>>>)>);
 
 // ---------------------------------------------------------------------------
@@ -108,19 +110,35 @@ struct CanvasCell(usize, usize);
 struct ObjectLabel(usize, usize);
 
 #[derive(Component)]
-struct OutputSprite;
-
-#[derive(Component)]
-struct PaletteEntry(Tile);
-
-#[derive(Component)]
-struct PaletteHighlight;
-
-#[derive(Component)]
-struct SelectionOverlay;
+struct OutputChunk;
 
 #[derive(Component)]
 struct DragPreview;
+
+#[derive(Component)]
+struct TilePaletteBtn(Tile);
+
+#[derive(Component)]
+struct ObjectPaletteBtn(Option<u8>);
+
+#[derive(Component)]
+struct ControlsLabel;
+
+#[derive(Component)]
+struct TilePreviewImage;
+
+#[derive(Component)]
+struct TilePreviewText;
+
+#[derive(Component)]
+struct TilePreviewPopup;
+
+#[derive(Component)]
+struct ModeBarBtn(ToolMode);
+
+#[derive(Component)]
+struct ModeBarLabel;
+
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -202,38 +220,176 @@ fn setup(
 
     let tile_cache = build_tile_cache(&mut palette_cache, &mut images);
 
-    let all_tiles: Vec<Tile> = Tile::all().collect();
-    let palette_x = -(CANVAS_W as f32 * STEP / 2.0) - STEP * (PALETTE_COLS as f32) - 40.0;
-    let palette_top = (CANVAS_H as f32 * STEP) / 2.0;
+    // --- UI sidebar ---
+    commands.spawn(Node {
+        width: Val::Px(PAL_CELL * PALETTE_COLS as f32 + 16.0),
+        height: Val::Percent(100.0),
+        flex_direction: FlexDirection::Column,
+        padding: UiRect::all(Val::Px(4.0)),
+        overflow: Overflow::scroll_y(),
+        ..default()
+    }).with_child((
+        Text::new("Tiles"),
+        TextFont { font_size: 12.0, ..default() },
+        TextColor(Color::srgb(0.9, 0.9, 0.5)),
+        Node { margin: UiRect::bottom(Val::Px(4.0)), ..default() },
+    )).with_children(|sidebar| {
+        let all_tiles: Vec<Tile> = Tile::all().collect();
 
-    for (i, &tile) in all_tiles.iter().enumerate() {
-        let col = i % PALETTE_COLS;
-        let row = i / PALETTE_COLS;
-        let x = palette_x + col as f32 * STEP;
-        let y = palette_top - row as f32 * STEP;
-        let (ref img, color) = tile_cache.0[tile as u16 as usize];
-        commands.spawn((
-            Sprite {
-                image: img.clone(),
-                color,
-                custom_size: Some(Vec2::splat(CELL)),
-                ..default()
-            },
-            Transform::from_xyz(x, y, 0.0),
-            PaletteEntry(tile),
+        // Tile palette grid
+        let mut tile_grid = sidebar.spawn(Node {
+            flex_wrap: FlexWrap::Wrap,
+            ..default()
+        });
+        tile_grid.with_children(|grid| {
+            for &tile in &all_tiles {
+                let (ref img_h, color) = tile_cache.0[tile as u16 as usize];
+                let has_texture = *img_h != Handle::default();
+                let mut btn = grid.spawn((
+                    Button,
+                    Node {
+                        width: Val::Px(PAL_CELL),
+                        height: Val::Px(PAL_CELL),
+                        border: UiRect::all(Val::Px(1.0)),
+                        ..default()
+                    },
+                    BorderColor::all(Color::srgba(0.3, 0.3, 0.3, 1.0)),
+                    if has_texture { BackgroundColor(Color::BLACK) }
+                    else { BackgroundColor(color) },
+                    TilePaletteBtn(tile),
+                ));
+                if has_texture {
+                    btn.with_child((
+                        ImageNode::new(img_h.clone()),
+                        Node {
+                            width: Val::Percent(100.0),
+                            height: Val::Percent(100.0),
+                            ..default()
+                        },
+                    ));
+                }
+            }
+        });
+
+        // Separator
+        sidebar.spawn((
+            Text::new("Objects"),
+            TextFont { font_size: 12.0, ..default() },
+            TextColor(Color::srgb(0.5, 0.9, 0.5)),
+            Node { margin: UiRect::vertical(Val::Px(6.0)), ..default() },
         ));
-    }
 
+        // Object palette
+        let mut obj_grid = sidebar.spawn(Node {
+            flex_direction: FlexDirection::Column,
+            ..default()
+        });
+        obj_grid.with_children(|col| {
+            let entries: Vec<Option<u8>> = std::iter::once(None)
+                .chain((0..OBJECT_TEMPLATES.len()).map(|i| Some(i as u8)))
+                .collect();
+            for &obj in &entries {
+                let label = obj.map(|i| OBJECT_TEMPLATES[i as usize]).unwrap_or("none");
+                col.spawn((
+                    Button,
+                    Node {
+                        padding: UiRect::axes(Val::Px(4.0), Val::Px(1.0)),
+                        border: UiRect::all(Val::Px(1.0)),
+                        ..default()
+                    },
+                    BorderColor::all(Color::srgba(0.3, 0.3, 0.3, 1.0)),
+                    BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 1.0)),
+                    ObjectPaletteBtn(obj),
+                )).with_child((
+                    Text::new(label),
+                    TextFont { font_size: 11.0, ..default() },
+                    TextColor(Color::srgb(0.8, 0.8, 0.8)),
+                ));
+            }
+        });
+
+    });
+
+    // --- Tile hover preview popup (floating, outside sidebar) ---
     commands.spawn((
-        Sprite {
-            color: Color::srgb(1.0, 1.0, 0.0),
-            custom_size: Some(Vec2::splat(CELL + 4.0)),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(PAL_CELL * PALETTE_COLS as f32 + 24.0),
+            top: Val::Px(8.0),
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::Center,
+            padding: UiRect::all(Val::Px(6.0)),
+            display: Display::None,
             ..default()
         },
-        Transform::from_xyz(palette_x, palette_top, -0.1),
-        PaletteHighlight,
-    ));
+        BackgroundColor(Color::srgba(0.1, 0.1, 0.12, 0.95)),
+        TilePreviewPopup,
+    )).with_children(|popup| {
+        popup.spawn((
+            ImageNode::new(Handle::default()),
+            Node {
+                width: Val::Px(128.0),
+                height: Val::Px(128.0),
+                ..default()
+            },
+            BackgroundColor(Color::BLACK),
+            TilePreviewImage,
+        ));
+        popup.spawn((
+            Text::new(""),
+            TextFont { font_size: 16.0, ..default() },
+            TextColor(Color::srgb(0.9, 0.9, 0.9)),
+            Node { margin: UiRect::top(Val::Px(6.0)), ..default() },
+            TilePreviewText,
+        ));
+    });
 
+    // --- Bottom mode bar ---
+    commands.spawn(Node {
+        position_type: PositionType::Absolute,
+        bottom: Val::Px(0.0),
+        left: Val::Px(0.0),
+        width: Val::Percent(100.0),
+        justify_content: JustifyContent::Center,
+        align_items: AlignItems::Center,
+        padding: UiRect::all(Val::Px(6.0)),
+        column_gap: Val::Px(4.0),
+        ..default()
+    }).with_children(|bar| {
+        let modes = [
+            (ToolMode::Draw, "[D]raw"),
+            (ToolMode::RectOutline, "[R]ect"),
+            (ToolMode::RectFill, "[F]ill"),
+            (ToolMode::Copy, "[C]opy"),
+            (ToolMode::Move, "[M]ove"),
+        ];
+        for (mode, label) in modes {
+            bar.spawn((
+                Node {
+                    padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)),
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 0.9)),
+                ModeBarBtn(mode),
+            )).with_child((
+                Text::new(label),
+                TextFont { font_size: 14.0, ..default() },
+                TextColor(Color::srgb(0.5, 0.5, 0.5)),
+                ModeBarLabel,
+            ));
+        }
+
+        bar.spawn(Node { width: Val::Px(20.0), ..default() });
+
+        bar.spawn((
+            Text::new(""),
+            TextFont { font_size: 13.0, ..default() },
+            TextColor(Color::srgb(0.6, 0.6, 0.5)),
+            ControlsLabel,
+        ));
+    });
+
+    // --- Canvas cells (world-space) ---
     for y in 0..CANVAS_H {
         for x in 0..CANVAS_W {
             let w = grid_to_world(x, y);
@@ -259,6 +415,8 @@ fn setup(
         }
     }
 
+    let tileset_info = sprites::build_tileset(&mut images);
+    commands.insert_resource(EditorTileset(tileset_info));
     commands.insert_resource(tile_cache);
 }
 
@@ -301,43 +459,144 @@ fn camera_pan(
 
 fn camera_zoom(
     scroll: Res<AccumulatedMouseScroll>,
-    mut camera_q: Query<&mut Transform, With<Camera2d>>,
+    windows: Query<&Window>,
+    mut camera_q: Query<(&Camera, &GlobalTransform, &mut Transform), With<Camera2d>>,
     mut zoom: ResMut<CameraZoom>,
 ) {
     if scroll.delta.y == 0.0 { return; }
+    let Ok((cam, cam_gt, mut tf)) = camera_q.single_mut() else { return };
+    let cursor_world = windows.single().ok()
+        .and_then(|w| w.cursor_position())
+        .and_then(|p| cam.viewport_to_world_2d(cam_gt, p).ok());
+
+    let old_zoom = zoom.0;
     let delta = scroll.delta.y * 0.1;
     zoom.0 = (zoom.0 * (1.0 - delta)).clamp(0.15, 8.0);
-    if let Ok(mut tf) = camera_q.single_mut() {
-        tf.scale = Vec3::splat(zoom.0);
+
+    if let Some(world_pt) = cursor_world {
+        let factor = zoom.0 / old_zoom;
+        tf.translation.x = world_pt.x + (tf.translation.x - world_pt.x) * factor;
+        tf.translation.y = world_pt.y + (tf.translation.y - world_pt.y) * factor;
     }
+    tf.scale = Vec3::splat(zoom.0);
 }
 
 // ---------------------------------------------------------------------------
-// Palette click
+// UI palette interaction
 // ---------------------------------------------------------------------------
 
-fn palette_click(
-    mouse: Res<ButtonInput<MouseButton>>,
-    windows: Query<&Window>,
-    camera_q: Query<(&Camera, &GlobalTransform)>,
-    palette_q: Query<(&PaletteEntry, &Transform)>,
+fn ui_tile_palette(
+    interaction_q: Query<(&Interaction, &TilePaletteBtn), Changed<Interaction>>,
     mut state: ResMut<EditorState>,
-    mut highlight_q: Query<&mut Transform, (With<PaletteHighlight>, Without<PaletteEntry>)>,
 ) {
-    if !mouse.just_pressed(MouseButton::Left) { return; }
-    let Some(cursor) = cursor_world(&windows, &camera_q) else { return };
+    for (interaction, btn) in &interaction_q {
+        if *interaction == Interaction::Pressed {
+            state.selected_tile = btn.0;
+        }
+    }
+}
 
-    for (entry, tf) in &palette_q {
-        let half = CELL / 2.0;
-        if (cursor.x - tf.translation.x).abs() < half
-            && (cursor.y - tf.translation.y).abs() < half
-        {
-            state.selected_tile = entry.0;
-            if let Ok(mut ht) = highlight_q.single_mut() {
-                ht.translation.x = tf.translation.x;
-                ht.translation.y = tf.translation.y;
+fn ui_tile_highlight(
+    state: Res<EditorState>,
+    mut btn_q: Query<(&TilePaletteBtn, &mut BorderColor)>,
+) {
+    if !state.is_changed() { return; }
+    for (btn, mut border) in &mut btn_q {
+        *border = BorderColor::all(if btn.0 == state.selected_tile {
+            Color::srgb(1.0, 1.0, 0.0)
+        } else {
+            Color::srgba(0.3, 0.3, 0.3, 1.0)
+        });
+    }
+}
+
+fn ui_object_palette(
+    interaction_q: Query<(&Interaction, &ObjectPaletteBtn), Changed<Interaction>>,
+    mut state: ResMut<EditorState>,
+) {
+    for (interaction, btn) in &interaction_q {
+        if *interaction == Interaction::Pressed {
+            state.selected_object = btn.0;
+        }
+    }
+}
+
+fn ui_object_highlight(
+    state: Res<EditorState>,
+    mut btn_q: Query<(&ObjectPaletteBtn, &mut BorderColor)>,
+) {
+    if !state.is_changed() { return; }
+    for (btn, mut border) in &mut btn_q {
+        *border = BorderColor::all(if btn.0 == state.selected_object {
+            Color::srgb(0.0, 1.0, 0.5)
+        } else {
+            Color::srgba(0.0, 0.0, 0.0, 0.0)
+        });
+    }
+}
+
+fn update_tile_preview(
+    hover_q: Query<(&Interaction, &TilePaletteBtn), Changed<Interaction>>,
+    tile_cache: Res<TileImageCache>,
+    mut img_q: Query<(&mut ImageNode, &mut BackgroundColor), With<TilePreviewImage>>,
+    mut text_q: Query<&mut Text, With<TilePreviewText>>,
+    mut popup_q: Query<&mut Node, With<TilePreviewPopup>>,
+) {
+    let mut any_hovered = false;
+    for (interaction, btn) in &hover_q {
+        if *interaction == Interaction::Hovered || *interaction == Interaction::Pressed {
+            any_hovered = true;
+            let (ref img_h, color) = tile_cache.0[btn.0 as u16 as usize];
+            let has_texture = *img_h != Handle::default();
+            if let Ok((mut img_node, mut bg)) = img_q.single_mut() {
+                if has_texture {
+                    img_node.image = img_h.clone();
+                    bg.0 = Color::BLACK;
+                } else {
+                    img_node.image = Handle::default();
+                    bg.0 = color;
+                }
+            }
+            if let Ok(mut text) = text_q.single_mut() {
+                text.0 = format!("{:?}", btn.0);
             }
         }
+    }
+    if !hover_q.is_empty() {
+        if let Ok(mut node) = popup_q.single_mut() {
+            node.display = if any_hovered { Display::Flex } else { Display::None };
+        }
+    }
+}
+
+fn update_mode_bar(
+    state: Res<EditorState>,
+    btn_q: Query<(&ModeBarBtn, &Children)>,
+    mut label_q: Query<&mut TextColor, With<ModeBarLabel>>,
+    mut status_q: Query<&mut Text, With<ControlsLabel>>,
+) {
+    if !state.is_changed() { return; }
+    for (btn, children) in &btn_q {
+        for &child in children.iter() {
+            if let Ok(mut color) = label_q.get_mut(child) {
+                color.0 = if btn.0 == state.tool {
+                    Color::srgb(1.0, 1.0, 0.3)
+                } else {
+                    Color::srgb(0.5, 0.5, 0.5)
+                };
+            }
+        }
+    }
+    let obj_name = state.selected_object
+        .map(|i| OBJECT_TEMPLATES[i as usize])
+        .unwrap_or("none");
+    if let Ok(mut text) = status_q.single_mut() {
+        text.0 = format!(
+            "tile:{:?}  obj:{}  pat:{}  |  U:undo G:gen [/]:pat Ctrl+S/O:save/load",
+            state.selected_tile,
+            obj_name,
+            state.pattern_size,
+        );
     }
 }
 
@@ -352,23 +611,17 @@ fn tool_keys(
     if keys.just_pressed(KeyCode::KeyD) { state.tool = ToolMode::Draw; }
     if keys.just_pressed(KeyCode::KeyR) { state.tool = ToolMode::RectOutline; }
     if keys.just_pressed(KeyCode::KeyF) { state.tool = ToolMode::RectFill; }
-    if keys.just_pressed(KeyCode::KeyB) {
-        state.tool = ToolMode::Select;
-        state.selection = None;
+    if keys.just_pressed(KeyCode::KeyC) && !keys.pressed(KeyCode::ControlLeft) && !keys.pressed(KeyCode::ControlRight) {
+        state.tool = ToolMode::Copy;
+        state.drag_start = None;
+    }
+    if keys.just_pressed(KeyCode::KeyM) {
+        state.tool = ToolMode::Move;
         state.drag_start = None;
     }
     if keys.just_pressed(KeyCode::Escape) {
         state.tool = ToolMode::Draw;
-        state.selection = None;
         state.drag_start = None;
-    }
-
-    if keys.just_pressed(KeyCode::Tab) {
-        state.selected_object = match state.selected_object {
-            None => Some(0),
-            Some(i) if (i as usize) < OBJECT_TEMPLATES.len() - 1 => Some(i + 1),
-            Some(_) => None,
-        };
     }
 
     if keys.just_pressed(KeyCode::BracketLeft) {
@@ -404,16 +657,6 @@ fn canvas_interact(
                         push_undo(&canvas, &mut undo);
                     }
                     canvas.tiles[gy][gx] = state.selected_tile;
-                    if let Some(obj) = state.selected_object {
-                        canvas.objects[gy][gx] = Some(obj);
-                    }
-                }
-            }
-            if mouse.pressed(MouseButton::Middle) {
-                if let Some((gx, gy)) = grid_pos {
-                    if mouse.just_pressed(MouseButton::Middle) {
-                        push_undo(&canvas, &mut undo);
-                    }
                     canvas.objects[gy][gx] = state.selected_object;
                 }
             }
@@ -433,9 +676,7 @@ fn canvas_interact(
                         for x in x1..=x2 {
                             if filled || x == x1 || x == x2 || y == y1 || y == y2 {
                                 canvas.tiles[y][x] = state.selected_tile;
-                                if let Some(obj) = state.selected_object {
-                                    canvas.objects[y][x] = Some(obj);
-                                }
+                                canvas.objects[y][x] = state.selected_object;
                             }
                         }
                     }
@@ -443,16 +684,38 @@ fn canvas_interact(
                 }
             }
         }
-        ToolMode::Select => {
+        ToolMode::Copy | ToolMode::Move => {
             if mouse.just_pressed(MouseButton::Left) {
                 if let Some(pos) = grid_pos {
                     state.drag_start = Some(pos);
-                    state.selection = None;
                 }
             }
             if mouse.just_released(MouseButton::Left) {
                 if let (Some(start), Some(end)) = (state.drag_start, grid_pos) {
-                    state.selection = Some(selection_rect(start, end));
+                    let (x1, y1, x2, y2) = selection_rect(start, end);
+                    let mut clip_tiles = Vec::new();
+                    let mut clip_objects = Vec::new();
+                    for y in y1..=y2 {
+                        let mut row_t = Vec::new();
+                        let mut row_o = Vec::new();
+                        for x in x1..=x2 {
+                            row_t.push(canvas.tiles[y][x]);
+                            row_o.push(canvas.objects[y][x]);
+                        }
+                        clip_tiles.push(row_t);
+                        clip_objects.push(row_o);
+                    }
+                    state.clipboard = Some(Clipboard { tiles: clip_tiles, objects: clip_objects });
+                    if state.tool == ToolMode::Move {
+                        push_undo(&canvas, &mut undo);
+                        for y in y1..=y2 {
+                            for x in x1..=x2 {
+                                canvas.tiles[y][x] = Tile::Grass;
+                                canvas.objects[y][x] = None;
+                            }
+                        }
+                    }
+                    state.tool = ToolMode::Paste;
                     state.drag_start = None;
                 }
             }
@@ -490,7 +753,9 @@ fn eyedropper(
     canvas: Res<EditorCanvas>,
     mut state: ResMut<EditorState>,
 ) {
-    if keys.pressed(KeyCode::AltLeft) && mouse.just_pressed(MouseButton::Left) {
+    let pick = (keys.pressed(KeyCode::AltLeft) && mouse.just_pressed(MouseButton::Left))
+        || mouse.just_pressed(MouseButton::Middle);
+    if pick {
         if let Some((gx, gy)) = cursor_world(&windows, &camera_q).and_then(world_to_grid) {
             state.selected_tile = canvas.tiles[gy][gx];
             state.selected_object = canvas.objects[gy][gx];
@@ -502,52 +767,17 @@ fn eyedropper(
 // Copy / Cut / Paste / Undo
 // ---------------------------------------------------------------------------
 
-fn clipboard_keys(
+fn undo_key(
     keys: Res<ButtonInput<KeyCode>>,
-    mut state: ResMut<EditorState>,
     mut canvas: ResMut<EditorCanvas>,
     mut undo: ResMut<UndoStack>,
 ) {
     let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
-
-    if ctrl && keys.just_pressed(KeyCode::KeyZ) {
+    if keys.just_pressed(KeyCode::KeyU) || (ctrl && keys.just_pressed(KeyCode::KeyZ)) {
         if let Some((tiles, objects)) = undo.0.pop() {
             canvas.tiles = tiles;
             canvas.objects = objects;
         }
-    }
-
-    if let Some((x1, y1, x2, y2)) = state.selection {
-        let copy = ctrl && keys.just_pressed(KeyCode::KeyC);
-        let cut = ctrl && keys.just_pressed(KeyCode::KeyX);
-        if copy || cut {
-            let mut clip_tiles = Vec::new();
-            let mut clip_objects = Vec::new();
-            for y in y1..=y2 {
-                let mut row_t = Vec::new();
-                let mut row_o = Vec::new();
-                for x in x1..=x2 {
-                    row_t.push(canvas.tiles[y][x]);
-                    row_o.push(canvas.objects[y][x]);
-                }
-                clip_tiles.push(row_t);
-                clip_objects.push(row_o);
-            }
-            state.clipboard = Some(Clipboard { tiles: clip_tiles, objects: clip_objects });
-            if cut {
-                push_undo(&canvas, &mut undo);
-                for y in y1..=y2 {
-                    for x in x1..=x2 {
-                        canvas.tiles[y][x] = Tile::Grass;
-                        canvas.objects[y][x] = None;
-                    }
-                }
-            }
-        }
-    }
-
-    if ctrl && keys.just_pressed(KeyCode::KeyV) && state.clipboard.is_some() {
-        state.tool = ToolMode::Paste;
     }
 }
 
@@ -597,30 +827,9 @@ fn update_overlays(
     state: Res<EditorState>,
     windows: Query<&Window>,
     camera_q: Query<(&Camera, &GlobalTransform)>,
-    existing_sel: Query<Entity, With<SelectionOverlay>>,
     existing_drag: Query<Entity, With<DragPreview>>,
 ) {
-    for e in &existing_sel { commands.entity(e).despawn(); }
     for e in &existing_drag { commands.entity(e).despawn(); }
-
-    if let Some((x1, y1, x2, y2)) = state.selection {
-        let tl = grid_to_world(x1, y1);
-        let br = grid_to_world(x2, y2);
-        let center = (tl + br) / 2.0;
-        let size = Vec2::new(
-            (x2 - x1 + 1) as f32 * STEP,
-            (y2 - y1 + 1) as f32 * STEP,
-        );
-        commands.spawn((
-            Sprite {
-                color: Color::srgba(0.2, 0.6, 1.0, 0.25),
-                custom_size: Some(size),
-                ..default()
-            },
-            Transform::from_xyz(center.x, center.y, 2.0),
-            SelectionOverlay,
-        ));
-    }
 
     if state.drag_start.is_some() {
         if let Some(cursor) = cursor_world(&windows, &camera_q) {
@@ -656,13 +865,26 @@ fn update_overlays(
 // WFC generation
 // ---------------------------------------------------------------------------
 
+fn encode_cell(tile: Tile, obj: Option<u8>) -> u16 {
+    (tile as u16) | ((obj.map(|o| o as u16 + 1).unwrap_or(0)) << 8)
+}
+
+fn decode_cell(val: u16) -> (Option<Tile>, Option<u8>) {
+    let tile = Tile::try_from(val & 0xFF).ok();
+    let obj = match val >> 8 { 0 => None, n => Some((n - 1) as u8) };
+    (tile, obj)
+}
+
+#[derive(Component)]
+struct OutputLabel;
+
 fn generate_wfc(
     keys: Res<ButtonInput<KeyCode>>,
     canvas: Res<EditorCanvas>,
     state: Res<EditorState>,
+    tileset: Res<EditorTileset>,
     mut commands: Commands,
-    mut images: ResMut<Assets<Image>>,
-    existing: Query<Entity, With<OutputSprite>>,
+    existing: Query<Entity, Or<(With<OutputChunk>, With<OutputLabel>)>>,
 ) {
     if !keys.just_pressed(KeyCode::KeyG) { return; }
 
@@ -673,14 +895,26 @@ fn generate_wfc(
 
     let input_grid = Grid::new_fn(
         coord_2d::Size::new(CANVAS_W as u32, CANVAS_H as u32),
-        |coord| canvas.tiles[coord.y as usize][coord.x as usize] as u16,
+        |coord| encode_cell(
+            canvas.tiles[coord.y as usize][coord.x as usize],
+            canvas.objects[coord.y as usize][coord.x as usize],
+        ),
     );
 
     let pattern_size = NonZeroU32::new(state.pattern_size).unwrap();
     let patterns = OverlappingPatterns::new(
         input_grid,
         pattern_size,
-        &[wfc::orientation::Orientation::Original],
+        &[
+            wfc::orientation::Orientation::Original,
+            wfc::orientation::Orientation::Clockwise90,
+            wfc::orientation::Orientation::Clockwise180,
+            wfc::orientation::Orientation::Clockwise270,
+            wfc::orientation::Orientation::DiagonallyFlipped,
+            wfc::orientation::Orientation::DiagonallyFlippedClockwise90,
+            wfc::orientation::Orientation::DiagonallyFlippedClockwise180,
+            wfc::orientation::Orientation::DiagonallyFlippedClockwise270,
+        ],
     );
 
     let global_stats = patterns.global_stats();
@@ -692,43 +926,63 @@ fn generate_wfc(
 
     match result {
         Ok(wave) => {
-            let mut data = Vec::with_capacity((ow * oh * 4) as usize);
+            let canvas_right = (CANVAS_W as f32 * STEP) / 2.0;
+            let origin_x = canvas_right + 40.0;
+
+            let mut tile_data: Vec<Option<TileData>> = vec![None; (ow * oh) as usize];
             for coord_y in 0..oh {
                 for coord_x in 0..ow {
                     let cell = wave.grid().get(coord_2d::Coord::new(coord_x as i32, coord_y as i32)).unwrap();
-                    let [r, g, b] = cell.chosen_pattern_id().ok()
-                        .and_then(|id| Tile::try_from(*patterns.pattern_top_left_value(id)).ok())
-                        .map(|t| t.color())
-                        .unwrap_or([0.0, 0.0, 0.0]);
-                    data.extend_from_slice(&[
-                        (r * 255.0).round() as u8,
-                        (g * 255.0).round() as u8,
-                        (b * 255.0).round() as u8,
-                        255,
-                    ]);
+                    let val = cell.chosen_pattern_id().ok()
+                        .map(|id| *patterns.pattern_top_left_value(id));
+                    let (tile, obj) = val.map(decode_cell).unwrap_or((None, None));
+                    if let Some(tile) = tile {
+                        let info = tileset.0.layer_range[tile as usize];
+                        let tileset_index = match info.select {
+                            sprites::TileSelect::Single => info.base,
+                            sprites::TileSelect::RandomHash => {
+                                let h: u64 = (coord_x as u64) | ((coord_y as u64) << 32);
+                                let h = (h ^ (h >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+                                let h = (h ^ (h >> 27)).wrapping_mul(0x94d049bb133111eb);
+                                let h = h ^ (h >> 31);
+                                info.base + (h as u16) % info.count
+                            }
+                            sprites::TileSelect::Connected => info.base,
+                        };
+                        let chunk_idx = ((oh - 1 - coord_y) * ow + coord_x) as usize;
+                        tile_data[chunk_idx] = Some(TileData {
+                            tileset_index,
+                            color: Color::WHITE,
+                            visible: true,
+                        });
+                    }
+                    if let Some(idx) = obj {
+                        if (idx as usize) < OBJECT_TEMPLATES.len() {
+                            let name: String = OBJECT_TEMPLATES[idx as usize].chars().take(3).collect();
+                            let x = origin_x + coord_x as f32 * CELL;
+                            let y = (oh - 1 - coord_y) as f32 * CELL;
+                            commands.spawn((
+                                Text2d::new(name),
+                                TextFont { font_size: 8.0, ..default() },
+                                TextColor(Color::srgb(1.0, 0.8, 0.2)),
+                                Transform::from_xyz(x, y, 1.0),
+                                OutputLabel,
+                            ));
+                        }
+                    }
                 }
             }
-            let mut img = Image::new(
-                Extent3d { width: ow, height: oh, depth_or_array_layers: 1 },
-                TextureDimension::D2,
-                data,
-                TextureFormat::Rgba8UnormSrgb,
-                RenderAssetUsages::RENDER_WORLD,
-            );
-            img.sampler = bevy::image::ImageSampler::nearest();
-
-            let canvas_px = CANVAS_W as f32 * STEP;
-            let output_px = canvas_px;
-            let origin_x = canvas_px / 2.0 + 40.0 + output_px / 2.0;
 
             commands.spawn((
-                Sprite {
-                    image: images.add(img),
-                    custom_size: Some(Vec2::new(output_px, output_px * (oh as f32 / ow as f32))),
-                    ..default()
+                TilemapChunk {
+                    chunk_size: UVec2::new(ow, oh),
+                    tile_display_size: UVec2::splat(CELL as u32),
+                    tileset: tileset.0.handle.clone(),
+                    alpha_mode: AlphaMode2d::Blend,
                 },
-                Transform::from_xyz(origin_x, 0.0, 0.0),
-                OutputSprite,
+                TilemapChunkTileData(tile_data),
+                Transform::from_xyz(origin_x - CELL / 2.0, CELL / 2.0, 0.0),
+                OutputChunk,
             ));
             eprintln!("WFC generated {ow}x{oh} output (pattern_size={})", state.pattern_size);
         }
@@ -835,16 +1089,7 @@ fn export_prefab(keys: Res<ButtonInput<KeyCode>>, canvas: Res<EditorCanvas>) {
 fn update_title(state: Res<EditorState>, mut windows: Query<&mut Window>) {
     if !state.is_changed() { return; }
     if let Ok(mut win) = windows.single_mut() {
-        let obj_name = state.selected_object
-            .map(|i| OBJECT_TEMPLATES[i as usize])
-            .unwrap_or("none");
-        win.title = format!(
-            "Level Editor | {} | {:?} + {} | pattern {} | [D]raw [R]ect [F]ill [B]ox-select | Tab=obj [/]=pattern G=gen",
-            state.tool.name(),
-            state.selected_tile,
-            obj_name,
-            state.pattern_size,
-        );
+        win.title = format!("Level Editor | {}", state.tool.name());
     }
 }
 
@@ -874,7 +1119,6 @@ fn main() {
             selected_tile: Tile::Wall,
             selected_object: None,
             drag_start: None,
-            selection: None,
             clipboard: None,
             pattern_size: 3,
             output_mult: 3,
@@ -892,21 +1136,30 @@ fn main() {
             camera_pan,
             camera_zoom,
             tool_keys,
-            palette_click,
+            ui_tile_palette,
+        ))
+        .add_systems(Update, (
+            ui_tile_highlight,
+            ui_object_palette,
+            ui_object_highlight,
+        ))
+        .add_systems(Update, (
+            update_tile_preview,
+            update_status_label,
         ))
         .add_systems(Update, (
             eyedropper,
             canvas_interact,
-            clipboard_keys,
+            undo_key,
+            sync_canvas_sprites,
         ))
         .add_systems(Update, (
-            sync_canvas_sprites,
             sync_object_labels,
             update_overlays,
             generate_wfc,
+            save_load,
         ))
         .add_systems(Update, (
-            save_load,
             export_prefab,
             update_title,
         ))

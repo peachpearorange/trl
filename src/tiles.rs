@@ -34,6 +34,7 @@ pub enum TileRenderMode {
 #[func(pub fn name(&self) -> &'static str)]
 #[func(pub fn has_atmosphere(&self) -> bool { true })]
 #[func(pub fn render_mode(&self) -> TileRenderMode { TileRenderMode::SolidColor })]
+#[func(pub fn is_liquid(&self) -> bool { false })]
 pub enum Tile {
   #[assoc(glyph = " ", color = [0.0, 0.0, 0.0], walkable = true, causes_falling = true, name = "Air", has_atmosphere = false)]
   Air,
@@ -47,7 +48,7 @@ pub enum Tile {
   BrickWall,
   #[assoc(glyph = "\"", color = [0.2, 0.6, 0.2], walkable = true, name = "Grass", render_mode = TileRenderMode::Sprite("textures/space_qud/grass.png", [0.22, 0.48, 0.18], [0.52, 0.72, 0.28]))]
   Grass,
-  #[assoc(glyph = "~", color = [0.2, 0.3, 0.8], walkable = false, name = "Water", render_mode = TileRenderMode::Sprite("textures/space_qud/liquid tile.png", [0.08, 0.18, 0.55], [0.28, 0.52, 0.88]))]
+  #[assoc(glyph = "~", color = [0.2, 0.3, 0.8], walkable = false, name = "Water", is_liquid = true, render_mode = TileRenderMode::Sprite("textures/space_qud/liquid tile.png", [0.08, 0.18, 0.55], [0.28, 0.52, 0.88]))]
   Water,
   #[assoc(glyph = ",", color = [0.8, 0.7, 0.4], walkable = true, name = "Sand", render_mode = TileRenderMode::Sprite("textures/space_qud/wavy.png", [0.72, 0.62, 0.38], [0.92, 0.86, 0.62]))]
   Sand,
@@ -61,11 +62,11 @@ pub enum Tile {
   Bush,
   #[assoc(glyph = ".", color = [0.55, 0.53, 0.5], walkable = true, name = "Ash", render_mode = TileRenderMode::SpritePackRandom(&["textures/space_qud/ground.png"], [0.32, 0.30, 0.28], [0.55, 0.53, 0.50]))]
   Ash,
-  #[assoc(glyph = "~", color = [0.9, 0.3, 0.05], walkable = false, name = "Lava", render_mode = TileRenderMode::Sprite("textures/space_qud/liquid tile.png", [0.72, 0.18, 0.04], [0.95, 0.52, 0.08]))]
+  #[assoc(glyph = "~", color = [0.9, 0.3, 0.05], walkable = false, name = "Lava", is_liquid = true, render_mode = TileRenderMode::Sprite("textures/space_qud/liquid tile.png", [0.72, 0.18, 0.04], [0.95, 0.52, 0.08]))]
   Lava,
-  #[assoc(glyph = "~", color = [0.3, 0.5, 0.85], walkable = true, name = "Shallow Water", render_mode = TileRenderMode::Sprite("textures/space_qud/wavy.png", [0.18, 0.42, 0.62], [0.45, 0.68, 0.88]))]
+  #[assoc(glyph = "~", color = [0.3, 0.5, 0.85], walkable = true, name = "Shallow Water", is_liquid = true, render_mode = TileRenderMode::Sprite("textures/space_qud/wavy.png", [0.18, 0.42, 0.62], [0.45, 0.68, 0.88]))]
   ShallowWater,
-  #[assoc(glyph = "≈", color = [0.1, 0.15, 0.6], walkable = false, name = "Deep Water", render_mode = TileRenderMode::Sprite("textures/space_qud/liquid tile.png", [0.04, 0.08, 0.42], [0.12, 0.28, 0.68]))]
+  #[assoc(glyph = "≈", color = [0.1, 0.15, 0.6], walkable = false, name = "Deep Water", is_liquid = true, render_mode = TileRenderMode::Sprite("textures/space_qud/liquid tile.png", [0.04, 0.08, 0.42], [0.12, 0.28, 0.68]))]
   DeepWater,
   #[assoc(glyph = "·", color = [0.45, 0.4, 0.35], walkable = true, name = "Road")]
   Road,
@@ -126,15 +127,15 @@ pub enum Tile {
   AlienGrass,
   #[assoc(glyph = "*", color = [0.5, 0.8, 0.95], walkable = false, name = "Crystal Growth", render_mode = TileRenderMode::Sprite("textures/space_qud/crystal.png", [0.28, 0.62, 0.82], [0.62, 0.88, 1.0]))]
   CrystalGrowth,
-  #[assoc(glyph = "~", color = [0.5, 0.3, 0.7], walkable = true, name = "Alien Fluid", render_mode = TileRenderMode::Sprite("textures/space_qud/liquid tile.png", [0.35, 0.12, 0.52], [0.68, 0.32, 0.88]))]
+  #[assoc(glyph = "~", color = [0.5, 0.3, 0.7], walkable = true, name = "Alien Fluid", is_liquid = true, render_mode = TileRenderMode::Sprite("textures/space_qud/liquid tile.png", [0.35, 0.12, 0.52], [0.68, 0.32, 0.88]))]
   AlienFluid,
-  #[assoc(glyph = "~", color = [0.1, 0.75, 0.8], walkable = true, name = "Bioluminescent Pool", render_mode = TileRenderMode::Sprite("textures/space_qud/liquid tile.png", [0.04, 0.48, 0.62], [0.18, 0.88, 0.95]))]
+  #[assoc(glyph = "~", color = [0.1, 0.75, 0.8], walkable = true, name = "Bioluminescent Pool", is_liquid = true, render_mode = TileRenderMode::Sprite("textures/space_qud/liquid tile.png", [0.04, 0.48, 0.62], [0.18, 0.88, 0.95]))]
   BioluminescentPool,
-  #[assoc(glyph = "~", color = [0.65, 0.85, 0.1], walkable = true, name = "Acid Pool", render_mode = TileRenderMode::Sprite("textures/space_qud/liquid tile.png", [0.42, 0.62, 0.05], [0.72, 0.92, 0.22]))]
+  #[assoc(glyph = "~", color = [0.65, 0.85, 0.1], walkable = true, name = "Acid Pool", is_liquid = true, render_mode = TileRenderMode::Sprite("textures/space_qud/liquid tile.png", [0.42, 0.62, 0.05], [0.72, 0.92, 0.22]))]
   AcidPool,
-  #[assoc(glyph = "~", color = [0.75, 0.12, 0.18], walkable = true, name = "Crimson Pool", render_mode = TileRenderMode::Sprite("textures/space_qud/liquid tile.png", [0.52, 0.06, 0.08], [0.88, 0.28, 0.32]))]
+  #[assoc(glyph = "~", color = [0.75, 0.12, 0.18], walkable = true, name = "Crimson Pool", is_liquid = true, render_mode = TileRenderMode::Sprite("textures/space_qud/liquid tile.png", [0.52, 0.06, 0.08], [0.88, 0.28, 0.32]))]
   CrimsonPool,
-  #[assoc(glyph = "~", color = [0.85, 0.52, 0.08], walkable = true, name = "Amber Pool", render_mode = TileRenderMode::Sprite("textures/space_qud/liquid tile.png", [0.62, 0.32, 0.04], [0.92, 0.68, 0.22]))]
+  #[assoc(glyph = "~", color = [0.85, 0.52, 0.08], walkable = true, name = "Amber Pool", is_liquid = true, render_mode = TileRenderMode::Sprite("textures/space_qud/liquid tile.png", [0.62, 0.32, 0.04], [0.92, 0.68, 0.22]))]
   AmberPool,
   #[assoc(glyph = ".", color = [0.65, 0.78, 0.88], walkable = true, name = "Bright Ground", render_mode = TileRenderMode::SpritePackRandom(&["textures/space_qud/ground.png"], [0.58, 0.72, 0.85], [0.82, 0.90, 0.96]))]
   BrightGround,

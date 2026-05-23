@@ -2,14 +2,14 @@
 //! Each sim turn, cooldowns decrement. Number keys select an ability; left-click fires it.
 
 use {std::collections::HashMap,
-     bevy::prelude::*,
+     bevy::{prelude::*, input::mouse::AccumulatedMouseScroll},
      crate::{Clock, CurrentZone, Inventory, Player, PlayerPos, TimeMode, TurnBasedWorldState, UiState,
              entities::{Enemy, Glyph, GrenadeInFlight, Loadout, Location, Named, Stats},
              level::Item,
              particles::{ParticleEffects, spawn_bullet_trail, spawn_laser_beam, spawn_plasma_burst,
                          spawn_scatter_trails, spawn_pulse_beam, tile_to_world},
              path_overlay::{bresenham_path, dda_cells, euclidean_los_point},
-             ui::{LogEntries, log_message}}};
+             ui::{AbilitySlotIndex, LogEntries, log_message}}};
 
 /// Grenade flight speed: tiles traversed per sim turn before detonation.
 const GRENADE_TILES_PER_TURN: usize = 4;
@@ -151,6 +151,9 @@ pub fn handle_ability_keys(
           if item == Item::StealthDevice {
             commands.entity(player_entity).insert(crate::entities::Invisible(20));
           }
+          if item == Item::PhaseDevice {
+            commands.entity(player_entity).insert(crate::entities::Phasing(30));
+          }
           log_message(&mut log, format!("You activate the {}!", item.name()));
           targeting.selected = None;
           clock.spend_turn(&mut tb);
@@ -239,6 +242,9 @@ pub fn handle_ability_click(
     }
     if item == Item::StealthDevice {
       commands.entity(player_entity).insert(crate::entities::Invisible(20));
+    }
+    if item == Item::PhaseDevice {
+      commands.entity(player_entity).insert(crate::entities::Phasing(30));
     }
     log_message(&mut log, format!("You activate the {}!", item.name()));
     targeting.selected = None;
@@ -466,4 +472,33 @@ pub fn tick_cooldowns(mut targeting: ResMut<TargetingState>) {
     *cd = cd.saturating_sub(1);
     *cd > 0
   });
+}
+
+pub fn detect_ability_bar_clicks(
+  button_q: Query<(&Interaction, &AbilitySlotIndex), Changed<Interaction>>,
+  bar: Res<AbilityBarData>,
+  mut targeting: ResMut<TargetingState>
+) {
+  for (interaction, idx) in &button_q {
+    if matches!(interaction, Interaction::Pressed) && idx.0 < bar.slots.len() {
+      targeting.selected = (targeting.selected != Some(idx.0)).then_some(idx.0);
+    }
+  }
+}
+
+pub fn handle_ability_scroll(
+  scroll: Res<AccumulatedMouseScroll>,
+  ui: Res<UiState>,
+  bar: Res<AbilityBarData>,
+  mut targeting: ResMut<TargetingState>
+) {
+  if !ui.any_open() && !bar.slots.is_empty() && scroll.delta.y != 0.0 {
+    let n = bar.slots.len();
+    targeting.selected = Some(match targeting.selected {
+      Some(cur) if scroll.delta.y > 0.0 => (cur + n - 1) % n,
+      Some(cur) => (cur + 1) % n,
+      None if scroll.delta.y > 0.0 => n - 1,
+      None => 0,
+    });
+  }
 }

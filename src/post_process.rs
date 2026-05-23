@@ -61,6 +61,10 @@ pub struct DisplayMaterial {
     #[texture(2)]
     #[sampler(3)]
     entities: Handle<Image>,
+    #[uniform(4)]
+    time: f32,
+    #[uniform(5)]
+    world_offset: IVec2,
 }
 impl Material2d for DisplayMaterial {
     fn fragment_shader() -> ShaderRef {
@@ -82,7 +86,7 @@ impl Plugin for PostProcessPlugin {
         .init_resource::<CameraWorldOffset>()
         .add_systems(PreStartup, create_render_targets)
         .add_systems(PostStartup, setup_display)
-        .add_systems(Update, (on_window_resized, update_camera_world_offset));
+        .add_systems(Update, (on_window_resized, update_camera_world_offset, update_display_time));
 
         let render_app = app.sub_app_mut(RenderApp);
         render_app
@@ -135,6 +139,8 @@ fn setup_display(
     let display_mat = display_mats.add(DisplayMaterial {
         screen: output.0.clone(),
         entities: entity_rt.0.clone(),
+        time: 0.0,
+        world_offset: IVec2::ZERO,
     });
     commands.spawn((
         Mesh2d(quad),
@@ -210,6 +216,18 @@ fn update_camera_world_offset(
     let cx = (t.x * scale).round() - pw * 0.5;
     let cy = -((t.y * scale).round() + ph * 0.5);
     offset.0 = IVec2::new(cx as i32, cy as i32);
+}
+
+fn update_display_time(
+    handle: Res<DisplayHandle>,
+    mut display_mats: ResMut<Assets<DisplayMaterial>>,
+    time: Res<Time>,
+    offset: Res<CameraWorldOffset>,
+) {
+    if let Some(m) = display_mats.get_mut(&handle.0) {
+        m.time = time.elapsed_secs();
+        m.world_offset = offset.0;
+    }
 }
 
 pub fn game_render_target(render_target: &GameRenderTarget) -> RenderTarget {
