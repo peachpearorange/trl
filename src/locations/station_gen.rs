@@ -372,10 +372,9 @@ fn place_windows(level: &mut Level, size: usize, rng: &mut SmallRng) {
 /// Only overwrites StationFloor so corridors (DeckPlate) are preserved.
 fn add_internal_walls(level: &mut Level, room: &Rect, rng: &mut SmallRng) {
     let inner = room.inner();
-    if inner.w < 8 || inner.h < 8 {
-        return;
+    if inner.w >= 8 && inner.h >= 8 {
+        add_spine_wall(level, &inner, rng);
     }
-    add_spine_wall(level, &inner, rng);
 }
 
 /// Spine wall: a partial wall through the room centre with a doorway-width gap.

@@ -34,13 +34,13 @@ pub fn initiate_jump(dest: LocationId, ship: &mut Ship) -> TransitState {
 
 /// Advance transit timer. Returns true when transit has just completed.
 pub fn tick_transit(delta_secs: f32, transit: &mut TransitState) -> bool {
-  if !transit.active {
-    return false;
+  transit.active && {
+    transit.elapsed += delta_secs;
+    if transit.elapsed >= transit.duration {
+      transit.active = false;
+      true
+    } else {
+      false
+    }
   }
-  transit.elapsed += delta_secs;
-  if transit.elapsed >= transit.duration {
-    transit.active = false;
-    return true;
-  }
-  false
 }

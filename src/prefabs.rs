@@ -117,15 +117,12 @@ impl Prefab {
       })
       .min()
       .unwrap_or(0);
-    for (y, line) in raw_lines.iter().enumerate() {
+    raw_lines.iter().enumerate().find_map(|(y, line)| {
       let stripped = line.get(indent..).unwrap_or(line);
-      for (x, c) in stripped.chars().enumerate() {
-        if c == ch {
-          return Some((x as i32, y as i32));
-        }
-      }
-    }
-    None
+      stripped.chars().enumerate().find_map(|(x, c)| {
+        (c == ch).then_some((x as i32, y as i32))
+      })
+    })
   }
 
   /// Write tiles into `level` at `(ox + x, oy + y)` for each layout cell.
@@ -148,9 +145,10 @@ impl Prefab {
     self.visit_cells(|lx, ly, _tile, templates| {
       let wx = ox + lx;
       let wy = oy + ly;
-      if exclude.contains(&(wx, wy)) { return; }
-      for template in templates {
-        template.clone().spawn_at(commands, wx, wy, z);
+      if !exclude.contains(&(wx, wy)) {
+        for template in templates {
+          template.clone().spawn_at(commands, wx, wy, z);
+        }
       }
     });
   }

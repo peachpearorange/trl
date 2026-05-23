@@ -197,11 +197,10 @@ impl Level {
   }
 
   pub fn get(&self, x: i32, y: i32) -> Option<Tile> {
-    if x < 0 || y < 0 {
-      return None;
-    }
-    let (ux, uy) = (x as usize, y as usize);
-    (ux < self.width && uy < self.height).then(|| self.tiles[uy][ux])
+    (x >= 0 && y >= 0)
+      .then(|| (x as usize, y as usize))
+      .filter(|&(ux, uy)| ux < self.width && uy < self.height)
+      .map(|(ux, uy)| self.tiles[uy][ux])
   }
 
 
@@ -401,24 +400,22 @@ pub fn compute_fov(
   mut blocks_sight: impl FnMut(i32, i32) -> bool
 ) {
   fov.clear_visible();
-  if cx < 0 || cy < 0 || (cx as usize) >= fov.width || (cy as usize) >= fov.height {
-    return;
-  }
-
-  let max_dist = cx.max((fov.width as i32) - 1 - cx)
-    .max(cy.max((fov.height as i32) - 1 - cy));
-  let r = radius.min(max_dist);
+  if cx >= 0 && cy >= 0 && (cx as usize) < fov.width && (cy as usize) < fov.height {
+    let max_dist = cx.max((fov.width as i32) - 1 - cx)
+      .max(cy.max((fov.height as i32) - 1 - cy));
+    let r = radius.min(max_dist);
   let size = (2 * r + 1) as usize;
   // 0 = unvisited, positive = propagation depth, -1 = opaque (visible but blocks)
   let mut vis2 = vec![0i32; size * size];
   let mut vis = vec![0i32; size * size];
 
   let mut is_opaque = |dx: i32, dy: i32| -> bool {
-    if (dx, dy) == (0, 0) { return false; }
-    let (wx, wy) = (cx + dx, cy + dy);
-    match level.get(wx, wy) {
-      None => true,
-      Some(t) => t.opaque() || blocks_sight(wx, wy)
+    (dx, dy) != (0, 0) && {
+      let (wx, wy) = (cx + dx, cy + dy);
+      match level.get(wx, wy) {
+        None => true,
+        Some(t) => t.opaque() || blocks_sight(wx, wy)
+      }
     }
   };
 
@@ -517,6 +514,7 @@ pub fn compute_fov(
         fov.mark_visible((cx + dx) as usize, (cy + dy) as usize);
       }
     }
+  }
   }
 }
 

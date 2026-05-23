@@ -52,34 +52,34 @@ pub fn dda_cells(x0: f32, y0: f32, x1: f32, y1: f32) -> Vec<(i32, i32)> {
   let end_cx = x1.floor() as i32;
   let end_cy = y1.floor() as i32;
   cells.push((cx, cy));
-  if cx == end_cx && cy == end_cy { return cells; }
+  if cx != end_cx || cy != end_cy {
+    let dx = x1 - x0;
+    let dy = y1 - y0;
+    let step_x = dx.signum() as i32;
+    let step_y = dy.signum() as i32;
+    let t_delta_x = if dx.abs() < 1e-9 { f32::INFINITY } else { 1.0 / dx.abs() };
+    let t_delta_y = if dy.abs() < 1e-9 { f32::INFINITY } else { 1.0 / dy.abs() };
+    let mut t_max_x = if dx > 1e-9 {
+      ((cx + 1) as f32 - x0) / dx
+    } else if dx < -1e-9 {
+      (cx as f32 - x0) / dx
+    } else {
+      f32::INFINITY
+    };
+    let mut t_max_y = if dy > 1e-9 {
+      ((cy + 1) as f32 - y0) / dy
+    } else if dy < -1e-9 {
+      (cy as f32 - y0) / dy
+    } else {
+      f32::INFINITY
+    };
 
-  let dx = x1 - x0;
-  let dy = y1 - y0;
-  let step_x = dx.signum() as i32;
-  let step_y = dy.signum() as i32;
-  let t_delta_x = if dx.abs() < 1e-9 { f32::INFINITY } else { 1.0 / dx.abs() };
-  let t_delta_y = if dy.abs() < 1e-9 { f32::INFINITY } else { 1.0 / dy.abs() };
-  let mut t_max_x = if dx > 1e-9 {
-    ((cx + 1) as f32 - x0) / dx
-  } else if dx < -1e-9 {
-    (cx as f32 - x0) / dx
-  } else {
-    f32::INFINITY
-  };
-  let mut t_max_y = if dy > 1e-9 {
-    ((cy + 1) as f32 - y0) / dy
-  } else if dy < -1e-9 {
-    (cy as f32 - y0) / dy
-  } else {
-    f32::INFINITY
-  };
-
-  loop {
-    if t_max_x < t_max_y { cx += step_x; t_max_x += t_delta_x; }
-    else                  { cy += step_y; t_max_y += t_delta_y; }
-    cells.push((cx, cy));
-    if cx == end_cx && cy == end_cy { break; }
+    loop {
+      if t_max_x < t_max_y { cx += step_x; t_max_x += t_delta_x; }
+      else                  { cy += step_y; t_max_y += t_delta_y; }
+      cells.push((cx, cy));
+      if cx == end_cx && cy == end_cy { break; }
+    }
   }
   cells
 }
@@ -117,20 +117,21 @@ pub fn euclidean_los_point(
 /// All grid tiles on the Bresenham line from (x0,y0) to (x1,y1), inclusive of both ends.
 pub fn bresenham_path(x0: i32, y0: i32, x1: i32, y1: i32) -> Vec<(i32, i32)> {
   let mut tiles = vec![(x0, y0)];
-  if x0 == x1 && y0 == y1 { return tiles; }
-  let dx = (x1 - x0).abs();
-  let dy = -(y1 - y0).abs();
-  let sx = if x0 < x1 { 1 } else { -1 };
-  let sy = if y0 < y1 { 1 } else { -1 };
-  let mut err = dx + dy;
-  let mut x = x0;
-  let mut y = y0;
-  loop {
-    if x == x1 && y == y1 { break; }
-    let e2 = 2 * err;
-    if e2 >= dy { err += dy; x += sx; }
-    if e2 <= dx { err += dx; y += sy; }
-    tiles.push((x, y));
+  if x0 != x1 || y0 != y1 {
+    let dx = (x1 - x0).abs();
+    let dy = -(y1 - y0).abs();
+    let sx = if x0 < x1 { 1 } else { -1 };
+    let sy = if y0 < y1 { 1 } else { -1 };
+    let mut err = dx + dy;
+    let mut x = x0;
+    let mut y = y0;
+    loop {
+      if x == x1 && y == y1 { break; }
+      let e2 = 2 * err;
+      if e2 >= dy { err += dy; x += sx; }
+      if e2 <= dx { err += dx; y += sy; }
+      tiles.push((x, y));
+    }
   }
   tiles
 }
@@ -378,10 +379,7 @@ pub fn render_ranged_path(
           .with_rotation(Quat::from_rotation_z(angle)),
       ));
     }
-    return;
-  }
-
-  if overlay.tiles.is_empty() { return; }
+  } else if !overlay.tiles.is_empty() {
 
   let w = current.0.width;
   let h = current.0.height;
@@ -414,4 +412,5 @@ pub fn render_ranged_path(
       &mut commands, sp, rot, flip, screen_pos, &mut palette_cache, &mut images
     );
   }
+    }
 }

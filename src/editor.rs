@@ -430,25 +430,23 @@ fn camera_pan(
     mut camera_q: Query<(&Camera, &GlobalTransform, &mut Transform), With<Camera2d>>,
     mut pan: ResMut<PanState>,
 ) {
-    let Some(cursor_pos) = windows.single().ok().and_then(|w| w.cursor_position()) else {
-        return;
-    };
-
-    if mouse.just_pressed(MouseButton::Right) {
-        if let Ok((_, _, tf)) = camera_q.single() {
-            pan.active = true;
-            pan.cursor_origin = cursor_pos;
-            pan.camera_origin = tf.translation;
+    if let Some(cursor_pos) = windows.single().ok().and_then(|w| w.cursor_position()) {
+        if mouse.just_pressed(MouseButton::Right) {
+            if let Ok((_, _, tf)) = camera_q.single() {
+                pan.active = true;
+                pan.cursor_origin = cursor_pos;
+                pan.camera_origin = tf.translation;
+            }
         }
-    }
-    if mouse.just_released(MouseButton::Right) {
-        pan.active = false;
-    }
-    if pan.active {
-        if let Ok((_, _, mut tf)) = camera_q.single_mut() {
-            let delta = cursor_pos - pan.cursor_origin;
-            tf.translation.x = pan.camera_origin.x - delta.x * tf.scale.x;
-            tf.translation.y = pan.camera_origin.y + delta.y * tf.scale.y;
+        if mouse.just_released(MouseButton::Right) {
+            pan.active = false;
+        }
+        if pan.active {
+            if let Ok((_, _, mut tf)) = camera_q.single_mut() {
+                let delta = cursor_pos - pan.cursor_origin;
+                tf.translation.x = pan.camera_origin.x - delta.x * tf.scale.x;
+                tf.translation.y = pan.camera_origin.y + delta.y * tf.scale.y;
+            }
         }
     }
 }
@@ -463,22 +461,24 @@ fn camera_zoom(
     mut camera_q: Query<(&Camera, &GlobalTransform, &mut Transform), With<Camera2d>>,
     mut zoom: ResMut<CameraZoom>,
 ) {
-    if scroll.delta.y == 0.0 { return; }
-    let Ok((cam, cam_gt, mut tf)) = camera_q.single_mut() else { return };
-    let cursor_world = windows.single().ok()
-        .and_then(|w| w.cursor_position())
-        .and_then(|p| cam.viewport_to_world_2d(cam_gt, p).ok());
+    if scroll.delta.y != 0.0
+        && let Ok((cam, cam_gt, mut tf)) = camera_q.single_mut()
+    {
+        let cursor_world = windows.single().ok()
+            .and_then(|w| w.cursor_position())
+            .and_then(|p| cam.viewport_to_world_2d(cam_gt, p).ok());
 
-    let old_zoom = zoom.0;
-    let delta = scroll.delta.y * 0.1;
-    zoom.0 = (zoom.0 * (1.0 - delta)).clamp(0.15, 8.0);
+        let old_zoom = zoom.0;
+        let delta = scroll.delta.y * 0.1;
+        zoom.0 = (zoom.0 * (1.0 - delta)).clamp(0.15, 8.0);
 
-    if let Some(world_pt) = cursor_world {
-        let factor = zoom.0 / old_zoom;
-        tf.translation.x = world_pt.x + (tf.translation.x - world_pt.x) * factor;
-        tf.translation.y = world_pt.y + (tf.translation.y - world_pt.y) * factor;
+        if let Some(world_pt) = cursor_world {
+            let factor = zoom.0 / old_zoom;
+            tf.translation.x = world_pt.x + (tf.translation.x - world_pt.x) * factor;
+            tf.translation.y = world_pt.y + (tf.translation.y - world_pt.y) * factor;
+        }
+        tf.scale = Vec3::splat(zoom.0);
     }
-    tf.scale = Vec3::splat(zoom.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -500,13 +500,14 @@ fn ui_tile_highlight(
     state: Res<EditorState>,
     mut btn_q: Query<(&TilePaletteBtn, &mut BorderColor)>,
 ) {
-    if !state.is_changed() { return; }
-    for (btn, mut border) in &mut btn_q {
-        *border = BorderColor::all(if btn.0 == state.selected_tile {
-            Color::srgb(1.0, 1.0, 0.0)
-        } else {
-            Color::srgba(0.3, 0.3, 0.3, 1.0)
-        });
+    if state.is_changed() {
+        for (btn, mut border) in &mut btn_q {
+            *border = BorderColor::all(if btn.0 == state.selected_tile {
+                Color::srgb(1.0, 1.0, 0.0)
+            } else {
+                Color::srgba(0.3, 0.3, 0.3, 1.0)
+            });
+        }
     }
 }
 
@@ -525,13 +526,14 @@ fn ui_object_highlight(
     state: Res<EditorState>,
     mut btn_q: Query<(&ObjectPaletteBtn, &mut BorderColor)>,
 ) {
-    if !state.is_changed() { return; }
-    for (btn, mut border) in &mut btn_q {
-        *border = BorderColor::all(if btn.0 == state.selected_object {
-            Color::srgb(0.0, 1.0, 0.5)
-        } else {
-            Color::srgba(0.0, 0.0, 0.0, 0.0)
-        });
+    if state.is_changed() {
+        for (btn, mut border) in &mut btn_q {
+            *border = BorderColor::all(if btn.0 == state.selected_object {
+                Color::srgb(0.0, 1.0, 0.5)
+            } else {
+                Color::srgba(0.0, 0.0, 0.0, 0.0)
+            });
+        }
     }
 }
 
@@ -575,28 +577,29 @@ fn update_mode_bar(
     mut label_q: Query<&mut TextColor, With<ModeBarLabel>>,
     mut status_q: Query<&mut Text, With<ControlsLabel>>,
 ) {
-    if !state.is_changed() { return; }
-    for (btn, children) in &btn_q {
-        for &child in children.iter() {
-            if let Ok(mut color) = label_q.get_mut(child) {
-                color.0 = if btn.0 == state.tool {
-                    Color::srgb(1.0, 1.0, 0.3)
-                } else {
-                    Color::srgb(0.5, 0.5, 0.5)
-                };
+    if state.is_changed() {
+        for (btn, children) in &btn_q {
+            for child in children.iter() {
+                if let Ok(mut color) = label_q.get_mut(child) {
+                    color.0 = if btn.0 == state.tool {
+                        Color::srgb(1.0, 1.0, 0.3)
+                    } else {
+                        Color::srgb(0.5, 0.5, 0.5)
+                    };
+                }
             }
         }
-    }
-    let obj_name = state.selected_object
-        .map(|i| OBJECT_TEMPLATES[i as usize])
-        .unwrap_or("none");
-    if let Ok(mut text) = status_q.single_mut() {
-        text.0 = format!(
-            "tile:{:?}  obj:{}  pat:{}  |  U:undo G:gen [/]:pat Ctrl+S/O:save/load",
-            state.selected_tile,
-            obj_name,
-            state.pattern_size,
-        );
+        let obj_name = state.selected_object
+            .map(|i| OBJECT_TEMPLATES[i as usize])
+            .unwrap_or("none");
+        if let Ok(mut text) = status_q.single_mut() {
+            text.0 = format!(
+                "tile:{:?}  obj:{}  pat:{}  |  U:undo G:gen [/]:pat Ctrl+S/O:save/load",
+                state.selected_tile,
+                obj_name,
+                state.pattern_size,
+            );
+        }
     }
 }
 
@@ -790,12 +793,13 @@ fn sync_canvas_sprites(
     tile_cache: Res<TileImageCache>,
     mut query: Query<(&CanvasCell, &mut Sprite)>,
 ) {
-    if !canvas.is_changed() { return; }
-    for (cell, mut sprite) in &mut query {
-        let tile = canvas.tiles[cell.1][cell.0];
-        let (ref img, color) = tile_cache.0[tile as u16 as usize];
-        sprite.image = img.clone();
-        sprite.color = color;
+    if canvas.is_changed() {
+        for (cell, mut sprite) in &mut query {
+            let tile = canvas.tiles[cell.1][cell.0];
+            let (ref img, color) = tile_cache.0[tile as u16 as usize];
+            sprite.image = img.clone();
+            sprite.color = color;
+        }
     }
 }
 
@@ -807,14 +811,15 @@ fn sync_object_labels(
     canvas: Res<EditorCanvas>,
     mut query: Query<(&ObjectLabel, &mut Text2d)>,
 ) {
-    if !canvas.is_changed() { return; }
-    for (label, mut text) in &mut query {
-        text.0 = canvas.objects[label.1][label.0]
-            .map(|idx| {
-                let name = OBJECT_TEMPLATES[idx as usize];
-                name.chars().take(3).collect()
-            })
-            .unwrap_or_default();
+    if canvas.is_changed() {
+        for (label, mut text) in &mut query {
+            text.0 = canvas.objects[label.1][label.0]
+                .map(|idx| {
+                    let name = OBJECT_TEMPLATES[idx as usize];
+                    name.chars().take(3).collect()
+                })
+                .unwrap_or_default();
+        }
     }
 }
 
@@ -1041,45 +1046,44 @@ fn save_load(
 // ---------------------------------------------------------------------------
 
 fn export_prefab(keys: Res<ButtonInput<KeyCode>>, canvas: Res<EditorCanvas>) {
-    if !keys.just_pressed(KeyCode::KeyE) { return; }
     let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
-    if ctrl { return; }
+    if keys.just_pressed(KeyCode::KeyE) && !ctrl {
+        let mut chars_used = HashMap::<u16, char>::new();
+        let mut next_char = b'a';
 
-    let mut chars_used = HashMap::<u16, char>::new();
-    let mut next_char = b'a';
-
-    for row in &canvas.tiles {
-        for &tile in row {
-            chars_used.entry(tile as u16).or_insert_with(|| {
-                let c = next_char as char;
-                next_char += 1;
-                if next_char == b'{' { next_char = b'A'; }
-                c
-            });
+        for row in &canvas.tiles {
+            for &tile in row {
+                chars_used.entry(tile as u16).or_insert_with(|| {
+                    let c = next_char as char;
+                    next_char += 1;
+                    if next_char == b'{' { next_char = b'A'; }
+                    c
+                });
+            }
         }
-    }
 
-    let mut layout = String::new();
-    for row in &canvas.tiles {
-        for &tile in row {
-            layout.push(chars_used[&(tile as u16)]);
+        let mut layout = String::new();
+        for row in &canvas.tiles {
+            for &tile in row {
+                layout.push(chars_used[&(tile as u16)]);
+            }
+            layout.push('\n');
         }
-        layout.push('\n');
-    }
 
-    let mut assocs = String::from("// Associations:\n");
-    let mut sorted: Vec<_> = chars_used.iter().collect();
-    sorted.sort_by_key(|(_, c)| **c);
-    for (disc, ch) in &sorted {
-        if let Ok(t) = Tile::try_from(**disc) {
-            assocs.push_str(&format!("// '{}' => Tile::{:?}\n", ch, t));
+        let mut assocs = String::from("// Associations:\n");
+        let mut sorted: Vec<_> = chars_used.iter().collect();
+        sorted.sort_by_key(|(_, c)| **c);
+        for (disc, ch) in &sorted {
+            if let Ok(t) = Tile::try_from(**disc) {
+                assocs.push_str(&format!("// '{}' => Tile::{:?}\n", ch, t));
+            }
         }
-    }
 
-    let out = format!("{}\n{}", layout, assocs);
-    let path = "editor_export.txt";
-    std::fs::write(path, &out).unwrap();
-    eprintln!("Exported to {path}");
+        let out = format!("{}\n{}", layout, assocs);
+        let path = "editor_export.txt";
+        std::fs::write(path, &out).unwrap();
+        eprintln!("Exported to {path}");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1087,9 +1091,10 @@ fn export_prefab(keys: Res<ButtonInput<KeyCode>>, canvas: Res<EditorCanvas>) {
 // ---------------------------------------------------------------------------
 
 fn update_title(state: Res<EditorState>, mut windows: Query<&mut Window>) {
-    if !state.is_changed() { return; }
-    if let Ok(mut win) = windows.single_mut() {
-        win.title = format!("Level Editor | {}", state.tool.name());
+    if state.is_changed() {
+        if let Ok(mut win) = windows.single_mut() {
+            win.title = format!("Level Editor | {}", state.tool.name());
+        }
     }
 }
 
@@ -1145,7 +1150,7 @@ fn main() {
         ))
         .add_systems(Update, (
             update_tile_preview,
-            update_status_label,
+            update_mode_bar,
         ))
         .add_systems(Update, (
             eyedropper,

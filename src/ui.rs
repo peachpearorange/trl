@@ -499,7 +499,7 @@ fn z_level_label() -> impl Element {
         1 => "Shallow Cave",
         2 => "Surface",
         3 => "Building Upper",
-        z => return format!("Level {}", z)
+        z => &*String::leak(format!("Level {}", z))
       };
       format!("{} (z={})", name, d.z)
     }),
@@ -753,9 +753,7 @@ fn dialogue_panel() -> impl Element {
     .child_signal(
       signal::from_resource_changed::<OverlayData>()
         .map_in::<Option<El<Node>>, Option<El<Node>>, _>(|data: OverlayData| {
-          let Some(OverlayKind::Dialogue { title, options }) = data.kind else {
-            return None;
-          };
+          if let Some(OverlayKind::Dialogue { title, options }) = data.kind {
           let mut lines: Vec<String> =
             options.iter().enumerate().map(|(i, t)| format!("{}) {}", i + 1, t)).collect();
           lines.push(String::new());
@@ -783,6 +781,9 @@ fn dialogue_panel() -> impl Element {
                   )
               )
           )
+          } else {
+            None
+          }
         })
     )
 }
@@ -794,7 +795,7 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
   signal::from_resource_changed::<OverlayData>().map_in(|data: OverlayData| {
     // Dialogue is rendered inside the game pane by dialogue_panel() — no fullscreen overlay.
     let kind = match data.kind {
-      None | Some(OverlayKind::Dialogue { .. }) => return None,
+      None | Some(OverlayKind::Dialogue { .. }) => { return None; },
       Some(k) => k,
     };
     Some(match kind {

@@ -134,11 +134,10 @@ pub fn compute_flow_field(
 ) {
   let pos = player.into_inner();
   let key = (pos.x, pos.y, pos.z);
-  if flow.computed_for == Some(key) {
-    return;
+  if flow.computed_for != Some(key) {
+    flow.field = bfs_flow_field((pos.x, pos.y), current.0.level(pos.z));
+    flow.computed_for = Some(key);
   }
-  flow.field = bfs_flow_field((pos.x, pos.y), current.0.level(pos.z));
-  flow.computed_for = Some(key);
 }
 
 /// A* pathfinding on a single z-level. Returns steps from start (exclusive) to goal (inclusive).
@@ -446,8 +445,8 @@ pub fn mushroom_spore_attack(
   mut emitter_q: Query<(&Location, &mut Loadout, Option<&Named>), With<Enemy>>
 ) {
   let (&crate::PlayerPos { x: px, y: py, z: pz }, player_invis) = *player_q;
-  if player_invis.is_some() { return; }
-  for (location, mut loadout, named) in emitter_q.iter_mut() {
+  if player_invis.is_none() {
+    for (location, mut loadout, named) in emitter_q.iter_mut() {
     let Some(slot) = loadout.spore_mut() else { continue };
     slot.timer = slot.timer.saturating_add(1);
     if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location
@@ -461,6 +460,7 @@ pub fn mushroom_spore_attack(
       spawn_cloud_area(&mut commands, ex, ey, ez, Object::spore_cloud(), &SPORE_CLOUD_OFFSETS);
     }
   }
+  }
 }
 
 /// Enemies with [`GrenadeThrowComp`]: lob a grenade at the player when beyond `min_range`.
@@ -471,8 +471,8 @@ pub fn grenade_thrower_ai(
   mut thrower_q: Query<(&Location, &mut Loadout, Option<&Named>), With<Enemy>>
 ) {
   let (&crate::PlayerPos { x: px, y: py, z: pz }, player_invis) = *player_q;
-  if player_invis.is_some() { return; }
-  for (location, mut loadout, named) in thrower_q.iter_mut() {
+  if player_invis.is_none() {
+    for (location, mut loadout, named) in thrower_q.iter_mut() {
     let Some(slot) = loadout.grenade_throw_mut() else { continue };
     let Gear::InnateGrenadeThrow { min_range } = slot.gear else { continue };
     slot.timer = slot.timer.saturating_add(1);
@@ -497,6 +497,7 @@ pub fn grenade_thrower_ai(
       ));
     }
   }
+  }
 }
 
 pub fn gun_attacker_ai(
@@ -510,10 +511,10 @@ pub fn gun_attacker_ai(
   mut gunner_q: Query<(&Location, &mut Loadout, Option<&Named>), (With<Enemy>, Without<crate::Player>)>
 ) {
   let (&crate::PlayerPos { x: px, y: py, z: pz }, player_invis) = *player_q;
-  if player_invis.is_some() { return; }
-  let level = current.0.level(pz);
-  let player_dr = player_loadout.armor_dr();
-  for (location, mut loadout, named) in gunner_q.iter_mut() {
+  if player_invis.is_none() {
+    let level = current.0.level(pz);
+    let player_dr = player_loadout.armor_dr();
+    for (location, mut loadout, named) in gunner_q.iter_mut() {
     let Some(slot) = loadout.gun_mut() else { continue };
     let Gear::InnateGun { damage } = slot.gear else { continue };
     slot.timer = slot.timer.saturating_add(1);
@@ -536,6 +537,7 @@ pub fn gun_attacker_ai(
       if player_stats.hp == 0 {
         log_message(&mut log, "You died.".into());
       }
+    }
     }
   }
 }

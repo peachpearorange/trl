@@ -79,12 +79,13 @@ fn stack_qty(rng: &mut impl Rng, tier: f32, item: Item) -> u32 {
       | Item::Glass
       | Item::OrganicMaterial
   );
-  if !components {
-    return 1;
+  if components {
+    let base = rng.gen_range(2..=7);
+    let bonus = (tier * 0.5).floor() as u32;
+    base + bonus
+  } else {
+    1
   }
-  let base = rng.gen_range(2..=7);
-  let bonus = (tier * 0.5).floor() as u32;
-  base + bonus
 }
 
 fn merge(out: &mut Vec<(Item, u32)>, item: Item, qty: u32) {

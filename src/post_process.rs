@@ -177,30 +177,29 @@ fn on_window_resized(
     mut mesh_tfs: Query<&mut Transform, With<DisplayMesh>>,
     windows: Single<&Window>,
 ) {
-    if events.read().last().is_none() {
-        return;
-    }
-    let (pw, ph) = (windows.physical_width(), windows.physical_height());
-    let (w, h) = (windows.width(), windows.height());
-    let new_game = images.add(make_game_image(pw, ph));
-    let new_output = images.add(make_output_image(pw, ph));
-    let new_entity = images.add(make_entity_image(pw, ph));
-    game_rt.0 = new_game.clone();
-    output.0 = new_output.clone();
-    entity_rt.0 = new_entity.clone();
-    if let Ok(mut rt) = game_cam_rt.single_mut() {
-        *rt = RenderTarget::Image(new_game.into());
-    }
-    if let Ok(mut rt) = entity_cam_rt.single_mut() {
-        *rt = RenderTarget::Image(new_entity.clone().into());
-    }
-    if let Some(m) = display_mats.get_mut(&handle.0) {
-        m.screen = new_output;
-        m.entities = new_entity;
-    }
-    let scale = Vec3::new(w, h, 1.0);
-    for mut tf in &mut mesh_tfs {
-        tf.scale = scale;
+    if events.read().last().is_some() {
+        let (pw, ph) = (windows.physical_width(), windows.physical_height());
+        let (w, h) = (windows.width(), windows.height());
+        let new_game = images.add(make_game_image(pw, ph));
+        let new_output = images.add(make_output_image(pw, ph));
+        let new_entity = images.add(make_entity_image(pw, ph));
+        game_rt.0 = new_game.clone();
+        output.0 = new_output.clone();
+        entity_rt.0 = new_entity.clone();
+        if let Ok(mut rt) = game_cam_rt.single_mut() {
+            *rt = RenderTarget::Image(new_game.into());
+        }
+        if let Ok(mut rt) = entity_cam_rt.single_mut() {
+            *rt = RenderTarget::Image(new_entity.clone().into());
+        }
+        if let Some(m) = display_mats.get_mut(&handle.0) {
+            m.screen = new_output;
+            m.entities = new_entity;
+        }
+        let scale = Vec3::new(w, h, 1.0);
+        for mut tf in &mut mesh_tfs {
+            tf.scale = scale;
+        }
     }
 }
 
@@ -209,13 +208,14 @@ fn update_camera_world_offset(
     windows: Single<&Window>,
     mut offset: ResMut<CameraWorldOffset>,
 ) {
-    let Ok(tf) = cam.single() else { return };
-    let scale = windows.scale_factor();
-    let (pw, ph) = (windows.physical_width() as f32, windows.physical_height() as f32);
-    let t = tf.translation();
-    let cx = (t.x * scale).round() - pw * 0.5;
-    let cy = -((t.y * scale).round() + ph * 0.5);
-    offset.0 = IVec2::new(cx as i32, cy as i32);
+    if let Ok(tf) = cam.single() {
+        let scale = windows.scale_factor();
+        let (pw, ph) = (windows.physical_width() as f32, windows.physical_height() as f32);
+        let t = tf.translation();
+        let cx = (t.x * scale).round() - pw * 0.5;
+        let cy = -((t.y * scale).round() + ph * 0.5);
+        offset.0 = IVec2::new(cx as i32, cy as i32);
+    }
 }
 
 fn update_display_time(

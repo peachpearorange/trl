@@ -112,6 +112,7 @@ enum InteractionAction {
   // EquipArmor(Item),
   // UnequipWeapon,
   // UnequipArmor,
+  // LootCorpse(Entity), // in current version loot items just pop out of enemies when they die
   // EquipGrenade { slot: usize, item: Item },
   // UnequipGrenade { slot: usize },
   // EquipDevice(Item),
@@ -1437,21 +1438,20 @@ fn update_time_mode(
   player_q: Query<&PlayerPos, With<Player>>,
   enemy_q: Query<&Location, With<Enemy>>
 ) {
-  if !time_mode_auto.0 {
-    return;
+  if time_mode_auto.0 {
+    let enemy_near = player_q.single().is_ok_and(|pos| {
+      enemy_q.iter().any(|loc| {
+        if let Location::Coords { x, y, z, .. } = *loc {
+          z == pos.z
+            && (x - pos.x).abs() <= ENEMY_ALERT_RADIUS
+            && (y - pos.y).abs() <= ENEMY_ALERT_RADIUS
+        } else {
+          false
+        }
+      })
+    });
+    clock.mode = if enemy_near { TimeMode::TurnBased } else { TimeMode::RealTime };
   }
-  let enemy_near = player_q.single().is_ok_and(|pos| {
-    enemy_q.iter().any(|loc| {
-      if let Location::Coords { x, y, z, .. } = *loc {
-        z == pos.z
-          && (x - pos.x).abs() <= ENEMY_ALERT_RADIUS
-          && (y - pos.y).abs() <= ENEMY_ALERT_RADIUS
-      } else {
-        false
-      }
-    })
-  });
-  clock.mode = if enemy_near { TimeMode::TurnBased } else { TimeMode::RealTime };
 }
 
 // ---------------------------------------------------------------------------
@@ -1467,20 +1467,19 @@ fn accumulate_dir(
 ) {
   // If handle_menus consumed a direction key this frame for menu navigation/confirmation,
   // do not latch it — it must not bleed into player movement.
-  if ui.dir_consumed {
-    return;
-  }
-  if keys.just_pressed(KeyCode::KeyW) || keys.just_pressed(KeyCode::ArrowUp) {
-    acc.up = true;
-  }
-  if keys.just_pressed(KeyCode::KeyS) || keys.just_pressed(KeyCode::ArrowDown) {
-    acc.down = true;
-  }
-  if keys.just_pressed(KeyCode::KeyA) || keys.just_pressed(KeyCode::ArrowLeft) {
-    acc.left = true;
-  }
-  if keys.just_pressed(KeyCode::KeyD) || keys.just_pressed(KeyCode::ArrowRight) {
-    acc.right = true;
+  if !ui.dir_consumed {
+    if keys.just_pressed(KeyCode::KeyW) || keys.just_pressed(KeyCode::ArrowUp) {
+      acc.up = true;
+    }
+    if keys.just_pressed(KeyCode::KeyS) || keys.just_pressed(KeyCode::ArrowDown) {
+      acc.down = true;
+    }
+    if keys.just_pressed(KeyCode::KeyA) || keys.just_pressed(KeyCode::ArrowLeft) {
+      acc.left = true;
+    }
+    if keys.just_pressed(KeyCode::KeyD) || keys.just_pressed(KeyCode::ArrowRight) {
+      acc.right = true;
+    }
   }
 }
 
@@ -2879,25 +2878,24 @@ fn apply_bump_auto_interact(
     commands.entity(entity).insert(BumpLunge { dir, start_frame: frame.0 });
     clock.move_cooldown_frames = RENDER_FRAMES_PER_SIM_STEP;
   }
-  let Some(option) = flash.0.take() else {
-    return;
-  };
-  dispatch_interactive_choice(
-    option,
-    &mut commands,
-    &mut gw.0,
-    &mut clock,
-    &mut tb,
-    &mut ui,
-    &mut log,
-    &mut player_query,
-    &mut deferred,
-    &mut door_q,
-    &asset_server,
-    &mut palette_cache,
-    &mut images,
-    &item_glyph_q
-  );
+  if let Some(option) = flash.0.take() {
+    dispatch_interactive_choice(
+      option,
+      &mut commands,
+      &mut gw.0,
+      &mut clock,
+      &mut tb,
+      &mut ui,
+      &mut log,
+      &mut player_query,
+      &mut deferred,
+      &mut door_q,
+      &asset_server,
+      &mut palette_cache,
+      &mut images,
+      &item_glyph_q
+    );
+  }
 }
 
 fn flush_pending_loot(
@@ -2956,17 +2954,16 @@ fn apply_bed_save(
   player: Single<(&PlayerPos, &Inventory, &Loadout), With<Player>>,
   mut log: ResMut<LogEntries>
 ) {
-  if !std::mem::take(&mut deferred.save_at_bed) {
-    return;
+  if std::mem::take(&mut deferred.save_at_bed) {
+    let (pos, inventory, loadout) = *player;
+    bed_save.0 = Some(SaveData {
+      docked_at: ship.docked_at,
+      pos: (pos.x, pos.y, pos.z),
+      inventory: inventory.0.clone(),
+      loadout: loadout.clone()
+    });
+    log_message(&mut log, "You rest and save your progress.".into());
   }
-  let (pos, inventory, loadout) = *player;
-  bed_save.0 = Some(SaveData {
-    docked_at: ship.docked_at,
-    pos: (pos.x, pos.y, pos.z),
-    inventory: inventory.0.clone(),
-    loadout: loadout.clone()
-  });
-  log_message(&mut log, "You rest and save your progress.".into());
 }
 
 fn player_death_check(
