@@ -1,8 +1,6 @@
 //! Visual particle effects for gunshots and grenade explosions using bevy_hanabi.
 
-use {bevy::prelude::*,
-     bevy_hanabi::prelude::*,
-     crate::TILE_SIZE};
+use {crate::TILE_SIZE, bevy::prelude::*, bevy_hanabi::prelude::*};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -14,17 +12,19 @@ pub struct ParticleEffects {
   /// Single bright dot: one spawned per tile along the bullet path.
   pub bullet_tracer: Handle<EffectAsset>,
   /// Impact spark burst at the hit point.
-  pub bullet_spark:  Handle<EffectAsset>,
+  pub bullet_spark: Handle<EffectAsset>,
   /// Large orange-red explosion burst.
-  pub explosion:     Handle<EffectAsset>,
+  pub explosion: Handle<EffectAsset>,
   /// Tight cyan glow: one spawned per tile along the laser beam.
-  pub laser_beam:    Handle<EffectAsset>,
+  pub laser_beam: Handle<EffectAsset>,
   /// Bursty green plasma bolt.
-  pub plasma_bolt:   Handle<EffectAsset>,
+  pub plasma_bolt: Handle<EffectAsset>,
   /// Small red-orange scatter pellet.
   pub scatter_pellet: Handle<EffectAsset>,
   /// Heavy purple pulse beam segment.
-  pub pulse_beam:    Handle<EffectAsset>,
+  pub pulse_beam: Handle<EffectAsset>,
+  /// Splash when stepping into liquid.
+  pub liquid_splash: Handle<EffectAsset>
 }
 
 /// Despawn this entity once the timer expires.
@@ -57,7 +57,7 @@ pub fn grid_world(x: i32, y: i32, w: usize, h: usize) -> Vec3 {
   Vec3::new(
     (x as f32 - w as f32 / 2.0) * TILE_SIZE,
     (h as f32 / 2.0 - y as f32) * TILE_SIZE,
-    5.0,
+    5.0
   )
 }
 
@@ -66,7 +66,7 @@ pub fn tile_to_world(x: f32, y: f32, w: usize, h: usize) -> Vec3 {
   Vec3::new(
     (x - 0.5 - w as f32 / 2.0) * TILE_SIZE,
     (h as f32 / 2.0 - y + 0.5) * TILE_SIZE,
-    5.0,
+    5.0
   )
 }
 
@@ -74,17 +74,20 @@ pub fn tile_to_world(x: f32, y: f32, w: usize, h: usize) -> Vec3 {
 // Startup: build effect assets
 // ---------------------------------------------------------------------------
 
-fn setup_particle_effects(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
+fn setup_particle_effects(
+  mut commands: Commands,
+  mut effects: ResMut<Assets<EffectAsset>>
+) {
   // --- Bullet tracer dot ---
   // Spawned once per tile on the bullet path. Very bright white flash.
   // Particles start on a tiny seed sphere so the velocity sphere direction is defined.
   let writer = ExprWriter::new();
-  let age      = writer.lit(0.0_f32).expr();
+  let age = writer.lit(0.0_f32).expr();
   let lifetime = writer.lit(0.08_f32).uniform(writer.lit(0.14_f32)).expr();
   let p_center = writer.lit(Vec3::ZERO).expr();
   let p_radius = writer.lit(1.0_f32).expr();
   let v_center = writer.lit(Vec3::ZERO).expr();
-  let speed    = writer.lit(10.0_f32).uniform(writer.lit(50.0_f32)).expr();
+  let speed = writer.lit(10.0_f32).uniform(writer.lit(50.0_f32)).expr();
 
   let mut cg: bevy_hanabi::Gradient<Vec4> = bevy_hanabi::Gradient::new();
   cg.add_key(0.0, Vec4::new(1.0, 1.0, 0.9, 1.0));
@@ -101,7 +104,11 @@ fn setup_particle_effects(mut commands: Commands, mut effects: ResMut<Assets<Eff
       .with_name("bullet_tracer")
       .init(SetAttributeModifier::new(Attribute::AGE, age))
       .init(SetAttributeModifier::new(Attribute::LIFETIME, lifetime))
-      .init(SetPositionSphereModifier { center: p_center, radius: p_radius, dimension: ShapeDimension::Surface })
+      .init(SetPositionSphereModifier {
+        center: p_center,
+        radius: p_radius,
+        dimension: ShapeDimension::Surface
+      })
       .init(SetVelocitySphereModifier { center: v_center, speed })
       .render(ColorOverLifetimeModifier::new(cg))
       .render(SizeOverLifetimeModifier { gradient: sg, screen_space_size: false })
@@ -110,12 +117,12 @@ fn setup_particle_effects(mut commands: Commands, mut effects: ResMut<Assets<Eff
   // --- Bullet impact spark ---
   // Larger burst at the hit tile.
   let writer = ExprWriter::new();
-  let age      = writer.lit(0.0_f32).expr();
+  let age = writer.lit(0.0_f32).expr();
   let lifetime = writer.lit(0.15_f32).uniform(writer.lit(0.30_f32)).expr();
   let p_center = writer.lit(Vec3::ZERO).expr();
   let p_radius = writer.lit(2.0_f32).expr();
   let v_center = writer.lit(Vec3::ZERO).expr();
-  let speed    = writer.lit(120.0_f32).uniform(writer.lit(300.0_f32)).expr();
+  let speed = writer.lit(120.0_f32).uniform(writer.lit(300.0_f32)).expr();
 
   let mut cg: bevy_hanabi::Gradient<Vec4> = bevy_hanabi::Gradient::new();
   cg.add_key(0.0, Vec4::new(1.0, 1.0, 0.8, 1.0));
@@ -132,7 +139,11 @@ fn setup_particle_effects(mut commands: Commands, mut effects: ResMut<Assets<Eff
       .with_name("bullet_spark")
       .init(SetAttributeModifier::new(Attribute::AGE, age))
       .init(SetAttributeModifier::new(Attribute::LIFETIME, lifetime))
-      .init(SetPositionSphereModifier { center: p_center, radius: p_radius, dimension: ShapeDimension::Surface })
+      .init(SetPositionSphereModifier {
+        center: p_center,
+        radius: p_radius,
+        dimension: ShapeDimension::Surface
+      })
       .init(SetVelocitySphereModifier { center: v_center, speed })
       .render(ColorOverLifetimeModifier::new(cg))
       .render(SizeOverLifetimeModifier { gradient: sg, screen_space_size: false })
@@ -141,32 +152,36 @@ fn setup_particle_effects(mut commands: Commands, mut effects: ResMut<Assets<Eff
   // --- Grenade explosion ---
   // Massive burst of orange-red particles spread across the blast area.
   let writer = ExprWriter::new();
-  let age      = writer.lit(0.0_f32).expr();
+  let age = writer.lit(0.0_f32).expr();
   let lifetime = writer.lit(0.35_f32).uniform(writer.lit(0.80_f32)).expr();
   let p_center = writer.lit(Vec3::ZERO).expr();
   let p_radius = writer.lit(TILE_SIZE * 2.0_f32).expr();
   let v_center = writer.lit(Vec3::ZERO).expr();
-  let speed    = writer.lit(80.0_f32).uniform(writer.lit(500.0_f32)).expr();
+  let speed = writer.lit(80.0_f32).uniform(writer.lit(500.0_f32)).expr();
 
   let mut cg: bevy_hanabi::Gradient<Vec4> = bevy_hanabi::Gradient::new();
-  cg.add_key(0.0,  Vec4::new(1.0, 1.0, 0.5, 1.0));   // bright flash
-  cg.add_key(0.12, Vec4::new(1.0, 0.6, 0.0, 1.0));   // orange
-  cg.add_key(0.4,  Vec4::new(0.9, 0.15, 0.0, 0.9));  // red
-  cg.add_key(0.75, Vec4::new(0.4, 0.05, 0.0, 0.5));  // dark red
-  cg.add_key(1.0,  Vec4::new(0.1, 0.0, 0.0, 0.0));   // fade out
+  cg.add_key(0.0, Vec4::new(1.0, 1.0, 0.5, 1.0)); // bright flash
+  cg.add_key(0.12, Vec4::new(1.0, 0.6, 0.0, 1.0)); // orange
+  cg.add_key(0.4, Vec4::new(0.9, 0.15, 0.0, 0.9)); // red
+  cg.add_key(0.75, Vec4::new(0.4, 0.05, 0.0, 0.5)); // dark red
+  cg.add_key(1.0, Vec4::new(0.1, 0.0, 0.0, 0.0)); // fade out
 
   let mut sg: bevy_hanabi::Gradient<Vec3> = bevy_hanabi::Gradient::new();
-  sg.add_key(0.0,  Vec3::splat(22.0));   // start big
-  sg.add_key(0.3,  Vec3::splat(16.0));
-  sg.add_key(0.7,  Vec3::splat(8.0));
-  sg.add_key(1.0,  Vec3::ZERO);
+  sg.add_key(0.0, Vec3::splat(22.0)); // start big
+  sg.add_key(0.3, Vec3::splat(16.0));
+  sg.add_key(0.7, Vec3::splat(8.0));
+  sg.add_key(1.0, Vec3::ZERO);
 
   let explosion = effects.add(
     EffectAsset::new(1024, SpawnerSettings::once(300.0_f32.into()), writer.finish())
       .with_name("explosion")
       .init(SetAttributeModifier::new(Attribute::AGE, age))
       .init(SetAttributeModifier::new(Attribute::LIFETIME, lifetime))
-      .init(SetPositionSphereModifier { center: p_center, radius: p_radius, dimension: ShapeDimension::Volume })
+      .init(SetPositionSphereModifier {
+        center: p_center,
+        radius: p_radius,
+        dimension: ShapeDimension::Volume
+      })
       .init(SetVelocitySphereModifier { center: v_center, speed })
       .render(ColorOverLifetimeModifier::new(cg))
       .render(SizeOverLifetimeModifier { gradient: sg, screen_space_size: false })
@@ -175,12 +190,12 @@ fn setup_particle_effects(mut commands: Commands, mut effects: ResMut<Assets<Eff
   // --- Laser beam glow ---
   // Tight cyan/white cluster per tile — very low drift so it looks like a solid beam.
   let writer = ExprWriter::new();
-  let age      = writer.lit(0.0_f32).expr();
+  let age = writer.lit(0.0_f32).expr();
   let lifetime = writer.lit(0.15_f32).uniform(writer.lit(0.35_f32)).expr();
   let p_center = writer.lit(Vec3::ZERO).expr();
   let p_radius = writer.lit(2.0_f32).expr();
   let v_center = writer.lit(Vec3::ZERO).expr();
-  let speed    = writer.lit(5.0_f32).uniform(writer.lit(25.0_f32)).expr();
+  let speed = writer.lit(5.0_f32).uniform(writer.lit(25.0_f32)).expr();
 
   let mut cg: bevy_hanabi::Gradient<Vec4> = bevy_hanabi::Gradient::new();
   cg.add_key(0.0, Vec4::new(0.8, 1.0, 1.0, 1.0));
@@ -198,7 +213,11 @@ fn setup_particle_effects(mut commands: Commands, mut effects: ResMut<Assets<Eff
       .with_name("laser_beam")
       .init(SetAttributeModifier::new(Attribute::AGE, age))
       .init(SetAttributeModifier::new(Attribute::LIFETIME, lifetime))
-      .init(SetPositionSphereModifier { center: p_center, radius: p_radius, dimension: ShapeDimension::Surface })
+      .init(SetPositionSphereModifier {
+        center: p_center,
+        radius: p_radius,
+        dimension: ShapeDimension::Surface
+      })
       .init(SetVelocitySphereModifier { center: v_center, speed })
       .render(ColorOverLifetimeModifier::new(cg))
       .render(SizeOverLifetimeModifier { gradient: sg, screen_space_size: false })
@@ -206,12 +225,12 @@ fn setup_particle_effects(mut commands: Commands, mut effects: ResMut<Assets<Eff
 
   // --- Plasma bolt (green, bursty) ---
   let writer = ExprWriter::new();
-  let age      = writer.lit(0.0_f32).expr();
+  let age = writer.lit(0.0_f32).expr();
   let lifetime = writer.lit(0.1_f32).uniform(writer.lit(0.25_f32)).expr();
   let p_center = writer.lit(Vec3::ZERO).expr();
   let p_radius = writer.lit(3.0_f32).expr();
   let v_center = writer.lit(Vec3::ZERO).expr();
-  let speed    = writer.lit(30.0_f32).uniform(writer.lit(80.0_f32)).expr();
+  let speed = writer.lit(30.0_f32).uniform(writer.lit(80.0_f32)).expr();
 
   let mut cg: bevy_hanabi::Gradient<Vec4> = bevy_hanabi::Gradient::new();
   cg.add_key(0.0, Vec4::new(0.7, 1.0, 0.8, 1.0));
@@ -229,7 +248,11 @@ fn setup_particle_effects(mut commands: Commands, mut effects: ResMut<Assets<Eff
       .with_name("plasma_bolt")
       .init(SetAttributeModifier::new(Attribute::AGE, age))
       .init(SetAttributeModifier::new(Attribute::LIFETIME, lifetime))
-      .init(SetPositionSphereModifier { center: p_center, radius: p_radius, dimension: ShapeDimension::Surface })
+      .init(SetPositionSphereModifier {
+        center: p_center,
+        radius: p_radius,
+        dimension: ShapeDimension::Surface
+      })
       .init(SetVelocitySphereModifier { center: v_center, speed })
       .render(ColorOverLifetimeModifier::new(cg))
       .render(SizeOverLifetimeModifier { gradient: sg, screen_space_size: false })
@@ -237,12 +260,12 @@ fn setup_particle_effects(mut commands: Commands, mut effects: ResMut<Assets<Eff
 
   // --- Scatter pellet (red-orange, small fast) ---
   let writer = ExprWriter::new();
-  let age      = writer.lit(0.0_f32).expr();
+  let age = writer.lit(0.0_f32).expr();
   let lifetime = writer.lit(0.06_f32).uniform(writer.lit(0.12_f32)).expr();
   let p_center = writer.lit(Vec3::ZERO).expr();
   let p_radius = writer.lit(1.0_f32).expr();
   let v_center = writer.lit(Vec3::ZERO).expr();
-  let speed    = writer.lit(15.0_f32).uniform(writer.lit(60.0_f32)).expr();
+  let speed = writer.lit(15.0_f32).uniform(writer.lit(60.0_f32)).expr();
 
   let mut cg: bevy_hanabi::Gradient<Vec4> = bevy_hanabi::Gradient::new();
   cg.add_key(0.0, Vec4::new(1.0, 0.8, 0.6, 1.0));
@@ -259,7 +282,11 @@ fn setup_particle_effects(mut commands: Commands, mut effects: ResMut<Assets<Eff
       .with_name("scatter_pellet")
       .init(SetAttributeModifier::new(Attribute::AGE, age))
       .init(SetAttributeModifier::new(Attribute::LIFETIME, lifetime))
-      .init(SetPositionSphereModifier { center: p_center, radius: p_radius, dimension: ShapeDimension::Surface })
+      .init(SetPositionSphereModifier {
+        center: p_center,
+        radius: p_radius,
+        dimension: ShapeDimension::Surface
+      })
       .init(SetVelocitySphereModifier { center: v_center, speed })
       .render(ColorOverLifetimeModifier::new(cg))
       .render(SizeOverLifetimeModifier { gradient: sg, screen_space_size: false })
@@ -267,12 +294,12 @@ fn setup_particle_effects(mut commands: Commands, mut effects: ResMut<Assets<Eff
 
   // --- Pulse beam (purple, heavy) ---
   let writer = ExprWriter::new();
-  let age      = writer.lit(0.0_f32).expr();
+  let age = writer.lit(0.0_f32).expr();
   let lifetime = writer.lit(0.2_f32).uniform(writer.lit(0.5_f32)).expr();
   let p_center = writer.lit(Vec3::ZERO).expr();
   let p_radius = writer.lit(3.0_f32).expr();
   let v_center = writer.lit(Vec3::ZERO).expr();
-  let speed    = writer.lit(5.0_f32).uniform(writer.lit(20.0_f32)).expr();
+  let speed = writer.lit(5.0_f32).uniform(writer.lit(20.0_f32)).expr();
 
   let mut cg: bevy_hanabi::Gradient<Vec4> = bevy_hanabi::Gradient::new();
   cg.add_key(0.0, Vec4::new(0.9, 0.7, 1.0, 1.0));
@@ -290,15 +317,59 @@ fn setup_particle_effects(mut commands: Commands, mut effects: ResMut<Assets<Eff
       .with_name("pulse_beam")
       .init(SetAttributeModifier::new(Attribute::AGE, age))
       .init(SetAttributeModifier::new(Attribute::LIFETIME, lifetime))
-      .init(SetPositionSphereModifier { center: p_center, radius: p_radius, dimension: ShapeDimension::Surface })
+      .init(SetPositionSphereModifier {
+        center: p_center,
+        radius: p_radius,
+        dimension: ShapeDimension::Surface
+      })
+      .init(SetVelocitySphereModifier { center: v_center, speed })
+      .render(ColorOverLifetimeModifier::new(cg))
+      .render(SizeOverLifetimeModifier { gradient: sg, screen_space_size: false })
+  );
+
+  // --- Liquid splash ---
+  let writer = ExprWriter::new();
+  let age = writer.lit(0.0_f32).expr();
+  let lifetime = writer.lit(0.2_f32).uniform(writer.lit(0.5_f32)).expr();
+  let p_center = writer.lit(Vec3::ZERO).expr();
+  let p_radius = writer.lit(TILE_SIZE * 0.4).expr();
+  let v_center = writer.lit(Vec3::new(0.0, 30.0, 0.0)).expr();
+  let speed = writer.lit(40.0_f32).uniform(writer.lit(120.0_f32)).expr();
+
+  let mut cg: bevy_hanabi::Gradient<Vec4> = bevy_hanabi::Gradient::new();
+  cg.add_key(0.0, Vec4::new(0.7, 0.85, 1.0, 0.9));
+  cg.add_key(0.4, Vec4::new(0.4, 0.65, 0.9, 0.7));
+  cg.add_key(1.0, Vec4::new(0.2, 0.4, 0.7, 0.0));
+
+  let mut sg: bevy_hanabi::Gradient<Vec3> = bevy_hanabi::Gradient::new();
+  sg.add_key(0.0, Vec3::splat(10.0));
+  sg.add_key(0.5, Vec3::splat(6.0));
+  sg.add_key(1.0, Vec3::ZERO);
+
+  let liquid_splash = effects.add(
+    EffectAsset::new(64, SpawnerSettings::once(16.0_f32.into()), writer.finish())
+      .with_name("liquid_splash")
+      .init(SetAttributeModifier::new(Attribute::AGE, age))
+      .init(SetAttributeModifier::new(Attribute::LIFETIME, lifetime))
+      .init(SetPositionSphereModifier {
+        center: p_center,
+        radius: p_radius,
+        dimension: ShapeDimension::Surface
+      })
       .init(SetVelocitySphereModifier { center: v_center, speed })
       .render(ColorOverLifetimeModifier::new(cg))
       .render(SizeOverLifetimeModifier { gradient: sg, screen_space_size: false })
   );
 
   commands.insert_resource(ParticleEffects {
-    bullet_tracer, bullet_spark, explosion, laser_beam,
-    plasma_bolt, scatter_pellet, pulse_beam
+    bullet_tracer,
+    bullet_spark,
+    explosion,
+    laser_beam,
+    plasma_bolt,
+    scatter_pellet,
+    pulse_beam,
+    liquid_splash
   });
 }
 
@@ -320,14 +391,14 @@ pub fn spawn_bullet_trail(
     commands.spawn((
       ParticleEffect::new(effects.bullet_tracer.clone()),
       Transform::from_translation(grid_world(x, y, level_w, level_h)),
-      EffectLifetime(Timer::from_seconds(0.3, TimerMode::Once)),
+      EffectLifetime(Timer::from_seconds(0.3, TimerMode::Once))
     ));
   }
   if let Some(&(x, y)) = path.last() {
     commands.spawn((
       ParticleEffect::new(effects.bullet_spark.clone()),
       Transform::from_translation(grid_world(x, y, level_w, level_h)),
-      EffectLifetime(Timer::from_seconds(0.6, TimerMode::Once)),
+      EffectLifetime(Timer::from_seconds(0.6, TimerMode::Once))
     ));
   }
 }
@@ -349,7 +420,7 @@ pub fn spawn_laser_beam(
     commands.spawn((
       ParticleEffect::new(effects.laser_beam.clone()),
       Transform::from_translation(pos),
-      EffectLifetime(Timer::from_seconds(0.5, TimerMode::Once)),
+      EffectLifetime(Timer::from_seconds(0.5, TimerMode::Once))
     ));
   }
 }
@@ -366,7 +437,7 @@ pub fn spawn_plasma_burst(
     commands.spawn((
       ParticleEffect::new(effects.plasma_bolt.clone()),
       Transform::from_translation(grid_world(x, y, level_w, level_h)),
-      EffectLifetime(Timer::from_seconds(0.2, TimerMode::Once)),
+      EffectLifetime(Timer::from_seconds(0.2, TimerMode::Once))
     ));
   }
   if let Some(&(x, y)) = path.last() {
@@ -374,7 +445,7 @@ pub fn spawn_plasma_burst(
       commands.spawn((
         ParticleEffect::new(effects.plasma_bolt.clone()),
         Transform::from_translation(grid_world(x, y, level_w, level_h)),
-        EffectLifetime(Timer::from_seconds(0.5, TimerMode::Once)),
+        EffectLifetime(Timer::from_seconds(0.5, TimerMode::Once))
       ));
     }
   }
@@ -393,14 +464,14 @@ pub fn spawn_scatter_trails(
       commands.spawn((
         ParticleEffect::new(effects.scatter_pellet.clone()),
         Transform::from_translation(grid_world(x, y, level_w, level_h)),
-        EffectLifetime(Timer::from_seconds(0.25, TimerMode::Once)),
+        EffectLifetime(Timer::from_seconds(0.25, TimerMode::Once))
       ));
     }
     if let Some(&(x, y)) = path.last() {
       commands.spawn((
         ParticleEffect::new(effects.bullet_spark.clone()),
         Transform::from_translation(grid_world(x, y, level_w, level_h)),
-        EffectLifetime(Timer::from_seconds(0.4, TimerMode::Once)),
+        EffectLifetime(Timer::from_seconds(0.4, TimerMode::Once))
       ));
     }
   }
@@ -422,7 +493,7 @@ pub fn spawn_pulse_beam(
     commands.spawn((
       ParticleEffect::new(effects.pulse_beam.clone()),
       Transform::from_translation(pos),
-      EffectLifetime(Timer::from_seconds(0.7, TimerMode::Once)),
+      EffectLifetime(Timer::from_seconds(0.7, TimerMode::Once))
     ));
   }
 }
@@ -439,7 +510,24 @@ pub fn spawn_explosion_burst(
   commands.spawn((
     ParticleEffect::new(effects.explosion.clone()),
     Transform::from_translation(grid_world(at.0, at.1, level_w, level_h)),
-    EffectLifetime(Timer::from_seconds(2.0, TimerMode::Once)),
+    EffectLifetime(Timer::from_seconds(2.0, TimerMode::Once))
+  ));
+}
+
+/// Spawn a splash burst at `(x,y)`. `_color` reserved for future per-liquid tinting.
+pub fn spawn_liquid_splash(
+  commands: &mut Commands,
+  effects: &ParticleEffects,
+  x: i32,
+  y: i32,
+  level_w: usize,
+  level_h: usize,
+  _color: [f32; 3]
+) {
+  commands.spawn((
+    ParticleEffect::new(effects.liquid_splash.clone()),
+    Transform::from_translation(grid_world(x, y, level_w, level_h)),
+    EffectLifetime(Timer::from_seconds(0.8, TimerMode::Once))
   ));
 }
 

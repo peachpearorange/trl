@@ -50,6 +50,22 @@ pub const SPRITE_TEXELS: f32 = 20.0;
 pub const SCREEN_PIXELS_PER_TEXEL: f32 = 2.0;
 /// World-space size of one grid cell (`Sprite` quad). Pixel-perfect when camera maps 1 world unit ≈ 1 screen pixel.
 pub const TILE_SIZE: f32 = SPRITE_TEXELS * SCREEN_PIXELS_PER_TEXEL;
+
+pub const fn id<T>(x: T) -> T { x }
+pub const fn compose<A, B, C, F, G>(f: F, g: G) -> impl Fn(A) -> C
+where
+  F: Fn(B) -> C,
+  G: Fn(A) -> B
+{
+  move |x| f(g(x))
+}
+
+const fn add_one_i32(x: i32) -> i32 { x + 1 }
+
+const fn double_i32(x: i32) -> i32 { x * 2 }
+
+pub const COMPOSED_CLOSURE: &dyn Fn(i32) -> i32 = &compose(add_one_i32, double_i32);
+pub const COMPOSED_DYN: &dyn Fn(i32) -> i32 = COMPOSED_CLOSURE;
 /// Palette-mask doors (`door closed (1).png` / `door open (2).png`).
 const DOOR_CLOSED_PRI: Color = Color::srgb(0.34, 0.37, 0.41);
 const DOOR_CLOSED_SEC: Color = Color::srgb(0.52, 0.55, 0.58);
@@ -2351,7 +2367,8 @@ fn execute_interaction(
             clock.spend_turn(tb);
           }
         } else if item.is_grenade() {
-          if let Some(reason) = equipped.rejection_reason(entities::Gear::Grenade(*item)) {
+          if let Some(reason) = equipped.rejection_reason(entities::Gear::Grenade(*item))
+          {
             log_message(log, format!("Can't equip {} — {}.", item.name(), reason));
           } else {
             equipped.equip_grenade(*item);
@@ -3418,18 +3435,25 @@ fn camera_follow(
   cam_tf.translation = t;
 }
 
+#[derive(bevy::ecs::system::SystemParam)]
+struct PlayerInputRes<'w> {
+  frame: Res<'w, RenderFrame>,
+  current: Res<'w, CurrentZone>,
+  ui: Res<'w, UiState>,
+  clock: ResMut<'w, Clock>,
+  tb: ResMut<'w, TurnBasedWorldState>,
+  time_mode_auto: ResMut<'w, TimeModeAuto>,
+  index: Res<'w, TileEntityIndex>,
+  pending_bump: ResMut<'w, PendingBumpInteract>,
+  log: ResMut<'w, ui::LogEntries>,
+  pfx: Res<'w, particles::ParticleEffects>
+}
+
 fn player_input(
   mut commands: Commands,
-  frame: Res<RenderFrame>,
   keys: Res<ButtonInput<KeyCode>>,
   mut acc: ResMut<AccumulatedDir>,
-  current: Res<CurrentZone>,
-  ui: Res<UiState>,
-  mut clock: ResMut<Clock>,
-  mut tb: ResMut<TurnBasedWorldState>,
-  mut time_mode_auto: ResMut<TimeModeAuto>,
-  index: Res<TileEntityIndex>,
-  mut pending_bump: ResMut<PendingBumpInteract>,
+  mut r: PlayerInputRes,
   player: Single<
     (
       Entity,
@@ -3444,33 +3468,32 @@ fn player_input(
   >,
   mut enemy_query: Query<&mut Stats, (With<Enemy>, Without<Player>)>,
   collidable_q: Query<&Collidable>,
-  item_glyph_q: Query<(Entity, &ItemGlyph)>,
-  mut log: ResMut<ui::LogEntries>
+  item_glyph_q: Query<(Entity, &ItemGlyph)>
 ) {
-  if !ui.any_open() && keys.just_pressed(KeyCode::KeyT) {
+  if !r.ui.any_open() && keys.just_pressed(KeyCode::KeyT) {
     if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
-      time_mode_auto.0 = true;
+      r.time_mode_auto.0 = true;
     } else {
-      time_mode_auto.0 = false;
-      clock.mode = match clock.mode {
+      r.time_mode_auto.0 = false;
+      r.clock.mode = match r.clock.mode {
         TimeMode::RealTime => TimeMode::TurnBased,
         TimeMode::TurnBased => {
-          tb.world_tick_pending = false;
+          r.tb.world_tick_pending = false;
           TimeMode::RealTime
         }
       };
     }
   }
 
-  if !ui.any_open() && !ui.dir_consumed {
+  if !r.ui.any_open() && !r.ui.dir_consumed {
     let (player_entity, mut pos, stats, mut inventory, equipped, grabbed, phasing) =
       player.into_inner();
     let player_attack = stats.attack + equipped.weapon_attack_bonus();
-    let turn_based_block = clock.mode == TimeMode::TurnBased
-      && (clock.move_cooldown_frames > 0 || tb.world_tick_pending);
+    let turn_based_block = r.clock.mode == TimeMode::TurnBased
+      && (r.clock.move_cooldown_frames > 0 || r.tb.world_tick_pending);
 
     let wait_pressed = keys.just_pressed(KeyCode::Period)
-      || (clock.mode == TimeMode::TurnBased && keys.pressed(KeyCode::Space));
+      || (r.clock.mode == TimeMode::TurnBased && keys.pressed(KeyCode::Space));
 
     if grabbed.is_some()
       && !turn_based_block
@@ -3482,16 +3505,15 @@ fn player_input(
         || acc.right)
     {
       *acc = AccumulatedDir::default();
-      ui::log_message(&mut log, "You are grabbed and can't move!".into());
-      clock.spend_turn(&mut tb);
+      ui::log_message(&mut r.log, "You are grabbed and can't move!".into());
+      r.clock.spend_turn(&mut r.tb);
     } else if !turn_based_block && wait_pressed {
-      clock.spend_turn(&mut tb);
+      r.clock.spend_turn(&mut r.tb);
     } else if !turn_based_block
       && (any_direction_pressed(&keys) || acc.up || acc.down || acc.left || acc.right)
-      && clock.move_cooldown_frames == 0
+      && r.clock.move_cooldown_frames == 0
     {
-      let level = current.0.level(pos.z);
-      // Merge currently-held keys with any taps that were latched between ticks.
+      let level = r.current.0.level(pos.z);
       let up = keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) || acc.up;
       let down =
         keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown) || acc.down;
@@ -3511,10 +3533,8 @@ fn player_input(
         _ => 0
       };
 
-      // Entity-blocking closure: collidable entities that aren't enemies (enemies are
-      // handled by bump-attack, not sliding).
       let is_entity_blocked = |x, y| {
-        index.0.get(&(x, y, pos.z)).is_some_and(|entities| {
+        r.index.0.get(&(x, y, pos.z)).is_some_and(|entities| {
           entities.iter().any(|&e| {
             collidable_q.get(e).is_ok_and(|c| c.0) && enemy_query.get(e).is_err()
           })
@@ -3530,22 +3550,23 @@ fn player_input(
         &is_entity_blocked
       );
 
-      // Diagonal into a non-passable entity: bump-interact with it instead of sliding.
       let diagonal_bump = raw_dx != 0
         && raw_dy != 0
         && (dx, dy) != (raw_dx, raw_dy)
         && is_entity_blocked(pos.x + raw_dx, pos.y + raw_dy);
 
       if (dx, dy) == (0, 0) || diagonal_bump {
-        pending_bump.0 = Some((pos.x + raw_dx, pos.y + raw_dy, pos.z));
-        pending_bump.1 = Some((player_entity, Vec2::new(raw_dx as f32, raw_dy as f32)));
+        r.pending_bump.0 = Some((pos.x + raw_dx, pos.y + raw_dy, pos.z));
+        r.pending_bump.1 =
+          Some((player_entity, Vec2::new(raw_dx as f32, raw_dy as f32)));
       } else {
         let target_x = pos.x + dx;
         let target_y = pos.y + dy;
 
-        let enemy_hit = index.0.get(&(target_x, target_y, pos.z)).and_then(|entities| {
-          entities.iter().find(|&&e| enemy_query.get(e).is_ok()).copied()
-        });
+        let enemy_hit =
+          r.index.0.get(&(target_x, target_y, pos.z)).and_then(|entities| {
+            entities.iter().find(|&&e| enemy_query.get(e).is_ok()).copied()
+          });
 
         if let Some(hostile) = enemy_hit {
           if let Ok(mut es) = enemy_query.get_mut(hostile) {
@@ -3553,12 +3574,25 @@ fn player_input(
           }
           commands.entity(player_entity).insert(BumpLunge {
             dir: Vec2::new(dx as f32, dy as f32),
-            start_frame: frame.0
+            start_frame: r.frame.0
           });
         } else {
-          // resolve_move already ensured target is passable (tile + entity).
           pos.x = target_x;
           pos.y = target_y;
+
+          if let Some(tile) = level.get(target_x, target_y)
+            && tile.is_liquid()
+          {
+            particles::spawn_liquid_splash(
+              &mut commands,
+              &r.pfx,
+              target_x,
+              target_y,
+              level.width,
+              level.height,
+              tile.color()
+            );
+          }
 
           for (ig_ent, ig) in item_glyph_q.iter() {
             if ig.x == pos.x as usize && ig.y == pos.y as usize && ig.z == pos.z {
@@ -3568,7 +3602,7 @@ fn player_input(
           }
         }
 
-        clock.spend_turn(&mut tb);
+        r.clock.spend_turn(&mut r.tb);
       }
     }
   }
