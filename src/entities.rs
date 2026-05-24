@@ -1,6 +1,8 @@
 //! Entity types and spawnable definitions for the game.
 
-use {crate::faction::Faction, bevy::prelude::*, std::collections::VecDeque, std::sync::Arc};
+use {crate::faction::Faction,
+     bevy::prelude::*,
+     std::{collections::VecDeque, sync::Arc}};
 
 // ============ DIALOGUE ============
 
@@ -102,15 +104,23 @@ pub enum Gear {
   InnateGrenadeThrow { min_range: i32 },
   InnateSporeEmit,
   InnateGrab,
-  NaturalArmor { dr: i32 },
+  NaturalArmor { dr: i32 }
 }
 
 impl Gear {
   pub fn is_weapon(self) -> bool { matches!(self, Gear::Weapon(_)) }
-  pub fn is_armor(self) -> bool { matches!(self, Gear::Armor(_) | Gear::NaturalArmor { .. }) }
+  pub fn is_armor(self) -> bool {
+    matches!(self, Gear::Armor(_) | Gear::NaturalArmor { .. })
+  }
   pub fn is_grenade(self) -> bool { matches!(self, Gear::Grenade(_)) }
   pub fn is_ability(self) -> bool {
-    matches!(self, Gear::InnateGun { .. } | Gear::InnateGrenadeThrow { .. } | Gear::InnateSporeEmit | Gear::InnateGrab)
+    matches!(
+      self,
+      Gear::InnateGun { .. }
+        | Gear::InnateGrenadeThrow { .. }
+        | Gear::InnateSporeEmit
+        | Gear::InnateGrab
+    )
   }
 
   pub fn weapon_capacity_bonus(self) -> u32 { 0 }
@@ -122,13 +132,11 @@ pub struct GearSlot {
   pub gear: Gear,
   pub count: u32,
   pub cooldown: u32,
-  pub timer: u32,
+  pub timer: u32
 }
 
 impl GearSlot {
-  pub fn passive(gear: Gear) -> Self {
-    Self { gear, count: 1, cooldown: 0, timer: 0 }
-  }
+  pub fn passive(gear: Gear) -> Self { Self { gear, count: 1, cooldown: 0, timer: 0 } }
 
   pub fn ability(gear: Gear, cooldown: u32) -> Self {
     Self { gear, count: 1, cooldown, timer: 0 }
@@ -141,7 +149,7 @@ impl GearSlot {
 
 #[derive(Component, Clone, Debug, Default)]
 pub struct Loadout {
-  pub gear: Vec<GearSlot>,
+  pub gear: Vec<GearSlot>
 }
 
 impl Loadout {
@@ -166,18 +174,27 @@ impl Loadout {
   }
 
   pub fn armor_dr(&self) -> i32 {
-    self.gear.iter().map(|s| match s.gear {
-      Gear::Armor(item) => item.defense_bonus(),
-      Gear::NaturalArmor { dr } => dr,
-      _ => 0
-    }).sum()
+    self
+      .gear
+      .iter()
+      .map(|s| match s.gear {
+        Gear::Armor(item) => item.defense_bonus(),
+        Gear::NaturalArmor { dr } => dr,
+        _ => 0
+      })
+      .sum()
   }
 
   pub fn grenade_slots(&self) -> Vec<(usize, crate::level::Item)> {
-    self.gear.iter().enumerate().filter_map(|(i, s)| match s.gear {
-      Gear::Grenade(item) => Some((i, item)),
-      _ => None
-    }).collect()
+    self
+      .gear
+      .iter()
+      .enumerate()
+      .filter_map(|(i, s)| match s.gear {
+        Gear::Grenade(item) => Some((i, item)),
+        _ => None
+      })
+      .collect()
   }
 
   pub fn grenade_at(&self, idx: usize) -> Option<crate::level::Item> {
@@ -185,10 +202,15 @@ impl Loadout {
   }
 
   pub fn device_slots(&self) -> Vec<(usize, crate::level::Item)> {
-    self.gear.iter().enumerate().filter_map(|(i, s)| match s.gear {
-      Gear::Device(item) => Some((i, item)),
-      _ => None
-    }).collect()
+    self
+      .gear
+      .iter()
+      .enumerate()
+      .filter_map(|(i, s)| match s.gear {
+        Gear::Device(item) => Some((i, item)),
+        _ => None
+      })
+      .collect()
   }
 
   pub fn gun_mut(&mut self) -> Option<&mut GearSlot> {
@@ -228,18 +250,19 @@ impl Loadout {
       && self.grenade_count() <= self.max_grenades()
   }
 
-  pub fn can_add(&self, gear: Gear) -> bool {
-    self.rejection_reason(gear).is_none()
-  }
+  pub fn can_add(&self, gear: Gear) -> bool { self.rejection_reason(gear).is_none() }
 
   pub fn rejection_reason(&self, gear: Gear) -> Option<String> {
     match gear {
-      Gear::Weapon(_) if self.weapon_count() >= self.max_weapons() =>
-        Some(format!("weapon slot full ({}/{})", self.weapon_count(), self.max_weapons())),
-      Gear::Armor(_) if self.armor_item().is_some() =>
-        Some("armor slot full".into()),
-      Gear::Grenade(_) if self.grenade_count() >= self.max_grenades() =>
-        Some(format!("grenade slots full ({}/{})", self.grenade_count(), self.max_grenades())),
+      Gear::Weapon(_) if self.weapon_count() >= self.max_weapons() => {
+        Some(format!("weapon slot full ({}/{})", self.weapon_count(), self.max_weapons()))
+      }
+      Gear::Armor(_) if self.armor_item().is_some() => Some("armor slot full".into()),
+      Gear::Grenade(_) if self.grenade_count() >= self.max_grenades() => Some(format!(
+        "grenade slots full ({}/{})",
+        self.grenade_count(),
+        self.max_grenades()
+      )),
       _ => None
     }
   }
@@ -269,7 +292,10 @@ impl Loadout {
   }
 
   pub fn unequip_grenade_at(&mut self, slot_idx: usize) -> Option<crate::level::Item> {
-    let slots: Vec<usize> = self.gear.iter().enumerate()
+    let slots: Vec<usize> = self
+      .gear
+      .iter()
+      .enumerate()
       .filter(|(_, s)| s.gear.is_grenade())
       .map(|(i, _)| i)
       .collect();
@@ -288,7 +314,10 @@ impl Loadout {
   }
 
   pub fn unequip_device_at(&mut self, slot_idx: usize) -> Option<crate::level::Item> {
-    let slots: Vec<usize> = self.gear.iter().enumerate()
+    let slots: Vec<usize> = self
+      .gear
+      .iter()
+      .enumerate()
       .filter(|(_, s)| matches!(s.gear, Gear::Device(_)))
       .map(|(i, _)| i)
       .collect();
@@ -315,10 +344,18 @@ impl Loadout {
   }
 
   pub fn lootable_items(&self) -> Vec<(crate::level::Item, u32)> {
-    self.gear.iter().filter_map(|s| match s.gear {
-      Gear::Weapon(item) | Gear::Armor(item) | Gear::Grenade(item) | Gear::Device(item) | Gear::Loot(item) => Some((item, s.count)),
-      _ => None
-    }).collect()
+    self
+      .gear
+      .iter()
+      .filter_map(|s| match s.gear {
+        Gear::Weapon(item)
+        | Gear::Armor(item)
+        | Gear::Grenade(item)
+        | Gear::Device(item)
+        | Gear::Loot(item) => Some((item, s.count)),
+        _ => None
+      })
+      .collect()
   }
 }
 
@@ -386,7 +423,7 @@ pub struct Enemy;
 #[derive(Component, Clone, Debug)]
 pub struct Corpse {
   pub loot: Vec<(crate::level::Item, u32)>,
-  pub looted: bool,
+  pub looted: bool
 }
 
 /// A tree entity.
@@ -402,7 +439,7 @@ pub struct Bed;
 #[derive(Component, Clone)]
 pub struct Elevator {
   pub current_z: usize,
-  pub floors: Vec<(usize, i32, i32)>,
+  pub floors: Vec<(usize, i32, i32)>
 }
 
 /// Placed loot container; blocks the tile until emptied.
@@ -428,7 +465,7 @@ pub struct WalkAnim {
   pub idle_frames: &'static [&'static str],
   pub walk_frames: &'static [&'static str],
   pub interval: u64,
-  pub idle_interval: u64,
+  pub idle_interval: u64
 }
 
 /// Visual for a grid entity: optional PNG (tile-sized sprite) or [`Text2d`] from `ch` + `color`.
@@ -484,12 +521,11 @@ pub struct Stats {
   pub attack_speed: f32
 }
 
-
 /// Tracks sim steps since the entity last attacked / moved. Used by enemy AI.
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct TimeSinceAction {
   pub attack: u32,
-  pub movement: u32,
+  pub movement: u32
 }
 
 /// Marker: this entity is affected by gravity and will fall through Air tiles.
@@ -505,7 +541,7 @@ pub struct DriftChance(pub f32);
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Grabbed {
   pub by: Entity,
-  pub turns_remaining: u32,
+  pub turns_remaining: u32
 }
 
 /// Entity is invisible: enemies ignore it, rendered translucent.
@@ -558,7 +594,6 @@ pub struct LoadoutConsole;
 #[derive(Component, Clone, Copy)]
 pub struct CraftingTable;
 
-
 /// Lingering area-of-effect cloud that damages the player each tick while they share a tile.
 /// Used by both spore clouds and explosion clouds.
 #[derive(Component, Clone, Copy, Debug)]
@@ -568,7 +603,6 @@ pub struct DamageCloud {
   pub tick_interval: u32,
   pub tick_timer: u32
 }
-
 
 /// A grenade lobbed by the player, traveling tile-by-tile toward its target.
 /// On each sim step it advances `tiles_per_turn` along `path`; when it reaches the end
@@ -612,20 +646,33 @@ const DOOR_CLOSED_SEC: Color = Color::srgb(0.52, 0.55, 0.58);
 #[derive(Clone)]
 pub struct Object(Arc<dyn Fn(&mut EntityCommands) + Send + Sync + 'static>);
 
-/// Object-safe trait for spawning components onto an entity at runtime.
-/// Blanket-implemented for `Bundle + Clone + Sync`. For blueprints
-/// that need runtime construction from const params, use [`const_blueprint!`].
-pub trait ConstInsert: Sync {
-  fn insert_into(&self, e: &mut EntityCommands);
+/// Const-storable spawn thunk.
+pub type ConstObjectFn = dyn Fn(&mut EntityCommands) + Sync + 'static;
+
+/// Capture a cloneable bundle in a const-constructible closure thunk.
+pub const fn insert<B>(bundle: B) -> impl Fn(&mut EntityCommands) + Sync + 'static
+where
+  B: Bundle + Clone + Sync + 'static
+{
+  move |e| {
+    e.insert(bundle.clone());
+  }
 }
 
-impl<T: Bundle + Clone + Sync> ConstInsert for T {
-  fn insert_into(&self, e: &mut EntityCommands) { e.insert(self.clone()); }
+/// Compose two const-constructible spawn thunks.
+pub const fn then<F, G>(f: F, g: G) -> impl Fn(&mut EntityCommands) + Sync + 'static
+where
+  F: Fn(&mut EntityCommands) + Sync + 'static,
+  G: Fn(&mut EntityCommands) + Sync + 'static
+{
+  move |e| {
+    f(e);
+    g(e);
+  }
 }
 
-/// Define a blueprint struct + [`ConstInsert`] impl from const-friendly
-/// fields and spawn-time expressions. Pair with a call-site macro for
-/// function-like syntax.
+/// Define a blueprint struct + spawn method from const-friendly fields and
+/// spawn-time expressions. Pair with a call-site macro for function-like syntax.
 ///
 /// ```ignore
 /// const_blueprint!(npc(name: &'static str, flavor: &'static str) {
@@ -636,8 +683,10 @@ impl<T: Bundle + Clone + Sync> ConstInsert for T {
 ///
 /// // call-site macro (2 lines per blueprint):
 /// macro_rules! npc {
-///     ($parent:expr; $($tt:tt)*) => { $parent.with(&npc { $($tt)* }) };
-///     ($($tt:tt)*) => { ObjectConst::new(&npc { $($tt)* }) };
+///     ($parent:expr; $($tt:tt)*) => {
+///         $parent.with(&|e| npc { $($tt)* }.insert_into(e))
+///     };
+///     ($($tt:tt)*) => { ObjectConst::new(&|e| npc { $($tt)* }.insert_into(e)) };
 /// }
 ///
 /// static BOB: ObjectConst = npc!(name: "Bob", flavor: "This is Bob.");
@@ -651,9 +700,9 @@ macro_rules! const_blueprint {
 
     unsafe impl Sync for $name {}
 
-    impl $crate::entities::ConstInsert for $name {
+    impl $name {
       #[allow(unused_variables)]
-      fn insert_into(&self, e: &mut ::bevy::prelude::EntityCommands) {
+      pub fn insert_into(&self, e: &mut ::bevy::prelude::EntityCommands) {
         $(let $field = &self.$field;)*
         $(e.insert($bundle);)*
       }
@@ -661,42 +710,80 @@ macro_rules! const_blueprint {
   };
 }
 
+/// Define an [`ObjectConst`] without exposing closure plumbing or `e.insert(...)`.
+///
+/// ```ignore
+/// static TREE_BASE: ObjectConst = object_const! {
+///   Collidable(true),
+/// };
+///
+/// static OAK_TREE: ObjectConst = object_const! { &TREE_BASE;
+///   Named { name: "Oak Tree", flavor: "A thick, old tree." },
+/// };
+/// ```
+#[macro_export]
+macro_rules! object_const {
+  ($parent:expr; $($bundle:expr),* $(,)?) => {
+    $parent.with(&|e: &mut ::bevy::prelude::EntityCommands| {
+      $(e.insert($bundle);)*
+    })
+  };
+  ($($bundle:expr),* $(,)?) => {
+    $crate::entities::ObjectConst::new(&|e: &mut ::bevy::prelude::EntityCommands| {
+      $(e.insert($bundle);)*
+    })
+  };
+}
+
 /// Const-constructible entity blueprint with parent-chain inheritance.
 ///
-/// Stores `&'static dyn ConstInsert` — the trait object ref is const
-/// because vtable pointers are compile-time data. The actual components
+/// Stores `&'static dyn Fn(&mut EntityCommands)` in const/static data.
+/// The trait-object ref is const because vtable pointers are compile-time data.
+/// The actual components
 /// are constructed at spawn time, so heap types like `Vec` are fine
 /// as long as the *parameters* to build them are const.
 ///
 /// ```ignore
-/// // Simple — component data is directly const:
-/// static PHYSICAL: ObjectConst = ObjectConst::new(&Collidable(true));
-/// static BOULDER: ObjectConst = PHYSICAL.with(&(
-///     Named { name: "Boulder", flavor: "A massive rock." },
-///     Collidable(true),
+/// // No macro required: closure object stores cloned bundle data.
+/// static TREE: ObjectConst = ObjectConst::new(&then(
+///   insert((Named { name: "Tree", flavor: "A sturdy tree." }, Collidable(true))),
+///   insert((Roots(4), Leaves(44))),
 /// ));
+///
+/// // Simple:
+/// static PHYSICAL: ObjectConst = object_const! {
+///   Collidable(true),
+/// };
+/// static BOULDER: ObjectConst = object_const! { &PHYSICAL;
+///   Named { name: "Boulder", flavor: "A massive rock." },
+///   Collidable(true),
+/// };
 ///
 /// // Custom — stores const params, builds Vec at spawn time:
 /// struct LoadoutBlueprint(&'static [GearSlot]);
-/// impl ConstInsert for LoadoutBlueprint {
+/// impl LoadoutBlueprint {
 ///     fn insert_into(&self, e: &mut EntityCommands) {
 ///         e.insert(Loadout::new(self.0.to_vec()));
 ///     }
 /// }
-/// static SOLDIER: ObjectConst = ENEMY.with(&LoadoutBlueprint(&[...]));
+/// static SOLDIER: ObjectConst = object_const! { &ENEMY;
+///   {
+///     LoadoutBlueprint(&[...]).insert_into(e);
+///   },
+/// };
 /// ```
 #[derive(Copy, Clone)]
 pub struct ObjectConst {
   parent: Option<&'static ObjectConst>,
-  components: &'static dyn ConstInsert,
+  components: &'static ConstObjectFn
 }
 
 impl ObjectConst {
-  pub const fn new(components: &'static dyn ConstInsert) -> Self {
+  pub const fn new(components: &'static ConstObjectFn) -> Self {
     Self { parent: None, components }
   }
 
-  pub const fn with(&'static self, components: &'static dyn ConstInsert) -> Self {
+  pub const fn with(&'static self, components: &'static ConstObjectFn) -> Self {
     Self { parent: Some(self), components }
   }
 
@@ -704,7 +791,7 @@ impl ObjectConst {
     if let Some(parent) = self.parent {
       parent.apply_to(e);
     }
-    self.components.insert_into(e);
+    (self.components)(e);
   }
 
   pub fn spawn(&self, commands: &mut Commands) -> Entity {
@@ -774,9 +861,10 @@ impl Object {
 
   /// Mark this NPC as a recruitable follower. `init_follower_homes` sets the home position at startup.
   pub fn as_follower(self) -> Self {
-    self.add(FollowerState::Available)
-        .add(FollowerData { home: (0, 0, 0), move_timer: 0 })
-        .add(Path::default())
+    self
+      .add(FollowerState::Available)
+      .add(FollowerData { home: (0, 0, 0), move_timer: 0 })
+      .add(Path::default())
   }
 
   /// Fully-defined NPC: named, statted, equipped, visible, conversable.
@@ -787,12 +875,7 @@ impl Object {
     glyph: Glyph,
     dialogue: &'static DialogueTree
   ) -> Self {
-    Self::npc()
-      .add(named)
-      .add(stats)
-      .add(loadout)
-      .add(glyph)
-      .add(Dialogue(dialogue))
+    Self::npc().add(named).add(stats).add(loadout).add(glyph).add(Dialogue(dialogue))
   }
 
   /// Spawn this entity at tile coordinates, inserting Location::Coords.
@@ -817,18 +900,23 @@ impl Object {
   }
   pub fn player() -> Self { Self::character(Faction::Player).add(Player) }
   pub fn enemy() -> Self {
-    Self::character(Faction::Hostile).add((Enemy, TimeSinceAction::default(), Path::default()))
+    Self::character(Faction::Hostile).add((
+      Enemy,
+      TimeSinceAction::default(),
+      Path::default()
+    ))
   }
   pub fn structure(blocks: bool) -> Self { Self::physical(blocks) }
   pub fn wall(material: Material) -> Self {
     Self::structure(true).add(WallComp { material })
   }
   pub fn tree() -> Self {
+    let sprite = if rand::random::<bool>() { "textures/space_qud/tree.png" } else { "textures/space_qud/tree2.png" };
     Self::structure(false).add((
       Tree,
       BlocksSight,
       Glyph::palette_sprite(
-        "textures/space_qud/tree.png",
+        sprite,
         'T',
         Color::srgb(0.14, 0.42, 0.16),
         Color::srgb(0.38, 0.62, 0.24)
@@ -888,7 +976,7 @@ impl Object {
         "textures/space_qud/elevator.png",
         'E',
         Color::srgb(0.42, 0.46, 0.50),
-        Color::srgb(1.0, 0.85, 0.10),
+        Color::srgb(1.0, 0.85, 0.10)
       ))
       .add(Named { name: "Elevator", flavor: "Vertical transport. Choose a deck." })
   }
@@ -897,13 +985,13 @@ impl Object {
     Self::structure(false)
       .add(Elevator {
         current_z: 0,
-        floors: vec![(0, surface_x, surface_y), (1, cave_x, cave_y)],
+        floors: vec![(0, surface_x, surface_y), (1, cave_x, cave_y)]
       })
       .add(Glyph::palette_sprite(
         "textures/space_qud/stairs.png",
         '>',
         Color::srgb(0.35, 0.32, 0.28),
-        Color::srgb(0.55, 0.50, 0.40),
+        Color::srgb(0.55, 0.50, 0.40)
       ))
       .add(Named { name: "Cave Entrance", flavor: "A dark opening leads underground." })
   }
@@ -912,13 +1000,13 @@ impl Object {
     Self::structure(false)
       .add(Elevator {
         current_z: 1,
-        floors: vec![(0, surface_x, surface_y), (1, cave_x, cave_y)],
+        floors: vec![(0, surface_x, surface_y), (1, cave_x, cave_y)]
       })
       .add(Glyph::palette_sprite(
         "textures/space_qud/stairs up.png",
         '<',
         Color::srgb(0.55, 0.50, 0.40),
-        Color::srgb(0.35, 0.32, 0.28),
+        Color::srgb(0.35, 0.32, 0.28)
       ))
       .add(Named { name: "Cave Exit", flavor: "Daylight filters in from above." })
   }
@@ -943,20 +1031,18 @@ impl Object {
         "textures/space_qud/door closed (1).png",
         '+',
         DOOR_CLOSED_PRI,
-        DOOR_CLOSED_SEC,
+        DOOR_CLOSED_SEC
       ))
       .add(Named { name: "Door", flavor: "Press Space to open." })
   }
 
   pub fn airlock_door() -> Self {
-    Self::door()
-      .add(AirlockDoor { opened_at_sim_time: None })
-      .add(Glyph::palette_sprite(
-        "textures/space_qud/airlock closed.png",
-        '+',
-        crate::AIRLOCK_PRI,
-        crate::AIRLOCK_SEC
-      ))
+    Self::door().add(AirlockDoor { opened_at_sim_time: None }).add(Glyph::palette_sprite(
+      "textures/space_qud/airlock closed.png",
+      '+',
+      crate::AIRLOCK_PRI,
+      crate::AIRLOCK_SEC
+    ))
   }
   pub fn thruster() -> Self {
     Self::structure(true).add((
@@ -964,16 +1050,19 @@ impl Object {
         "textures/space_qud/thruster.png",
         '>',
         Color::srgb(0.72, 0.38, 0.08),
-        Color::srgb(0.75, 0.75, 0.72),
+        Color::srgb(0.75, 0.75, 0.72)
       ),
-      Named { name: "Thruster", flavor: "A directional thruster assembly. Keeps the ship moving." },
+      Named {
+        name: "Thruster",
+        flavor: "A directional thruster assembly. Keeps the ship moving."
+      }
     ))
   }
   pub fn ground_item(item: crate::level::Item) -> Self {
     let (primary, secondary) = item.loot_colors();
     Self::new((
       GroundItem(item),
-      Glyph::palette_sprite(item.loot_texture(), '*', primary, secondary),
+      Glyph::palette_sprite(item.loot_texture(), '*', primary, secondary)
     ))
   }
   pub fn torch(radius: u32) -> Self { Self::new(LightSource { radius }) }
@@ -1042,7 +1131,10 @@ impl Object {
         Color::srgb(0.52, 0.38, 0.22),
         Color::srgb(0.88, 0.84, 0.72)
       ),
-      Named { name: "Bed", flavor: "A place to sleep. Looks like it hasn't been used in a while." }
+      Named {
+        name: "Bed",
+        flavor: "A place to sleep. Looks like it hasn't been used in a while."
+      }
     ))
   }
 
@@ -1055,7 +1147,10 @@ impl Object {
         Color::srgb(0.38, 0.42, 0.48),
         Color::srgb(0.62, 0.62, 0.62)
       ),
-      Named { name: "Crafting Table", flavor: "A workbench for assembling equipment from salvaged parts." }
+      Named {
+        name: "Crafting Table",
+        flavor: "A workbench for assembling equipment from salvaged parts."
+      }
     ))
   }
 
@@ -1091,7 +1186,10 @@ impl Object {
         Color::srgb(0.32, 0.38, 0.42),
         Color::srgb(0.62, 0.68, 0.72)
       ),
-      Named { name: "Locker", flavor: "A metal locker. Whatever was inside is long gone." }
+      Named {
+        name: "Locker",
+        flavor: "A metal locker. Whatever was inside is long gone."
+      }
     ))
   }
 
@@ -1306,7 +1404,9 @@ impl Object {
       ),
       "Spore Cloud",
       "A drifting cloud of toxic fungal spores.",
-      1, 4, 5
+      1,
+      4,
+      5
     )
   }
 
@@ -1320,7 +1420,9 @@ impl Object {
       ),
       "Explosion",
       "Roiling flame and shrapnel.",
-      3, 2, 2
+      3,
+      2,
+      2
     )
   }
 
@@ -1340,7 +1442,7 @@ impl Object {
         'g',
         Color::srgb(0.22, 0.48, 0.22),
         Color::srgb(0.60, 0.78, 0.42)
-      ),
+      )
     ))
   }
 
@@ -1360,7 +1462,7 @@ impl Object {
         'g',
         Color::srgb(0.42, 0.52, 0.68),
         Color::srgb(0.72, 0.82, 0.92)
-      ),
+      )
     ))
   }
 
@@ -1379,7 +1481,10 @@ impl Object {
         Color::srgb(0.18, 0.08, 0.52),
         Color::srgb(0.42, 0.82, 0.98)
       ),
-      Named { name: "Laser Sword", flavor: "An energy blade, dormant. Still hums faintly." }
+      Named {
+        name: "Laser Sword",
+        flavor: "An energy blade, dormant. Still hums faintly."
+      }
     ))
   }
 }
