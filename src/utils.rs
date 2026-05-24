@@ -1,5 +1,6 @@
 /// Takes any tokens and expands to nothing — useful for commenting out
 /// large blocks of code without prefixing every line with `//`.
+#[allow(unused_macros)]
 macro_rules! comment {
     ($($t:tt)*) => {};
 }

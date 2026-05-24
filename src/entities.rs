@@ -308,6 +308,12 @@ impl Loadout {
     }
   }
 
+  pub fn remove_device_by_item(&mut self, item: crate::level::Item) {
+    if let Some(idx) = self.gear.iter().position(|s| s.gear == Gear::Device(item)) {
+      self.gear.remove(idx);
+    }
+  }
+
   pub fn lootable_items(&self) -> Vec<(crate::level::Item, u32)> {
     self.gear.iter().filter_map(|s| match s.gear {
       Gear::Weapon(item) | Gear::Armor(item) | Gear::Grenade(item) | Gear::Device(item) | Gear::Loot(item) => Some((item, s.count)),
@@ -1172,6 +1178,13 @@ impl Object {
         Color::srgb(0.18, 0.72, 0.22),
         Color::srgb(0.92, 0.82, 0.18)
       ),
+      WalkAnim {
+        idle: "textures/space_qud/alien1.png",
+        idle_frames: &["textures/space_qud/alien1 frame 2.png"],
+        walk_frames: &["textures/space_qud/alien1 frame 2.png"],
+        interval: 20,
+        idle_interval: 20,
+      },
     ))
   }
 

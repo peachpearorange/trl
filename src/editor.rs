@@ -9,7 +9,7 @@ pub const SPRITE_TEXELS: f32 = 20.0;
 use bevy::{input::mouse::AccumulatedMouseScroll, prelude::*,
            sprite_render::{AlphaMode2d, TileData, TilemapChunk, TilemapChunkTileData}};
 use grid_2d::Grid;
-use std::{collections::HashMap, num::NonZeroU32};
+use std::{collections::{HashMap, VecDeque}, num::NonZeroU32};
 use tiles::{Tile, TileRenderMode};
 use wfc::{overlapping::OverlappingPatterns, retry::{NumTimes, RetryOwn}, RunOwn, Wave};
 
@@ -38,12 +38,13 @@ fn tile_color(t: Tile) -> Color { to_color(t.color()) }
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum ToolMode { Draw, RectOutline, RectFill, Copy, Move, Paste }
+enum ToolMode { Draw, Bucket, RectOutline, RectFill, Copy, Move, Paste }
 
 impl ToolMode {
     fn name(self) -> &'static str {
         match self {
             ToolMode::Draw => "Draw",
+            ToolMode::Bucket => "Bucket",
             ToolMode::RectOutline => "Rect",
             ToolMode::RectFill => "Fill",
             ToolMode::Copy => "Copy",
@@ -177,6 +178,39 @@ fn selection_rect(a: (usize, usize), b: (usize, usize)) -> (usize, usize, usize,
 fn push_undo(canvas: &EditorCanvas, undo: &mut UndoStack) {
     undo.0.push((canvas.tiles.clone(), canvas.objects.clone()));
     if undo.0.len() > 50 { undo.0.remove(0); }
+}
+
+/// Flood-fill 4-neighbors where `tile == target` with `paint_tile` / `paint_obj`.
+fn flood_fill_same_tile_type(
+    canvas: &mut EditorCanvas,
+    sx: usize,
+    sy: usize,
+    target: Tile,
+    paint_tile: Tile,
+    paint_obj: Option<u8>,
+) {
+    if target != paint_tile {
+        let mut q = VecDeque::new();
+        let mut seen = vec![vec![false; CANVAS_W]; CANVAS_H];
+        seen[sy][sx] = true;
+        q.push_back((sx, sy));
+        while let Some((x, y)) = q.pop_front() {
+            if canvas.tiles[y][x] == target {
+                canvas.tiles[y][x] = paint_tile;
+                canvas.objects[y][x] = paint_obj;
+                let mut consider = |nx: usize, ny: usize| {
+                    if canvas.tiles[ny][nx] == target && !seen[ny][nx] {
+                        seen[ny][nx] = true;
+                        q.push_back((nx, ny));
+                    }
+                };
+                if x > 0 { consider(x - 1, y); }
+                if x + 1 < CANVAS_W { consider(x + 1, y); }
+                if y > 0 { consider(x, y - 1); }
+                if y + 1 < CANVAS_H { consider(x, y + 1); }
+            }
+        }
+    }
 }
 
 fn build_tile_cache(
@@ -328,8 +362,8 @@ fn setup(
         popup.spawn((
             ImageNode::new(Handle::default()),
             Node {
-                width: Val::Px(128.0),
-                height: Val::Px(128.0),
+                width: Val::Px(160.0),
+                height: Val::Px(160.0),
                 ..default()
             },
             BackgroundColor(Color::BLACK),
@@ -337,7 +371,7 @@ fn setup(
         ));
         popup.spawn((
             Text::new(""),
-            TextFont { font_size: 16.0, ..default() },
+            TextFont { font_size: 18.0, ..default() },
             TextColor(Color::srgb(0.9, 0.9, 0.9)),
             Node { margin: UiRect::top(Val::Px(6.0)), ..default() },
             TilePreviewText,
@@ -350,6 +384,7 @@ fn setup(
         bottom: Val::Px(0.0),
         left: Val::Px(0.0),
         width: Val::Percent(100.0),
+        flex_direction: FlexDirection::Row,
         justify_content: JustifyContent::Center,
         align_items: AlignItems::Center,
         padding: UiRect::all(Val::Px(6.0)),
@@ -358,10 +393,12 @@ fn setup(
     }).with_children(|bar| {
         let modes = [
             (ToolMode::Draw, "[D]raw"),
+            (ToolMode::Bucket, "[B]ucket"),
             (ToolMode::RectOutline, "[R]ect"),
             (ToolMode::RectFill, "[F]ill"),
             (ToolMode::Copy, "[C]opy"),
             (ToolMode::Move, "[M]ove"),
+            (ToolMode::Paste, "[Paste]"),
         ];
         for (mode, label) in modes {
             bar.spawn((
@@ -538,36 +575,35 @@ fn ui_object_highlight(
 }
 
 fn update_tile_preview(
-    hover_q: Query<(&Interaction, &TilePaletteBtn), Changed<Interaction>>,
+    palette_q: Query<(&Interaction, &TilePaletteBtn)>,
     tile_cache: Res<TileImageCache>,
     mut img_q: Query<(&mut ImageNode, &mut BackgroundColor), With<TilePreviewImage>>,
     mut text_q: Query<&mut Text, With<TilePreviewText>>,
     mut popup_q: Query<&mut Node, With<TilePreviewPopup>>,
 ) {
-    let mut any_hovered = false;
-    for (interaction, btn) in &hover_q {
-        if *interaction == Interaction::Hovered || *interaction == Interaction::Pressed {
-            any_hovered = true;
-            let (ref img_h, color) = tile_cache.0[btn.0 as u16 as usize];
-            let has_texture = *img_h != Handle::default();
-            if let Ok((mut img_node, mut bg)) = img_q.single_mut() {
-                if has_texture {
-                    img_node.image = img_h.clone();
-                    bg.0 = Color::BLACK;
-                } else {
-                    img_node.image = Handle::default();
-                    bg.0 = color;
-                }
-            }
-            if let Ok(mut text) = text_q.single_mut() {
-                text.0 = format!("{:?}", btn.0);
+    let hovered = palette_q.iter().find(|(i, _)| {
+        **i == Interaction::Hovered || **i == Interaction::Pressed
+    });
+    if let Some((_, btn)) = hovered {
+        let (ref img_h, color) = tile_cache.0[btn.0 as u16 as usize];
+        let has_texture = *img_h != Handle::default();
+        if let Ok((mut img_node, mut bg)) = img_q.single_mut() {
+            if has_texture {
+                img_node.image = img_h.clone();
+                bg.0 = Color::BLACK;
+            } else {
+                img_node.image = Handle::default();
+                bg.0 = color;
             }
         }
-    }
-    if !hover_q.is_empty() {
+        if let Ok(mut text) = text_q.single_mut() {
+            text.0 = btn.0.name().to_string();
+        }
         if let Ok(mut node) = popup_q.single_mut() {
-            node.display = if any_hovered { Display::Flex } else { Display::None };
+            node.display = Display::Flex;
         }
+    } else if let Ok(mut node) = popup_q.single_mut() {
+        node.display = Display::None;
     }
 }
 
@@ -594,8 +630,8 @@ fn update_mode_bar(
             .unwrap_or("none");
         if let Ok(mut text) = status_q.single_mut() {
             text.0 = format!(
-                "tile:{:?}  obj:{}  pat:{}  |  U:undo G:gen [/]:pat Ctrl+S/O:save/load",
-                state.selected_tile,
+                "tile:{}  obj:{}  pat:{}  |  U:undo G:gen B:bucket [/]:pat Ctrl+S/O:save/load",
+                state.selected_tile.name(),
                 obj_name,
                 state.pattern_size,
             );
@@ -612,6 +648,7 @@ fn tool_keys(
     mut state: ResMut<EditorState>,
 ) {
     if keys.just_pressed(KeyCode::KeyD) { state.tool = ToolMode::Draw; }
+    if keys.just_pressed(KeyCode::KeyB) { state.tool = ToolMode::Bucket; }
     if keys.just_pressed(KeyCode::KeyR) { state.tool = ToolMode::RectOutline; }
     if keys.just_pressed(KeyCode::KeyF) { state.tool = ToolMode::RectFill; }
     if keys.just_pressed(KeyCode::KeyC) && !keys.pressed(KeyCode::ControlLeft) && !keys.pressed(KeyCode::ControlRight) {
@@ -661,6 +698,24 @@ fn canvas_interact(
                     }
                     canvas.tiles[gy][gx] = state.selected_tile;
                     canvas.objects[gy][gx] = state.selected_object;
+                }
+            }
+        }
+        ToolMode::Bucket => {
+            if mouse.just_pressed(MouseButton::Left) {
+                if let Some((gx, gy)) = grid_pos {
+                    let target = canvas.tiles[gy][gx];
+                    if target != state.selected_tile {
+                        push_undo(&canvas, &mut undo);
+                        flood_fill_same_tile_type(
+                            &mut canvas,
+                            gx,
+                            gy,
+                            target,
+                            state.selected_tile,
+                            state.selected_object,
+                        );
+                    }
                 }
             }
         }
@@ -931,8 +986,16 @@ fn generate_wfc(
 
     match result {
         Ok(wave) => {
-            let canvas_right = (CANVAS_W as f32 * STEP) / 2.0;
-            let origin_x = canvas_right + 40.0;
+            // Canvas cells use centers from `canvas_origin()`; right edge of the grid in world X.
+            let (ox, oy) = canvas_origin();
+            let canvas_right_edge = ox + CANVAS_W as f32 * STEP - STEP / 2.0;
+            let output_gap = 40.0;
+            let output_half_w = ow as f32 * CELL / 2.0;
+            let output_half_h = oh as f32 * CELL / 2.0;
+            // `TilemapChunk` mesh is centered on the entity transform (see bevy `calculate_tile_transform`).
+            let output_center_x = canvas_right_edge + output_gap + output_half_w;
+            let canvas_center_y = oy - (CANVAS_H as f32 - 1.0) * STEP / 2.0;
+            let output_center_y = canvas_center_y;
 
             let mut tile_data: Vec<Option<TileData>> = vec![None; (ow * oh) as usize];
             for coord_y in 0..oh {
@@ -964,13 +1027,19 @@ fn generate_wfc(
                     if let Some(idx) = obj {
                         if (idx as usize) < OBJECT_TEMPLATES.len() {
                             let name: String = OBJECT_TEMPLATES[idx as usize].chars().take(3).collect();
-                            let x = origin_x + coord_x as f32 * CELL;
-                            let y = (oh - 1 - coord_y) as f32 * CELL;
+                            let ux = coord_x as f32;
+                            let uy = (oh - 1 - coord_y) as f32;
+                            let lx = ux * CELL + CELL / 2.0 - output_half_w;
+                            let ly = uy * CELL + CELL / 2.0 - output_half_h;
                             commands.spawn((
                                 Text2d::new(name),
                                 TextFont { font_size: 8.0, ..default() },
                                 TextColor(Color::srgb(1.0, 0.8, 0.2)),
-                                Transform::from_xyz(x, y, 1.0),
+                                Transform::from_xyz(
+                                    output_center_x + lx,
+                                    output_center_y + ly,
+                                    1.0,
+                                ),
                                 OutputLabel,
                             ));
                         }
@@ -986,7 +1055,7 @@ fn generate_wfc(
                     alpha_mode: AlphaMode2d::Blend,
                 },
                 TilemapChunkTileData(tile_data),
-                Transform::from_xyz(origin_x - CELL / 2.0, CELL / 2.0, 0.0),
+                Transform::from_xyz(output_center_x, output_center_y, 0.01),
                 OutputChunk,
             ));
             eprintln!("WFC generated {ow}x{oh} output (pattern_size={})", state.pattern_size);

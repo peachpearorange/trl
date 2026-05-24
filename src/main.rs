@@ -106,22 +106,12 @@ enum InteractionAction {
   OpenCraftingTable,
   Salvage(Item),
   Craft(usize),
-  EquipItem(Item), //no distinction needs to be made really between these things
+  EquipItem(Item),
   UnequipItem(Item),
-  // EquipWeapon(Item),
-  // EquipArmor(Item),
-  // UnequipWeapon,
-  // UnequipArmor,
-  // LootCorpse(Entity), // in current version loot items just pop out of enemies when they die
-  // EquipGrenade { slot: usize, item: Item },
-  // UnequipGrenade { slot: usize },
-  // EquipDevice(Item),
-  // UnequipDevice { slot: usize },
   ShowLoadoutStatus,
   TakeElevator { dest_z: usize, dest_x: i32, dest_y: i32 },
   RecruitFollower { entity: Entity, name: &'static str },
   DismissFollower { entity: Entity, name: &'static str },
-  // LootCorpse(Entity), // they just drop stuff now
   SaveAtBed
 }
 
@@ -278,7 +268,6 @@ struct PendingBumpInteract(pub Option<(i32, i32, usize)>, pub Option<(Entity, Ve
 #[derive(Resource, Default)]
 struct DeferredActions {
   pub loot_chest: Option<Entity>,
-  pub loot_corpse: Option<Entity>,
   pub navigate: Option<galaxy::LocationId>,
   /// Position to teleport the player to after navigation completes (used by death respawn).
   pub post_navigate_pos: Option<(i32, i32, usize)>,
@@ -1809,14 +1798,7 @@ fn handle_menus(
       {
         let is_loadout = matches!(
           option.action,
-          InteractionAction::EquipWeapon(_)
-            | InteractionAction::UnequipWeapon
-            | InteractionAction::EquipArmor(_)
-            | InteractionAction::UnequipArmor
-            | InteractionAction::EquipGrenade { .. }
-            | InteractionAction::UnequipGrenade { .. }
-            | InteractionAction::EquipDevice(_)
-            | InteractionAction::UnequipDevice { .. }
+          InteractionAction::EquipItem(_) | InteractionAction::UnequipItem(_)
         );
         ui.interact = InteractMenu::Closed;
         dispatch_interactive_choice(
@@ -2351,61 +2333,65 @@ fn execute_interaction(
         log_message(log, format!("Crafted {}.", recipe.output.name()));
         clock.spend_turn(tb);
       }
-      InteractionAction::EquipWeapon(item) => {
-        if let Some(reason) = equipped.rejection_reason(entities::Gear::Weapon(*item)) {
-          log_message(log, format!("Can't equip {} — {}.", item.name(), reason));
-        } else {
-          equipped.equip_weapon(*item);
-          log_message(log, format!("Equipped {} as weapon.", item.name()));
-          clock.spend_turn(tb);
-        }
-      }
-      InteractionAction::EquipArmor(item) => {
-        if let Some(reason) = equipped.rejection_reason(entities::Gear::Armor(*item)) {
-          log_message(log, format!("Can't equip {} — {}.", item.name(), reason));
-        } else {
-          equipped.equip_armor(*item);
-          log_message(log, format!("Equipped {} as armor.", item.name()));
-          clock.spend_turn(tb);
-        }
-      }
-      InteractionAction::UnequipWeapon => {
-        if let Some(w) = equipped.unequip_weapon() {
-          log_message(log, format!("Unequipped {}.", w.name()));
-        }
-        clock.spend_turn(tb);
-      }
-      InteractionAction::UnequipArmor => {
-        if let Some(a) = equipped.unequip_armor() {
-          log_message(log, format!("Unequipped {}.", a.name()));
-        }
-        clock.spend_turn(tb);
-      }
-      InteractionAction::EquipGrenade { item, .. } => {
-        if let Some(reason) = equipped.rejection_reason(entities::Gear::Grenade(*item)) {
-          log_message(log, format!("Can't equip {} — {}.", item.name(), reason));
-        } else {
-          equipped.equip_grenade(*item);
+      InteractionAction::EquipItem(item) => {
+        if item.is_weapon() {
+          if let Some(reason) = equipped.rejection_reason(entities::Gear::Weapon(*item)) {
+            log_message(log, format!("Can't equip {} — {}.", item.name(), reason));
+          } else {
+            equipped.equip_weapon(*item);
+            log_message(log, format!("Equipped {} as weapon.", item.name()));
+            clock.spend_turn(tb);
+          }
+        } else if item.is_armor() {
+          if let Some(reason) = equipped.rejection_reason(entities::Gear::Armor(*item)) {
+            log_message(log, format!("Can't equip {} — {}.", item.name(), reason));
+          } else {
+            equipped.equip_armor(*item);
+            log_message(log, format!("Equipped {} as armor.", item.name()));
+            clock.spend_turn(tb);
+          }
+        } else if item.is_grenade() {
+          if let Some(reason) = equipped.rejection_reason(entities::Gear::Grenade(*item)) {
+            log_message(log, format!("Can't equip {} — {}.", item.name(), reason));
+          } else {
+            equipped.equip_grenade(*item);
+            log_message(log, format!("Equipped {}.", item.name()));
+            clock.spend_turn(tb);
+          }
+        } else if item.is_device() {
+          equipped.equip_device(*item);
           log_message(log, format!("Equipped {}.", item.name()));
           clock.spend_turn(tb);
         }
       }
-      InteractionAction::UnequipGrenade { slot } => {
-        if let Some(g) = equipped.unequip_grenade_at(*slot) {
-          log_message(log, format!("Unequipped {}.", g.name()));
+      InteractionAction::UnequipItem(item) => {
+        if item.is_weapon() {
+          if equipped.weapon() == Some(*item)
+            && let Some(w) = equipped.unequip_weapon()
+          {
+            log_message(log, format!("Unequipped {}.", w.name()));
+          }
+          clock.spend_turn(tb);
+        } else if item.is_armor() {
+          if equipped.armor_item() == Some(*item)
+            && let Some(a) = equipped.unequip_armor()
+          {
+            log_message(log, format!("Unequipped {}.", a.name()));
+          }
+          clock.spend_turn(tb);
+        } else if item.is_grenade() {
+          if equipped.grenade_slots().iter().any(|(_, g)| *g == *item) {
+            equipped.remove_grenade_by_item(*item);
+            log_message(log, format!("Unequipped {}.", item.name()));
+          }
+          clock.spend_turn(tb);
+        } else if item.is_device() {
+          if equipped.device_slots().iter().any(|(_, d)| *d == *item) {
+            equipped.remove_device_by_item(*item);
+            log_message(log, format!("Unequipped {}.", item.name()));
+          }
+          clock.spend_turn(tb);
         }
-        clock.spend_turn(tb);
-      }
-      InteractionAction::EquipDevice(item) => {
-        equipped.equip_device(*item);
-        log_message(log, format!("Equipped {}.", item.name()));
-        clock.spend_turn(tb);
-      }
-      InteractionAction::UnequipDevice { slot } => {
-        if let Some(d) = equipped.unequip_device_at(*slot) {
-          log_message(log, format!("Unequipped {}.", d.name()));
-        }
-        clock.spend_turn(tb);
       }
       InteractionAction::ShowLoadoutStatus => {
         let wpn = equipped.weapon().map(|w| w.name()).unwrap_or("none");
@@ -2420,7 +2406,6 @@ fn execute_interaction(
       }
       InteractionAction::RecruitFollower { .. }
       | InteractionAction::DismissFollower { .. }
-      | InteractionAction::LootCorpse(_)
       | InteractionAction::SaveAtBed => {}
     }
   }
@@ -2451,9 +2436,6 @@ fn dispatch_interactive_choice(
   match &option.action {
     InteractionAction::OpenChest(ent) => {
       deferred.loot_chest = Some(*ent);
-    }
-    InteractionAction::LootCorpse(ent) => {
-      deferred.loot_corpse = Some(*ent);
     }
     InteractionAction::Navigate { dest } => {
       deferred.navigate = Some(*dest);
@@ -2560,19 +2542,11 @@ fn auto_close_airlocks(
 
 fn is_equipped(action: &InteractionAction, loadout: &Loadout) -> bool {
   match action {
-    InteractionAction::UnequipWeapon => loadout.weapon().is_some(),
-    InteractionAction::UnequipArmor => loadout.armor_item().is_some(),
-    InteractionAction::UnequipGrenade { slot } => loadout.grenade_at(*slot).is_some(),
-    InteractionAction::EquipWeapon(item) => loadout.weapon() == Some(*item),
-    InteractionAction::EquipArmor(item) => loadout.armor_item() == Some(*item),
-    InteractionAction::EquipGrenade { item, .. } => {
-      loadout.grenade_slots().iter().any(|&(_, g)| g == *item)
-    }
-    InteractionAction::UnequipDevice { slot } => {
-      loadout.device_slots().get(*slot).is_some()
-    }
-    InteractionAction::EquipDevice(item) => {
-      loadout.device_slots().iter().any(|&(_, d)| d == *item)
+    InteractionAction::EquipItem(item) | InteractionAction::UnequipItem(item) => {
+      item.is_weapon() && loadout.weapon() == Some(*item)
+        || item.is_armor() && loadout.armor_item() == Some(*item)
+        || item.is_grenade() && loadout.grenade_slots().iter().any(|(_, g)| *g == *item)
+        || item.is_device() && loadout.device_slots().iter().any(|(_, d)| *d == *item)
     }
     _ => false
   }
@@ -2588,64 +2562,53 @@ fn loadout_options(inventory: &Inventory, loadout: &Loadout) -> Vec<InteractionO
     .into_iter()
     .map(|item| {
       let action = if loadout.weapon() == Some(item) {
-        InteractionAction::UnequipWeapon
+        InteractionAction::UnequipItem(item)
       } else {
-        InteractionAction::EquipWeapon(item)
+        InteractionAction::EquipItem(item)
       };
       InteractionOption { label: item.name().to_string(), action }
     })
     .chain(sorted(Item::is_armor).into_iter().map(|item| {
       let action = if loadout.armor_item() == Some(item) {
-        InteractionAction::UnequipArmor
+        InteractionAction::UnequipItem(item)
       } else {
-        InteractionAction::EquipArmor(item)
+        InteractionAction::EquipItem(item)
       };
       InteractionOption { label: item.name().to_string(), action }
     }))
     .chain(sorted(Item::is_grenade).into_iter().map(|item| {
-      let grenade_slots = loadout.grenade_slots();
-      if let Some((list_idx, _)) =
-        grenade_slots.iter().enumerate().find(|(_, (_, g))| *g == item)
-      {
-        InteractionOption {
-          label: item.name().to_string(),
-          action: InteractionAction::UnequipGrenade { slot: list_idx }
-        }
+      let in_loadout = loadout.grenade_slots().iter().any(|(_, g)| *g == item);
+      let action = if in_loadout {
+        InteractionAction::UnequipItem(item)
       } else {
-        let slot = grenade_slots.len();
-        InteractionOption {
-          label: item.name().to_string(),
-          action: InteractionAction::EquipGrenade { slot, item }
-        }
-      }
+        InteractionAction::EquipItem(item)
+      };
+      InteractionOption { label: item.name().to_string(), action }
     }))
     .chain(sorted(Item::is_device).into_iter().map(|item| {
-      let device_slots = loadout.device_slots();
-      if let Some((list_idx, _)) =
-        device_slots.iter().enumerate().find(|(_, (_, d))| *d == item)
-      {
-        InteractionOption {
-          label: item.name().to_string(),
-          action: InteractionAction::UnequipDevice { slot: list_idx }
-        }
+      let in_loadout = loadout.device_slots().iter().any(|(_, d)| *d == item);
+      let action = if in_loadout {
+        InteractionAction::UnequipItem(item)
       } else {
-        InteractionOption {
-          label: item.name().to_string(),
-          action: InteractionAction::EquipDevice(item)
-        }
-      }
+        InteractionAction::EquipItem(item)
+      };
+      InteractionOption { label: item.name().to_string(), action }
     }))
     .collect()
 }
 
 fn is_disabled(action: &InteractionAction, loadout: &Loadout) -> bool {
   match action {
-    InteractionAction::EquipWeapon(item) => {
-      !loadout.can_add(entities::Gear::Weapon(*item))
-    }
-    InteractionAction::EquipArmor(item) => !loadout.can_add(entities::Gear::Armor(*item)),
-    InteractionAction::EquipGrenade { item, .. } => {
-      !loadout.can_add(entities::Gear::Grenade(*item))
+    InteractionAction::EquipItem(item) => {
+      if item.is_weapon() {
+        !loadout.can_add(entities::Gear::Weapon(*item))
+      } else if item.is_armor() {
+        !loadout.can_add(entities::Gear::Armor(*item))
+      } else if item.is_grenade() {
+        !loadout.can_add(entities::Gear::Grenade(*item))
+      } else {
+        false
+      }
     }
     _ => false
   }
@@ -2733,14 +2696,6 @@ fn gather_interactions_at_tile(
           label: format!("Open chest ({dir_label})"),
           action: InteractionAction::OpenChest(e)
         });
-      }
-      if let Ok((named, Some(corpse), _)) = iq.named_q.get(e) {
-        if !corpse.looted {
-          opts.push(InteractionOption {
-            label: format!("Loot dead {} ({dir_label})", named.name),
-            action: InteractionAction::LootCorpse(e)
-          });
-        }
       }
       if let Ok((_, _, Some(_bed))) = iq.named_q.get(e) {
         opts.push(InteractionOption {
@@ -2904,7 +2859,6 @@ fn flush_pending_loot(
   mut player_q: Query<(&mut PlayerPos, &mut Inventory, &mut Loadout), With<Player>>,
   mut loot_chest_q: Query<(&mut LootChest, &mut Glyph, &Location)>,
   fixed_q: Query<&FixedChestLoot>,
-  mut corpse_q: Query<(&mut entities::Corpse, &Named)>,
   mut log: ResMut<LogEntries>,
   mut clock: ResMut<Clock>,
   mut tb: ResMut<TurnBasedWorldState>
@@ -2920,30 +2874,6 @@ fn flush_pending_loot(
       &mut *clock,
       &mut *tb
     );
-  }
-  if let Some(ent) = pending.loot_corpse.take()
-    && let Ok((mut corpse, named)) = corpse_q.get_mut(ent)
-    && !corpse.looted
-    && let Ok((_, mut inventory, _)) = player_q.single_mut()
-  {
-    let kinds = corpse.loot.len();
-    for &(item, qty) in &corpse.loot {
-      *inventory.0.entry(item).or_insert(0) += qty;
-    }
-    corpse.looted = true;
-    let name = named.name;
-    log_message(
-      &mut *log,
-      if kinds == 0 {
-        format!("Nothing on the dead {name}.")
-      } else {
-        format!(
-          "Looted dead {name} ({kinds} stack{}).",
-          if kinds == 1 { "" } else { "s" }
-        )
-      }
-    );
-    clock.spend_turn(&mut *tb);
   }
 }
 
