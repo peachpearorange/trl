@@ -229,9 +229,9 @@ impl UiState {
 #[derive(Resource, Default)]
 pub struct RenderFrame(pub u64);
 
-/// Tracks the render frame on which the last sim step (or sim-eligible frame) occurred.
-/// Used to enforce the minimum gap of [`RENDER_FRAMES_PER_SIM_STEP`] between sim frames
-/// instead of a fixed modulo, so turn-based sim frames are action-driven.
+/// Tracks the render frame on which the last sim step occurred. Used to enforce the
+/// minimum gap of [`RENDER_FRAMES_PER_SIM_STEP`] between sim frames instead of a fixed
+/// modulo, so real-time ticks are correctly spaced after navigation or other gaps.
 #[derive(Resource, Default)]
 pub struct SimClock(pub u64);
 
@@ -324,8 +324,8 @@ fn bump_render_frame(
 }
 
 /// True when at least [`RENDER_FRAMES_PER_SIM_STEP`] frames have elapsed since the last sim
-/// frame. Player input always runs on sim frames; the world step is separately gated by
-/// [`should_run_sim_step`] which also requires a pending player action.
+/// frame. Fires on the fixed schedule regardless of player input; the player simply no-ops
+/// when there's no action.
 fn is_sim_frame(
   frame: Res<RenderFrame>,
   sim_clock: Res<SimClock>,
@@ -334,8 +334,8 @@ fn is_sim_frame(
     && frame.0.saturating_sub(sim_clock.0) >= u64::from(RENDER_FRAMES_PER_SIM_STEP)
 }
 
-/// True when a sim frame is due AND the player has an actionable turn (or we're in real-time
-/// mode). This gates the world response — enemies, effects, cooldowns — but not player input.
+/// True when a sim frame is due AND the world should advance (player spent a turn, or
+/// we're in real-time mode).
 fn should_run_sim_step(
   frame: Res<RenderFrame>,
   sim_clock: Res<SimClock>,
@@ -3519,6 +3519,8 @@ fn player_input(
       r.clock.mode = match r.clock.mode {
         TimeMode::RealTime => TimeMode::TurnBased,
         TimeMode::TurnBased => {
+          // Flush all accumulated inputs so they don't fire as moves in real-time mode
+          *acc = AccumulatedDir::default();
           r.tb.world_tick_pending = false;
           TimeMode::RealTime
         }
