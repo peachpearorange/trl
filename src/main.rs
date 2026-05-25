@@ -235,11 +235,6 @@ pub struct RenderFrame(pub u64);
 #[derive(Resource, Default)]
 pub struct SimClock(pub u64);
 
-/// Set every frame by [`check_pending_action`]; `true` when the player has actionable input
-/// (direction keys, wait, or a game action already flagged via `world_tick_pending`).
-#[derive(Resource, Default)]
-pub struct PendingActionTick(pub bool);
-
 #[derive(Resource)]
 pub struct Clock {
   /// Cumulative sim-time from actions and (in RT) periodic ticks.
@@ -316,67 +311,33 @@ fn bump_render_frame(
   sim_clock: Res<SimClock>,
 ) {
   frame.0 = frame.0.saturating_add(1);
-  if clock.mode == TimeMode::RealTime
-    && frame.0 > 0
-    && frame.0.saturating_sub(sim_clock.0) >= u64::from(RENDER_FRAMES_PER_SIM_STEP)
-  {
+  let gap = frame.0.saturating_sub(sim_clock.0);
+  if clock.mode == TimeMode::RealTime && frame.0 > 0 && gap >= u64::from(RENDER_FRAMES_PER_SIM_STEP) {
     clock.time = clock.time.saturating_add(1);
   }
 }
 
-/// Lightweight per-frame check: sets [`PendingActionTick`] when the player has any actionable
-/// input — direction keys, wait, or a game action already flagged via `world_tick_pending`
-/// (from menus/abilities that called `spend_turn` this frame).
-fn check_pending_action(
-  keys: Res<ButtonInput<KeyCode>>,
-  acc: Res<AccumulatedDir>,
-  tb: Res<TurnBasedWorldState>,
-  clock: Res<Clock>,
-  mut pending: ResMut<PendingActionTick>,
-) {
-  pending.0 = if clock.mode == TimeMode::RealTime {
-    true
-  } else {
-    tb.world_tick_pending
-      || acc.up
-      || acc.down
-      || acc.left
-      || acc.right
-      || keys.pressed(KeyCode::KeyW)
-      || keys.pressed(KeyCode::KeyA)
-      || keys.pressed(KeyCode::KeyS)
-      || keys.pressed(KeyCode::KeyD)
-      || keys.pressed(KeyCode::ArrowUp)
-      || keys.pressed(KeyCode::ArrowDown)
-      || keys.pressed(KeyCode::ArrowLeft)
-      || keys.pressed(KeyCode::ArrowRight)
-      || keys.just_pressed(KeyCode::Period)
-      || keys.just_pressed(KeyCode::Space)
-  };
-}
-
 /// True when at least [`RENDER_FRAMES_PER_SIM_STEP`] frames have elapsed since the last sim
-/// frame AND the player has pending action (or we are in real-time mode).
+/// frame. Player input always runs on sim frames; the world step is separately gated by
+/// [`should_run_sim_step`] which also requires a pending player action.
 fn is_sim_frame(
   frame: Res<RenderFrame>,
   sim_clock: Res<SimClock>,
-  pending: Res<PendingActionTick>,
 ) -> bool {
   frame.0 > 0
     && frame.0.saturating_sub(sim_clock.0) >= u64::from(RENDER_FRAMES_PER_SIM_STEP)
-    && pending.0
 }
 
+/// True when a sim frame is due AND the player has an actionable turn (or we're in real-time
+/// mode). This gates the world response — enemies, effects, cooldowns — but not player input.
 fn should_run_sim_step(
   frame: Res<RenderFrame>,
   sim_clock: Res<SimClock>,
   clock: Res<Clock>,
   tb: Res<TurnBasedWorldState>,
-  pending: Res<PendingActionTick>,
 ) -> bool {
   frame.0 > 0
     && frame.0.saturating_sub(sim_clock.0) >= u64::from(RENDER_FRAMES_PER_SIM_STEP)
-    && pending.0
     && (clock.mode == TimeMode::RealTime || tb.world_tick_pending)
 }
 
@@ -737,7 +698,6 @@ fn main() {
     .init_resource::<RenderFrame>()
     .init_resource::<TurnBasedWorldState>()
     .init_resource::<SimClock>()
-    .init_resource::<PendingActionTick>()
     .insert_resource(Clock::new())
     .insert_resource(TimeModeAuto(false))
     .init_resource::<DeferredActions>()
@@ -797,12 +757,6 @@ fn main() {
     .add_systems(
       Update,
       accumulate_dir.after(handle_menus).in_set(EveryFrameUi)
-    )
-    .add_systems(
-      Update,
-      check_pending_action
-        .after(accumulate_dir)
-        .in_set(EveryFrameUi)
     )
     // --- sim frames only: player turn ---
     .add_systems(
