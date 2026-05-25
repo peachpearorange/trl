@@ -229,6 +229,17 @@ impl UiState {
 #[derive(Resource, Default)]
 pub struct RenderFrame(pub u64);
 
+/// Tracks the render frame on which the last sim step (or sim-eligible frame) occurred.
+/// Used to enforce the minimum gap of [`RENDER_FRAMES_PER_SIM_STEP`] between sim frames
+/// instead of a fixed modulo, so turn-based sim frames are action-driven.
+#[derive(Resource, Default)]
+pub struct SimClock(pub u64);
+
+/// Set every frame by [`check_pending_action`]; `true` when the player has actionable input
+/// (direction keys, wait, or a game action already flagged via `world_tick_pending`).
+#[derive(Resource, Default)]
+pub struct PendingActionTick(pub bool);
+
 #[derive(Resource)]
 pub struct Clock {
   /// Cumulative sim-time from actions and (in RT) periodic ticks.
@@ -299,28 +310,80 @@ struct SaveData {
 #[derive(Resource, Default)]
 struct BumpInteractFlash(pub Option<InteractionOption>);
 
-fn bump_render_frame(mut frame: ResMut<RenderFrame>, mut clock: ResMut<Clock>) {
+fn bump_render_frame(
+  mut frame: ResMut<RenderFrame>,
+  mut clock: ResMut<Clock>,
+  sim_clock: Res<SimClock>,
+) {
   frame.0 = frame.0.saturating_add(1);
   if clock.mode == TimeMode::RealTime
     && frame.0 > 0
-    && frame.0 % u64::from(RENDER_FRAMES_PER_SIM_STEP) == 0
+    && frame.0.saturating_sub(sim_clock.0) >= u64::from(RENDER_FRAMES_PER_SIM_STEP)
   {
     clock.time = clock.time.saturating_add(1);
   }
 }
 
-fn is_sim_frame(frame: Res<RenderFrame>) -> bool {
-  frame.0 > 0 && frame.0 % u64::from(RENDER_FRAMES_PER_SIM_STEP) == 0
+/// Lightweight per-frame check: sets [`PendingActionTick`] when the player has any actionable
+/// input — direction keys, wait, or a game action already flagged via `world_tick_pending`
+/// (from menus/abilities that called `spend_turn` this frame).
+fn check_pending_action(
+  keys: Res<ButtonInput<KeyCode>>,
+  acc: Res<AccumulatedDir>,
+  tb: Res<TurnBasedWorldState>,
+  clock: Res<Clock>,
+  mut pending: ResMut<PendingActionTick>,
+) {
+  pending.0 = if clock.mode == TimeMode::RealTime {
+    true
+  } else {
+    tb.world_tick_pending
+      || acc.up
+      || acc.down
+      || acc.left
+      || acc.right
+      || keys.pressed(KeyCode::KeyW)
+      || keys.pressed(KeyCode::KeyA)
+      || keys.pressed(KeyCode::KeyS)
+      || keys.pressed(KeyCode::KeyD)
+      || keys.pressed(KeyCode::ArrowUp)
+      || keys.pressed(KeyCode::ArrowDown)
+      || keys.pressed(KeyCode::ArrowLeft)
+      || keys.pressed(KeyCode::ArrowRight)
+      || keys.just_pressed(KeyCode::Period)
+      || keys.just_pressed(KeyCode::Space)
+  };
+}
+
+/// True when at least [`RENDER_FRAMES_PER_SIM_STEP`] frames have elapsed since the last sim
+/// frame AND the player has pending action (or we are in real-time mode).
+fn is_sim_frame(
+  frame: Res<RenderFrame>,
+  sim_clock: Res<SimClock>,
+  pending: Res<PendingActionTick>,
+) -> bool {
+  frame.0 > 0
+    && frame.0.saturating_sub(sim_clock.0) >= u64::from(RENDER_FRAMES_PER_SIM_STEP)
+    && pending.0
 }
 
 fn should_run_sim_step(
   frame: Res<RenderFrame>,
+  sim_clock: Res<SimClock>,
   clock: Res<Clock>,
-  tb: Res<TurnBasedWorldState>
+  tb: Res<TurnBasedWorldState>,
+  pending: Res<PendingActionTick>,
 ) -> bool {
   frame.0 > 0
-    && frame.0 % u64::from(RENDER_FRAMES_PER_SIM_STEP) == 0
+    && frame.0.saturating_sub(sim_clock.0) >= u64::from(RENDER_FRAMES_PER_SIM_STEP)
+    && pending.0
     && (clock.mode == TimeMode::RealTime || tb.world_tick_pending)
+}
+
+/// Records the render frame on which a sim frame ran, so the minimum gap is enforced
+/// relative to the last actual sim frame rather than a fixed modulo boundary.
+fn record_sim_ran(frame: Res<RenderFrame>, mut sim_clock: ResMut<SimClock>) {
+  sim_clock.0 = frame.0;
 }
 
 
@@ -401,6 +464,15 @@ struct TileHoverHighlight;
 pub struct BumpLunge {
   dir: Vec2,
   start_frame: u64
+}
+
+#[derive(Component)]
+struct PrevHp(i32);
+
+#[derive(Component)]
+struct DamageFlash {
+  frames_remaining: u32,
+  base_color: Option<Color>,
 }
 
 // ---------------------------------------------------------------------------
@@ -502,7 +574,8 @@ fn setup_glyph_visuals(
   mut images: ResMut<Assets<Image>>,
   mut palette_cache: ResMut<PaletteImageCache>,
   current: Res<CurrentZone>,
-  query: Query<(Entity, &Glyph, &Location), (Added<Glyph>, Without<GlyphVisual>)>
+  query: Query<(Entity, &Glyph, &Location), (Added<Glyph>, Without<GlyphVisual>)>,
+  stats_q: Query<&entities::Stats>
 ) {
   for (entity, glyph, location) in query.iter() {
     if let Location::Coords { x, y, .. } = location {
@@ -527,6 +600,7 @@ fn setup_glyph_visuals(
           Transform::from_translation(pos),
           GlyphVisual,
           RenderLayers::layer(post_process::LAYER_ENTITIES),
+          PrevHp(stats_q.get(entity).map_or(0, |s| s.hp)),
           Visuals {
             prev: local,
             last_move_start_frame: None,
@@ -542,6 +616,7 @@ fn setup_glyph_visuals(
           Transform::from_translation(pos),
           GlyphVisual,
           RenderLayers::layer(post_process::LAYER_ENTITIES),
+          PrevHp(stats_q.get(entity).map_or(0, |s| s.hp)),
           Visuals {
             prev: local,
             last_move_start_frame: None,
@@ -661,6 +736,8 @@ fn main() {
     .insert_resource(CurrentZone(active))
     .init_resource::<RenderFrame>()
     .init_resource::<TurnBasedWorldState>()
+    .init_resource::<SimClock>()
+    .init_resource::<PendingActionTick>()
     .insert_resource(Clock::new())
     .insert_resource(TimeModeAuto(false))
     .init_resource::<DeferredActions>()
@@ -717,18 +794,28 @@ fn main() {
         .chain()
         .in_set(EveryFrameUi)
     )
+    .add_systems(
+      Update,
+      accumulate_dir.after(handle_menus).in_set(EveryFrameUi)
+    )
+    .add_systems(
+      Update,
+      check_pending_action
+        .after(accumulate_dir)
+        .in_set(EveryFrameUi)
+    )
     // --- sim frames only: player turn ---
     .add_systems(
       Update,
       (
         maintain_tile_index,
-        accumulate_dir,
         player_input,
         resolve_bump_interact,
         apply_bump_auto_interact,
         abilities::sync_ability_bar,
         auto_close_airlocks,
-        update_fov
+        update_fov,
+        record_sim_ran
       )
         .chain()
         .run_if(is_sim_frame)
@@ -774,6 +861,7 @@ fn main() {
         animate_loot_drops,
         animate_death_shrink,
         apply_invisible_alpha,
+        damage_flash,
         camera_follow,
         update_fov_visuals,
         update_tile_hover_highlight,
@@ -1013,6 +1101,40 @@ fn apply_invisible_alpha(
     let target = if invis.is_some() { 0.25 } else { 1.0 };
     if (sprite.color.alpha() - target).abs() > 0.01 {
       sprite.color.set_alpha(target);
+    }
+  }
+}
+
+const DAMAGE_FLASH_FRAMES: u32 = 20;
+const DAMAGE_FLASH_BRIGHTNESS: f32 = 3.0;
+
+fn damage_flash(
+  mut commands: Commands,
+  mut hp_q: Query<(Entity, &entities::Stats, &mut PrevHp), With<GlyphVisual>>,
+  mut flash_q: Query<(Entity, &mut DamageFlash, &mut Sprite), With<GlyphVisual>>
+) {
+  for (entity, stats, mut prev) in hp_q.iter_mut() {
+    if stats.hp < prev.0 {
+      commands.entity(entity).insert(DamageFlash {
+        frames_remaining: DAMAGE_FLASH_FRAMES,
+        base_color: None
+      });
+    }
+    prev.0 = stats.hp;
+  }
+  for (entity, mut flash, mut sprite) in flash_q.iter_mut() {
+    if flash.base_color.is_none() {
+      flash.base_color = Some(sprite.color);
+    }
+    let t = flash.frames_remaining as f32 / DAMAGE_FLASH_FRAMES as f32;
+    let base = flash.base_color.unwrap();
+    let tint = base.to_linear() * DAMAGE_FLASH_BRIGHTNESS;
+    let c = base.to_linear() * (1.0 - t) + tint * t;
+    sprite.color = Color::from(c).with_alpha(base.alpha());
+    flash.frames_remaining -= 1;
+    if flash.frames_remaining == 0 {
+      sprite.color = base;
+      commands.entity(entity).remove::<DamageFlash>();
     }
   }
 }
