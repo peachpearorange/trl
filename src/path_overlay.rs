@@ -382,7 +382,7 @@ pub fn render_ranged_path(
   mut palette_cache: ResMut<PaletteImageCache>,
   mut images: ResMut<Assets<Image>>
 ) {
-  let Location::Coords { x: pos_x, y: pos_y, .. } = **pos else { unreachable!() };
+  let &Location::Coords { x: pos_x, y: pos_y, .. } = &**pos else { unreachable!() };
   for entity in &existing {
     commands.entity(entity).despawn();
   }

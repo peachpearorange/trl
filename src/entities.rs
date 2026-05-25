@@ -67,10 +67,10 @@ pub const fn end(text: &'static str) -> DialogueChoice {
 // ============ LOCATION ============
 
 /// Where an entity exists in the world.
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, PartialEq)]
 pub enum Location {
   /// At specific tile coordinates on z-level `z`.
-  Coords { x: i32, y: i32, z: usize, zx: usize, zy: usize },
+  Coords { x: i32, y: i32, z: usize },
   /// In another entity's inventory.
   Inventory(Entity),
   /// Not placed anywhere (template, UI preview, etc.).
@@ -79,7 +79,7 @@ pub enum Location {
 
 impl Location {
   pub fn xyz(x: i32, y: i32, z: usize) -> Self {
-    Location::Coords { x, y, z, zx: 0, zy: 0 }
+    Location::Coords { x, y, z }
   }
 
   /// World-space tile coordinates as Vec2 (for interpolation). Returns None for non-Coords.

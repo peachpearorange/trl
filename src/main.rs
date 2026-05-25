@@ -1046,7 +1046,7 @@ fn update_tile_hover_highlight(
   mut q: Query<(&mut Transform, &mut Visibility), With<TileHoverHighlight>>
 ) {
   if let Ok((mut transform, mut vis)) = q.single_mut()
-    && let Location::Coords { z, .. } = **player_pos
+    && let &Location::Coords { z, .. } = &**player_pos
   {
     *vis = Visibility::Hidden;
     let (camera, cam_transform) = *camera;
@@ -1146,7 +1146,7 @@ fn update_interactable_highlights(
   let mut targets: Vec<(Vec3, Handle<Image>)> = Vec::new();
 
   if !any_menu_open
-    && let Location::Coords { x: px, y: py, z, .. } = **player_pos
+    && let &Location::Coords { x: px, y: py, z, .. } = &**player_pos
   {
     for dy in -1..=1i32 {
       for dx in -1..=1i32 {
@@ -1645,7 +1645,7 @@ fn handle_menus(
     Option<&mut Collidable>,
     &Location,
     Option<&mut AirlockDoor>
-  )>,
+  ), Without<Player>>,
   mut deferred: ResMut<DeferredActions>,
   mut exit: MessageWriter<AppExit>,
   mut menu_click: ResMut<MenuClickPending>,
@@ -1913,7 +1913,7 @@ fn apply_open_chest(
   commands: &mut Commands,
   entity: Entity,
   player_query: &mut Query<(&mut Location, &mut Inventory, &mut Loadout), With<Player>>,
-  loot_chest_q: &mut Query<(&mut LootChest, &mut Glyph, &Location)>,
+  loot_chest_q: &mut Query<(&mut LootChest, &mut Glyph, &Location), Without<Player>>,
   fixed_q: &Query<&FixedChestLoot>,
   log: &mut LogEntries,
   clock: &mut Clock,
@@ -2386,7 +2386,7 @@ fn dispatch_interactive_choice(
     Option<&mut Collidable>,
     &Location,
     Option<&mut AirlockDoor>
-  )>,
+  ), Without<Player>>,
   asset_server: &AssetServer,
   palette_cache: &mut PaletteImageCache,
   images: &mut Assets<Image>,
@@ -2782,7 +2782,7 @@ fn apply_bump_auto_interact(
     Option<&mut Collidable>,
     &Location,
     Option<&mut AirlockDoor>
-  )>,
+  ), Without<Player>>,
   asset_server: Res<AssetServer>,
   mut palette_cache: ResMut<PaletteImageCache>,
   mut images: ResMut<Assets<Image>>,
@@ -2815,7 +2815,7 @@ fn flush_pending_loot(
   mut pending: ResMut<DeferredActions>,
   mut commands: Commands,
   mut player_q: Query<(&mut Location, &mut Inventory, &mut Loadout), With<Player>>,
-  mut loot_chest_q: Query<(&mut LootChest, &mut Glyph, &Location)>,
+  mut loot_chest_q: Query<(&mut LootChest, &mut Glyph, &Location), Without<Player>>,
   fixed_q: Query<&FixedChestLoot>,
   mut log: ResMut<LogEntries>,
   mut clock: ResMut<Clock>,
