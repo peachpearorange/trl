@@ -13,15 +13,17 @@
 //!   - **Status bar** (fixed height).
 //! - **Layer 2 — [`overlay_signal`]**: fullscreen dim when pause / interact / dialogue is open.
 
-use {crate::{Clock, GAME_VIEWPORT_WIDTH_FRAC, STATUS_BAR_HEIGHT, game_pane_rect,
+use {crate::{Clock, GAME_VIEWPORT_WIDTH_FRAC, STATUS_BAR_HEIGHT,
              abilities::AbilityBarData,
-             utils::mapv, world_to_level_cell},
+             entities::{Loadout, Location, Named, Stats},
+             game_pane_rect,
+             utils::mapv,
+             world_to_level_cell},
      bevy::{prelude::*,
             text::FontWeight,
             ui::{AlignItems, FlexWrap, JustifyContent}},
      haalka::{jonmo::SignalProcessing, prelude::*},
-     jonmo::{signal},
-     crate::entities::{Loadout, Named, Stats}};
+     jonmo::signal};
 
 // ---------------------------------------------------------------------------
 // Data shapes — written by sync_ui, read by Haalka signals
@@ -69,7 +71,9 @@ pub struct LogSpan {
 }
 
 impl LogSpan {
-  pub fn plain(text: impl Into<String>) -> Self { Self { text: text.into(), color: None } }
+  pub fn plain(text: impl Into<String>) -> Self {
+    Self { text: text.into(), color: None }
+  }
   pub fn colored(text: impl Into<String>, color: Color) -> Self {
     Self { text: text.into(), color: Some(color) }
   }
@@ -84,7 +88,6 @@ pub struct LogEntries(pub Vec<LogLine>);
 /// Log body for the sidebar — last 50 lines, written by `sync_ui`, read by Haalka signal.
 #[derive(Resource, Clone, Default, PartialEq)]
 pub struct LogDisplayData(pub Vec<LogLine>);
-
 
 /// Push a plain-text line; oldest entries are dropped to keep at most 100.
 pub fn log_message(log: &mut LogEntries, line: String) {
@@ -115,14 +118,14 @@ pub struct InteractDisplayState {
 pub struct CraftingDisplayState {
   pub tab: usize,
   pub selected: usize,
-  pub scroll: usize,
+  pub scroll: usize
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CraftingEntry {
   pub label: String,
   pub detail: String,
-  pub craftable: bool,
+  pub craftable: bool
 }
 
 #[derive(Resource, Clone, Debug, PartialEq)]
@@ -141,7 +144,7 @@ pub enum OverlayKind {
   /// Dedicated crafting table UI with two tabs.
   CraftingTable {
     salvage: Vec<CraftingEntry>,
-    craft: Vec<CraftingEntry>,
+    craft: Vec<CraftingEntry>
   }
 }
 
@@ -218,7 +221,10 @@ impl Plugin for UiPlugin {
       .init_resource::<InteractDisplayState>()
       .init_resource::<CraftingDisplayState>()
       .init_resource::<MenuClickPending>()
-      .add_systems(PostUpdate, (sync_interact_display, sync_crafting_display, sync_ui).before(SignalProcessing));
+      .add_systems(
+        PostUpdate,
+        (sync_interact_display, sync_crafting_display, sync_ui).before(SignalProcessing)
+      );
   }
 }
 
@@ -282,47 +288,50 @@ const ABILITY_SELECTED_BG: Color = Color::srgb(1.0, 0.88, 0.35);
 const ABILITY_MAX_SLOTS: usize = 9;
 
 fn ability_slot_label(i: usize, data: &AbilityBarData) -> String {
-  data.slots.get(i).map(|slot| match slot.cooldown {
-    0 => format!(" {} {} ", i + 1, slot.name),
-    cd => format!(" {} {} ({}) ", i + 1, slot.name, cd),
-  }).unwrap_or_default()
+  data
+    .slots
+    .get(i)
+    .map(|slot| match slot.cooldown {
+      0 => format!(" {} {} ", i + 1, slot.name),
+      cd => format!(" {} {} ({}) ", i + 1, slot.name, cd)
+    })
+    .unwrap_or_default()
 }
 
 fn ability_slot(i: usize) -> El<Node> {
   El::<Node>::new()
     .with_builder(move |b| {
-      b.component_signal::<Node>(
-        signal::from_resource::<AbilityBarData>()
-          .map_in(move |data: AbilityBarData| {
-            let visible = i < data.slots.len();
-            let mut node = Node::default();
-            node.padding = UiRect::axes(Val::Px(2.0), Val::Px(2.0));
-            node.display = if visible { Display::Flex } else { Display::None };
-            Some(node)
-          })
-      )
+      b.component_signal::<Node>(signal::from_resource::<AbilityBarData>().map_in(
+        move |data: AbilityBarData| {
+          let visible = i < data.slots.len();
+          let mut node = Node::default();
+          node.padding = UiRect::axes(Val::Px(2.0), Val::Px(2.0));
+          node.display = if visible { Display::Flex } else { Display::None };
+          Some(node)
+        }
+      ))
       .component_signal::<BackgroundColor>(
-        signal::from_resource::<AbilityBarData>()
-          .map_in(move |data: AbilityBarData| {
-            let bg = if data.selected == Some(i) { ABILITY_SELECTED_BG } else { Color::NONE };
-            Some(BackgroundColor(bg))
-          })
+        signal::from_resource::<AbilityBarData>().map_in(move |data: AbilityBarData| {
+          let bg =
+            if data.selected == Some(i) { ABILITY_SELECTED_BG } else { Color::NONE };
+          Some(BackgroundColor(bg))
+        })
       )
     })
     .child(
       El::<Text>::new()
         .text_font(TextFont { font_size: FONT_SIZE_SMALL, weight: W_UI, ..default() })
         .with_builder(move |b| {
-          b.component_signal::<Text>(
-            signal::from_resource::<AbilityBarData>()
-              .map_in(move |data: AbilityBarData| Some(Text::new(ability_slot_label(i, &data))))
-          )
+          b.component_signal::<Text>(signal::from_resource::<AbilityBarData>().map_in(
+            move |data: AbilityBarData| Some(Text::new(ability_slot_label(i, &data)))
+          ))
           .component_signal::<TextColor>(
-            signal::from_resource::<AbilityBarData>()
-              .map_in(move |data: AbilityBarData| {
+            signal::from_resource::<AbilityBarData>().map_in(
+              move |data: AbilityBarData| {
                 let fg = if data.selected == Some(i) { PANEL_BG } else { LIGHT_TEXT };
                 Some(TextColor(fg))
-              })
+              }
+            )
           )
         })
     )
@@ -345,7 +354,9 @@ fn ability_bar() -> impl Element {
     .item(reactive_text(
       signal::from_resource::<AbilityBarData>()
         .map_in(|data| if data.slots.is_empty() { "—".into() } else { String::new() }),
-      FONT_SIZE_SMALL, DIM_TEXT, W_UI
+      FONT_SIZE_SMALL,
+      DIM_TEXT,
+      W_UI
     ))
     .items(mapv(ability_slot, 0..ABILITY_MAX_SLOTS))
 }
@@ -482,8 +493,11 @@ fn status_effects_row() -> impl Element {
     })
     .item(reactive_text(
       signal::from_resource::<PlayerData>().map_in(|d| {
-        if d.status_effects.is_empty() { String::new() }
-        else { d.status_effects.join("  ") }
+        if d.status_effects.is_empty() {
+          String::new()
+        } else {
+          d.status_effects.join("  ")
+        }
       }),
       FONT_SIZE_SMALL,
       HP_RED,
@@ -609,7 +623,9 @@ fn format_entity_hover_block(h: &HoverInfo) -> String {
     s.push_str(item);
   }
   if let Some(ref name) = h.entity_name {
-    if !s.is_empty() { s.push('\n'); }
+    if !s.is_empty() {
+      s.push('\n');
+    }
     s.push_str(name);
     if let Some((hp, max)) = h.entity_hp {
       s.push('\n');
@@ -675,7 +691,12 @@ fn message_log() -> impl Element {
                   n.flex_wrap = FlexWrap::Wrap;
                 })
                 .items(line.into_iter().map(|span| {
-                  static_text(span.text, FONT_SIZE_SMALL, span.color.unwrap_or(DIM_TEXT), W_UI)
+                  static_text(
+                    span.text,
+                    FONT_SIZE_SMALL,
+                    span.color.unwrap_or(DIM_TEXT),
+                    W_UI
+                  )
                 }))
             }))
         }))
@@ -754,33 +775,36 @@ fn dialogue_panel() -> impl Element {
       signal::from_resource_changed::<OverlayData>()
         .map_in::<Option<El<Node>>, Option<El<Node>>, _>(|data: OverlayData| {
           if let Some(OverlayKind::Dialogue { title, options }) = data.kind {
-          let mut lines: Vec<String> =
-            options.iter().enumerate().map(|(i, t)| format!("{}) {}", i + 1, t)).collect();
-          lines.push(String::new());
-          lines.push("Space to cancel".into());
-          Some(
-            El::<Node>::new()
-              .with_node(|mut n| {
-                n.width = Val::Percent(100.0);
-                n.border = UiRect::top(Val::Px(1.0));
-              })
-              .background_color(BackgroundColor(DIALOGUE_PANEL_BG))
-              .border_color(BorderColor::all(BORDER))
-              .child(
-                Column::<Node>::new()
-                  .with_node(|mut n| {
-                    n.width = Val::Percent(100.0);
-                    n.padding = UiRect::all(Val::Px(16.));
-                    n.row_gap = Val::Px(6.0);
-                  })
-                  .item(static_text(title, FONT_SIZE_TITLE, LIGHT_TEXT, W_STRONG))
-                  .items(
-                    lines
-                      .into_iter()
-                      .map(|l| static_text(l, FONT_SIZE_BODY, LIGHT_TEXT, W_OVERLAY))
-                  )
-              )
-          )
+            let mut lines: Vec<String> = options
+              .iter()
+              .enumerate()
+              .map(|(i, t)| format!("{}) {}", i + 1, t))
+              .collect();
+            lines.push(String::new());
+            lines.push("Space to cancel".into());
+            Some(
+              El::<Node>::new()
+                .with_node(|mut n| {
+                  n.width = Val::Percent(100.0);
+                  n.border = UiRect::top(Val::Px(1.0));
+                })
+                .background_color(BackgroundColor(DIALOGUE_PANEL_BG))
+                .border_color(BorderColor::all(BORDER))
+                .child(
+                  Column::<Node>::new()
+                    .with_node(|mut n| {
+                      n.width = Val::Percent(100.0);
+                      n.padding = UiRect::all(Val::Px(16.));
+                      n.row_gap = Val::Px(6.0);
+                    })
+                    .item(static_text(title, FONT_SIZE_TITLE, LIGHT_TEXT, W_STRONG))
+                    .items(
+                      lines
+                        .into_iter()
+                        .map(|l| static_text(l, FONT_SIZE_BODY, LIGHT_TEXT, W_OVERLAY))
+                    )
+                )
+            )
           } else {
             None
           }
@@ -795,75 +819,84 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
   signal::from_resource_changed::<OverlayData>().map_in(|data: OverlayData| {
     // Dialogue is rendered inside the game pane by dialogue_panel() — no fullscreen overlay.
     let kind = match data.kind {
-      None | Some(OverlayKind::Dialogue { .. }) => { return None; },
-      Some(k) => k,
+      None | Some(OverlayKind::Dialogue { .. }) => {
+        return None;
+      }
+      Some(k) => k
     };
     Some(match kind {
-      OverlayKind::Interact { options } => {
-        El::<Node>::new()
-          .with_node(|mut n| {
-            n.width = Val::Percent(100.);
-            n.height = Val::Percent(100.0);
-          })
-          .background_color(BackgroundColor(OVERLAY_DIM))
-          .align(Align::center())
-          .align_content(Align::center())
-          .child(
-            Column::<Node>::new()
-              .with_node(|mut n| {
-                n.border_radius = BorderRadius::all(Val::Px(6.0));
-                n.padding = UiRect::all(Val::Px(16.));
-                n.row_gap = Val::Px(2.0);
-                n.min_width = Val::Px(300.0);
-              })
-              .background_color(BackgroundColor(DARK_BG))
-              .border_color(BorderColor::all(BORDER))
-              .item(static_text("Use what?", FONT_SIZE_TITLE, LIGHT_TEXT, W_STRONG))
-              .items(options.into_iter().enumerate().map(move |(i, opt)| {
-                Row::<Node>::new()
-                  .with_node(|mut n| {
-                    n.width = Val::Percent(100.0);
-                    n.padding = UiRect::vertical(Val::Px(1.0));
-                  })
-                  .item(
-                    El::<Text>::new()
-                      .text_font(TextFont { font_size: FONT_SIZE_BODY, weight: W_OVERLAY, ..default() })
-                      .text_color(TextColor(DIM_TEXT))
-                      .with_builder(move |b| {
-                        b.component_signal::<Text>(
-                          signal::from_resource::<InteractDisplayState>()
-                            .map_in(move |s: InteractDisplayState| {
-                              let prefix = if s.selected == i { ">" } else { " " };
-                              Some(Text::new(format!("{prefix} {opt}")))
-                            })
+      OverlayKind::Interact { options } => El::<Node>::new()
+        .with_node(|mut n| {
+          n.width = Val::Percent(100.);
+          n.height = Val::Percent(100.0);
+        })
+        .background_color(BackgroundColor(OVERLAY_DIM))
+        .align(Align::center())
+        .align_content(Align::center())
+        .child(
+          Column::<Node>::new()
+            .with_node(|mut n| {
+              n.border_radius = BorderRadius::all(Val::Px(6.0));
+              n.padding = UiRect::all(Val::Px(16.));
+              n.row_gap = Val::Px(2.0);
+              n.min_width = Val::Px(300.0);
+            })
+            .background_color(BackgroundColor(DARK_BG))
+            .border_color(BorderColor::all(BORDER))
+            .item(static_text("Use what?", FONT_SIZE_TITLE, LIGHT_TEXT, W_STRONG))
+            .items(options.into_iter().enumerate().map(move |(i, opt)| {
+              Row::<Node>::new()
+                .with_node(|mut n| {
+                  n.width = Val::Percent(100.0);
+                  n.padding = UiRect::vertical(Val::Px(1.0));
+                })
+                .item(
+                  El::<Text>::new()
+                    .text_font(TextFont {
+                      font_size: FONT_SIZE_BODY,
+                      weight: W_OVERLAY,
+                      ..default()
+                    })
+                    .text_color(TextColor(DIM_TEXT))
+                    .with_builder(move |b| {
+                      b.component_signal::<Text>(
+                        signal::from_resource::<InteractDisplayState>().map_in(
+                          move |s: InteractDisplayState| {
+                            let prefix = if s.selected == i { ">" } else { " " };
+                            Some(Text::new(format!("{prefix} {opt}")))
+                          }
                         )
-                        .component_signal::<TextColor>(
-                          signal::from_resource::<InteractDisplayState>()
-                            .map_in(move |s: InteractDisplayState| {
-                              let is_disabled = s.disabled.get(i).copied().unwrap_or(false);
-                              let is_hi = s.highlighted.get(i).copied().unwrap_or(false);
-                              Some(TextColor(
-                                if is_disabled { DISABLED_TEXT }
-                                else if is_hi { EQUIP_HIGHLIGHT }
-                                else if s.selected == i { LIGHT_TEXT }
-                                else { DIM_TEXT }
-                              ))
-                            })
+                      )
+                      .component_signal::<TextColor>(
+                        signal::from_resource::<InteractDisplayState>().map_in(
+                          move |s: InteractDisplayState| {
+                            let is_disabled = s.disabled.get(i).copied().unwrap_or(false);
+                            let is_hi = s.highlighted.get(i).copied().unwrap_or(false);
+                            Some(TextColor(if is_disabled {
+                              DISABLED_TEXT
+                            } else if is_hi {
+                              EQUIP_HIGHLIGHT
+                            } else if s.selected == i {
+                              LIGHT_TEXT
+                            } else {
+                              DIM_TEXT
+                            }))
+                          }
                         )
-                      })
-                  )
-                  .insert(Button)
-                  .insert(crate::MenuOptionIndex(i))
-              }))
-              .item(static_text("", FONT_SIZE_BODY, DIM_TEXT, W_OVERLAY))
-              .item(static_text(
-                "W/S navigate  A/D/Enter confirm  Space cancel",
-                FONT_SIZE_SMALL,
-                DIM_TEXT,
-                W_OVERLAY
-              ))
-          )
-      }
+                      )
+                    })
+                )
+                .insert(Button)
+                .insert(crate::MenuOptionIndex(i))
+            }))
+            .item(static_text("", FONT_SIZE_BODY, DIM_TEXT, W_OVERLAY))
+            .item(static_text(
+              "W/S navigate  A/D/Enter confirm  Space cancel",
+              FONT_SIZE_SMALL,
+              DIM_TEXT,
+              W_OVERLAY
+            ))
+        ),
       OverlayKind::CraftingTable { salvage, craft } => {
         let tab_names = ["Salvage", "Craft"];
         El::<Node>::new()
@@ -894,20 +927,26 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
                   })
                   .items(tab_names.into_iter().enumerate().map(move |(ti, name)| {
                     El::<Text>::new()
-                      .text_font(TextFont { font_size: FONT_SIZE_BODY, weight: W_STRONG, ..default() })
+                      .text_font(TextFont {
+                        font_size: FONT_SIZE_BODY,
+                        weight: W_STRONG,
+                        ..default()
+                      })
                       .with_builder(move |b| {
                         b.component_signal::<Text>(
-                          signal::from_resource::<CraftingDisplayState>()
-                            .map_in(move |s: CraftingDisplayState| {
+                          signal::from_resource::<CraftingDisplayState>().map_in(
+                            move |s: CraftingDisplayState| {
                               let marker = if s.tab == ti { "> " } else { "  " };
                               Some(Text::new(format!("{marker}{name}")))
-                            })
+                            }
+                          )
                         )
                         .component_signal::<TextColor>(
-                          signal::from_resource::<CraftingDisplayState>()
-                            .map_in(move |s: CraftingDisplayState| {
+                          signal::from_resource::<CraftingDisplayState>().map_in(
+                            move |s: CraftingDisplayState| {
                               Some(TextColor(if s.tab == ti { ACCENT } else { DIM_TEXT }))
-                            })
+                            }
+                          )
                         )
                       })
                   }))
@@ -925,15 +964,20 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
               .item(crafting_entries_column(1, craft))
               .item(
                 El::<Text>::new()
-                  .text_font(TextFont { font_size: FONT_SIZE_SMALL, weight: W_UI, ..default() })
+                  .text_font(TextFont {
+                    font_size: FONT_SIZE_SMALL,
+                    weight: W_UI,
+                    ..default()
+                  })
                   .text_color(TextColor(DIM_TEXT))
                   .with_builder(|b| {
                     b.component_signal::<Text>(
-                      signal::from_resource::<CraftingDisplayState>()
-                        .map_in(|s: CraftingDisplayState| {
+                      signal::from_resource::<CraftingDisplayState>().map_in(
+                        |s: CraftingDisplayState| {
                           let hint = if s.scroll > 0 { "  ▲ more above" } else { "" };
                           Some(Text::new(hint.to_string()))
-                        })
+                        }
+                      )
                     )
                   })
               )
@@ -948,26 +992,20 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
       }
       kind => {
         let (label, lines) = match &kind {
-          OverlayKind::PauseMain => (
-            "Paused",
-            vec![
-              "1) Resume".into(),
-              "2) Controls".into(),
-              "3) Quit Game".into(),
-              String::new(),
-              "Space to resume".into(),
-            ]
-          ),
-          OverlayKind::PauseControls => (
-            "Controls",
-            vec![
-              "WASD / Arrows   move".into(),
-              "Space           use / interact".into(),
-              ".               wait".into(),
-              "?               controls".into(),
-              "Tab             pause menu".into(),
-            ]
-          ),
+          OverlayKind::PauseMain => ("Paused", vec![
+            "1) Resume".into(),
+            "2) Controls".into(),
+            "3) Quit Game".into(),
+            String::new(),
+            "Space to resume".into(),
+          ]),
+          OverlayKind::PauseControls => ("Controls", vec![
+            "WASD / Arrows   move".into(),
+            "Space           use / interact".into(),
+            ".               wait".into(),
+            "?               controls".into(),
+            "Tab             pause menu".into(),
+          ]),
           _ => ("", vec![])
         };
         El::<Node>::new()
@@ -1012,7 +1050,8 @@ fn sync_crafting_display(
   ui: Res<crate::UiState>,
   mut state: ResMut<CraftingDisplayState>
 ) {
-  let new = if let &crate::CraftingMenu::Open { tab, selected, scroll, .. } = &ui.crafting {
+  let new = if let &crate::CraftingMenu::Open { tab, selected, scroll, .. } = &ui.crafting
+  {
     CraftingDisplayState { tab, selected, scroll }
   } else {
     CraftingDisplayState::default()
@@ -1026,8 +1065,14 @@ fn sync_interact_display(
   ui: Res<crate::UiState>,
   mut state: ResMut<InteractDisplayState>
 ) {
-  let new = if let crate::InteractMenu::Open { selected, highlighted, disabled, .. } = &ui.interact {
-    InteractDisplayState { selected: *selected, highlighted: highlighted.clone(), disabled: disabled.clone() }
+  let new = if let crate::InteractMenu::Open { selected, highlighted, disabled, .. } =
+    &ui.interact
+  {
+    InteractDisplayState {
+      selected: *selected,
+      highlighted: highlighted.clone(),
+      disabled: disabled.clone()
+    }
   } else {
     InteractDisplayState::default()
   };
@@ -1038,7 +1083,17 @@ fn sync_interact_display(
 
 fn sync_ui(
   clock: Res<Clock>,
-  player_q: Query<(&crate::PlayerPos, &Stats, &crate::Inventory, &Loadout, Option<&crate::entities::Grabbed>, Option<&crate::entities::Invisible>), With<crate::Player>>,
+  player_q: Query<
+    (
+      &Location,
+      &Stats,
+      &crate::Inventory,
+      &Loadout,
+      Option<&crate::entities::Grabbed>,
+      Option<&crate::entities::Invisible>
+    ),
+    With<crate::Player>
+  >,
   ui: Res<crate::UiState>,
   current: Res<crate::CurrentZone>,
   fov: Res<crate::Fov>,
@@ -1047,8 +1102,13 @@ fn sync_ui(
   item_glyph_q: Query<&crate::ItemGlyph>,
   windows: Query<&Window>,
   camera_q: Query<(&Camera, &GlobalTransform), With<crate::post_process::GameCamera>>,
-  (mut clock_data, mut player_data, mut hover_info, mut inv_display, mut overlay):
-    (ResMut<ClockData>, ResMut<PlayerData>, ResMut<HoverInfo>, ResMut<InvDisplayData>, ResMut<OverlayData>),
+  (mut clock_data, mut player_data, mut hover_info, mut inv_display, mut overlay): (
+    ResMut<ClockData>,
+    ResMut<PlayerData>,
+    ResMut<HoverInfo>,
+    ResMut<InvDisplayData>,
+    ResMut<OverlayData>
+  ),
   res_log: Res<LogEntries>,
   mut log_display: ResMut<LogDisplayData>
 ) {
@@ -1062,18 +1122,24 @@ fn sync_ui(
   };
 
   // ── Player stats ──
-  if let Ok((pos, stats, inv, loadout, grabbed, invisible)) = player_q.single() {
+  if let Ok((pos, stats, inv, loadout, grabbed, invisible)) = player_q.single()
+    && let &Location::Coords { x: px, y: py, z: pz, .. } = pos
+  {
     let mut effects = Vec::new();
-    if let Some(g) = grabbed { effects.push(format!("GRABBED ({})", g.turns_remaining)); }
-    if let Some(i) = invisible { effects.push(format!("INVISIBLE ({})", i.0)); }
+    if let Some(g) = grabbed {
+      effects.push(format!("GRABBED ({})", g.turns_remaining));
+    }
+    if let Some(i) = invisible {
+      effects.push(format!("INVISIBLE ({})", i.0));
+    }
     *player_data = PlayerData {
       hp: stats.hp,
       max_hp: stats.max_hp,
       attack: stats.attack + loadout.weapon_attack_bonus(),
       speed: stats.move_speed,
-      x: pos.x,
-      y: pos.y,
-      z: pos.z,
+      x: px,
+      y: py,
+      z: pz,
       equipped_weapon: loadout.weapon().map(|w| w.name().to_string()),
       equipped_armor: loadout.armor_item().map(|a| a.name().to_string()),
       status_effects: effects
@@ -1082,13 +1148,27 @@ fn sync_ui(
     inv_display.formatted = if inv.0.is_empty() {
       "(empty)".into()
     } else {
-      mapv(|(item, count): (&crate::level::Item, &u32)| format!("{}x {}", count, item.name()), &inv.0).join("\n")
+      mapv(
+        |(item, count): (&crate::level::Item, &u32)| {
+          format!("{}x {}", count, item.name())
+        },
+        &inv.0
+      )
+      .join("\n")
     };
   }
 
   // ── Hover info ──
-  *hover_info =
-    compute_hover_info(&windows, &camera_q, &current, player_q, &fov, &index, &named_q, &item_glyph_q);
+  *hover_info = compute_hover_info(
+    &windows,
+    &camera_q,
+    &current,
+    player_q,
+    &fov,
+    &index,
+    &named_q,
+    &item_glyph_q
+  );
 
   // ── Overlay state — only write when the value actually changes ──
   let new_overlay_kind = match ui.pause {
@@ -1098,16 +1178,15 @@ fn sync_ui(
   }
   .or_else(|| match &ui.interact {
     crate::InteractMenu::Open { options, .. } => {
-      Some(OverlayKind::Interact {
-        options: mapv(|o| o.label.clone(), options)
-      })
+      Some(OverlayKind::Interact { options: mapv(|o| o.label.clone(), options) })
     }
     crate::InteractMenu::Closed => None
   })
   .or_else(|| match &ui.crafting {
     crate::CraftingMenu::Open { salvage_entries, craft_entries, .. } => {
       Some(OverlayKind::CraftingTable {
-        salvage: salvage_entries.clone(), craft: craft_entries.clone(),
+        salvage: salvage_entries.clone(),
+        craft: craft_entries.clone()
       })
     }
     crate::CraftingMenu::Closed => None
@@ -1146,7 +1225,17 @@ fn compute_hover_info(
   windows: &Query<&Window>,
   camera_q: &Query<(&Camera, &GlobalTransform), With<crate::post_process::GameCamera>>,
   current: &crate::CurrentZone,
-  player_q: Query<(&crate::PlayerPos, &Stats, &crate::Inventory, &Loadout, Option<&crate::entities::Grabbed>, Option<&crate::entities::Invisible>), With<crate::Player>>,
+  player_q: Query<
+    (
+      &Location,
+      &Stats,
+      &crate::Inventory,
+      &Loadout,
+      Option<&crate::entities::Grabbed>,
+      Option<&crate::entities::Invisible>
+    ),
+    With<crate::Player>
+  >,
   fov: &crate::Fov,
   index: &crate::combat::TileEntityIndex,
   named_q: &Query<(&Named, Option<&Stats>, Option<&crate::entities::Corpse>)>,
@@ -1163,9 +1252,10 @@ fn compute_hover_info(
 
   if let Ok(window) = windows.single()
     && let Ok((camera, cam_tf)) = camera_q.single()
-    && let Ok((pos, _, _, _, _, _)) = player_q.single()
+    && let Ok((ploc, _, _, _, _, _)) = player_q.single()
+    && let Location::Coords { z: pz, .. } = *ploc
   {
-    let level = current.0.level(pos.z);
+    let level = current.0.level(pz);
     let pick = |w: &Window,
                 c: &Camera,
                 ct: &GlobalTransform,
@@ -1192,13 +1282,17 @@ fn compute_hover_info(
         let (entity_name, entity_hp, flavor) = if visible {
           index
             .0
-            .get(&(tx, ty, pos.z))
+            .get(&(tx, ty, pz))
             .and_then(|entities| {
               entities.iter().find_map(|&e| {
                 named_q.get(e).ok().map(|(named, stats, corpse)| {
                   let is_corpse = corpse.is_some();
                   (
-                    Some(if is_corpse { format!("dead {}", named.name) } else { named.name.into() }),
+                    Some(if is_corpse {
+                      format!("dead {}", named.name)
+                    } else {
+                      named.name.into()
+                    }),
                     stats.map(|s| (s.hp, s.max_hp)),
                     if is_corpse { None } else { Some(named.flavor.into()) }
                   )
@@ -1211,8 +1305,9 @@ fn compute_hover_info(
         };
 
         let item_name = {
-          let mut items: Vec<_> = item_glyph_q.iter()
-            .filter(|ig| ig.x == tx as usize && ig.y == ty as usize && ig.z == pos.z)
+          let mut items: Vec<_> = item_glyph_q
+            .iter()
+            .filter(|ig| ig.x == tx as usize && ig.y == ty as usize && ig.z == pz)
             .map(|ig| ig.item)
             .collect();
           if items.is_empty() {
@@ -1234,7 +1329,14 @@ fn compute_hover_info(
             Some(parts.join(", "))
           }
         };
-        HoverInfo { coords: (tx, ty), tile_name, item_name, entity_name, entity_hp, flavor }
+        HoverInfo {
+          coords: (tx, ty),
+          tile_name,
+          item_name,
+          entity_name,
+          entity_hp,
+          flavor
+        }
       } else {
         empty
       }
@@ -1278,29 +1380,34 @@ fn reactive_text(
     .with_builder(|b| b.component_signal::<Text>(sig.map_in(|s| Some(Text::new(s)))))
 }
 
-fn crafting_entries_column(tab_index: usize, entries: Vec<CraftingEntry>) -> Column<Node> {
+fn crafting_entries_column(
+  tab_index: usize,
+  entries: Vec<CraftingEntry>
+) -> Column<Node> {
   let col = Column::<Node>::new()
     .with_node(|mut n| {
       n.width = Val::Percent(100.0);
     })
     .with_builder(move |b| {
-      b.component_signal::<Node>(
-        signal::from_resource::<CraftingDisplayState>()
-          .map_in(move |s: CraftingDisplayState| {
-            let mut node = Node::default();
-            node.width = Val::Percent(100.0);
-            node.flex_direction = FlexDirection::Column;
-            node.display = if s.tab == tab_index { Display::Flex } else { Display::None };
-            Some(node)
-          })
-      )
+      b.component_signal::<Node>(signal::from_resource::<CraftingDisplayState>().map_in(
+        move |s: CraftingDisplayState| {
+          let mut node = Node::default();
+          node.width = Val::Percent(100.0);
+          node.flex_direction = FlexDirection::Column;
+          node.display = if s.tab == tab_index { Display::Flex } else { Display::None };
+          Some(node)
+        }
+      ))
     });
   if entries.is_empty() {
     col.item(static_text("  (nothing available)", FONT_SIZE_BODY, DIM_TEXT, W_OVERLAY))
   } else {
-    col.items(entries.into_iter().enumerate().map(|(i, entry)| {
-      crafting_row(i, entry.label, entry.detail, entry.craftable)
-    }))
+    col.items(
+      entries
+        .into_iter()
+        .enumerate()
+        .map(|(i, entry)| crafting_row(i, entry.label, entry.detail, entry.craftable))
+    )
   }
 }
 
@@ -1308,7 +1415,12 @@ const CRAFT_AVAILABLE: Color = Color::srgb(0.55, 0.88, 0.65);
 const CRAFT_UNAVAILABLE: Color = Color::srgb(0.60, 0.55, 0.50);
 const CRAFT_DETAIL: Color = Color::srgb(0.68, 0.65, 0.58);
 
-fn crafting_row(i: usize, label: String, detail: String, craftable: bool) -> Column<Node> {
+fn crafting_row(
+  i: usize,
+  label: String,
+  detail: String,
+  craftable: bool
+) -> Column<Node> {
   let base_color = if craftable { CRAFT_AVAILABLE } else { CRAFT_UNAVAILABLE };
   Column::<Node>::new()
     .with_node(|mut n| {
@@ -1316,35 +1428,37 @@ fn crafting_row(i: usize, label: String, detail: String, craftable: bool) -> Col
       n.padding = UiRect::new(Val::Px(4.0), Val::Px(4.0), Val::Px(1.0), Val::Px(1.0));
     })
     .with_builder(move |b| {
-      b.component_signal::<Node>(
-        signal::from_resource::<CraftingDisplayState>()
-          .map_in(move |s: CraftingDisplayState| {
-            let visible = i >= s.scroll && i < s.scroll + crate::CRAFT_VISIBLE_ROWS;
-            let mut node = Node::default();
-            node.width = Val::Percent(100.0);
-            node.padding = UiRect::new(Val::Px(4.0), Val::Px(4.0), Val::Px(1.0), Val::Px(1.0));
-            node.flex_direction = FlexDirection::Column;
-            node.display = if visible { Display::Flex } else { Display::None };
-            Some(node)
-          })
-      )
+      b.component_signal::<Node>(signal::from_resource::<CraftingDisplayState>().map_in(
+        move |s: CraftingDisplayState| {
+          let visible = i >= s.scroll && i < s.scroll + crate::CRAFT_VISIBLE_ROWS;
+          let mut node = Node::default();
+          node.width = Val::Percent(100.0);
+          node.padding =
+            UiRect::new(Val::Px(4.0), Val::Px(4.0), Val::Px(1.0), Val::Px(1.0));
+          node.flex_direction = FlexDirection::Column;
+          node.display = if visible { Display::Flex } else { Display::None };
+          Some(node)
+        }
+      ))
     })
     .item(
       El::<Text>::new()
         .text_font(TextFont { font_size: FONT_SIZE_BODY, weight: W_OVERLAY, ..default() })
         .with_builder(move |b| {
           b.component_signal::<Text>(
-            signal::from_resource::<CraftingDisplayState>()
-              .map_in(move |s: CraftingDisplayState| {
+            signal::from_resource::<CraftingDisplayState>().map_in(
+              move |s: CraftingDisplayState| {
                 let prefix = if s.selected == i { "> " } else { "  " };
                 Some(Text::new(format!("{prefix}{label}")))
-              })
+              }
+            )
           )
           .component_signal::<TextColor>(
-            signal::from_resource::<CraftingDisplayState>()
-              .map_in(move |s: CraftingDisplayState| {
+            signal::from_resource::<CraftingDisplayState>().map_in(
+              move |s: CraftingDisplayState| {
                 Some(TextColor(if s.selected == i { LIGHT_TEXT } else { base_color }))
-              })
+              }
+            )
           )
         })
     )

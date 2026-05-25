@@ -233,9 +233,7 @@ pub struct RenderFrame(pub u64);
 pub struct Clock {
   /// Cumulative sim-time from actions and (in RT) periodic ticks.
   pub time: u64,
-  pub mode: TimeMode,
-  /// Renders left before another step is accepted.
-  move_cooldown_frames: u32
+  pub mode: TimeMode
 }
 
 /// When `true`, [`update_time_mode`] may switch to turn-based when enemies are near.
@@ -254,22 +252,18 @@ pub struct AccumulatedDir {
 
 impl Clock {
   fn new() -> Self {
-    Clock { time: 0, mode: TimeMode::TurnBased, move_cooldown_frames: 0 }
+    Clock { time: 0, mode: TimeMode::TurnBased }
   }
 
-  /// The player did something: advance sim time, set animation cooldown, and (in turn-based
-  /// mode) schedule the world to take a turn.
   fn spend_turn(&mut self, tb: &mut TurnBasedWorldState) {
     self.time = self.time.saturating_add(1);
-    self.move_cooldown_frames = RENDER_FRAMES_PER_SIM_STEP;
     if self.mode == TimeMode::TurnBased {
       tb.world_tick_pending = true;
     }
   }
 }
 
-/// In turn-based mode, the world only advances in [`SimStep`] after a player spends a turn and
-/// move animation finishes (`move_cooldown_frames == 0`); this flag schedules that one tick.
+/// In turn-based mode, the world only advances in [`SimStep`] after a player spends a turn.
 /// Cleared at the end of [`combat::enemy_ai`] once all world systems have run.
 #[derive(Resource, Default)]
 pub struct TurnBasedWorldState {
@@ -305,13 +299,8 @@ struct SaveData {
 #[derive(Resource, Default)]
 struct BumpInteractFlash(pub Option<InteractionOption>);
 
-/// Increments the display frame and, in real-time mode, advances the sim clock every
-/// [`RENDER_FRAMES_PER_SIM_STEP`] frames (same ordering as the former separate systems).
 fn bump_render_frame(mut frame: ResMut<RenderFrame>, mut clock: ResMut<Clock>) {
   frame.0 = frame.0.saturating_add(1);
-  if clock.move_cooldown_frames > 0 {
-    clock.move_cooldown_frames -= 1;
-  }
   if clock.mode == TimeMode::RealTime
     && frame.0 > 0
     && frame.0 % u64::from(RENDER_FRAMES_PER_SIM_STEP) == 0
@@ -320,38 +309,36 @@ fn bump_render_frame(mut frame: ResMut<RenderFrame>, mut clock: ResMut<Clock>) {
   }
 }
 
-/// Real-time: one sim step every [`RENDER_FRAMES_PER_SIM_STEP`] display frames. Turn-based: a single
-/// sim tick after the player’s action when animation is done (same as when enemies may act in RT).
+fn is_sim_frame(frame: Res<RenderFrame>) -> bool {
+  frame.0 > 0 && frame.0 % u64::from(RENDER_FRAMES_PER_SIM_STEP) == 0
+}
+
 fn should_run_sim_step(
   frame: Res<RenderFrame>,
   clock: Res<Clock>,
   tb: Res<TurnBasedWorldState>
 ) -> bool {
-  if clock.mode == TimeMode::RealTime {
-    frame.0 > 0 && frame.0 % u64::from(RENDER_FRAMES_PER_SIM_STEP) == 0
-  } else {
-    tb.world_tick_pending && clock.move_cooldown_frames == 0
-  }
+  frame.0 > 0
+    && frame.0 % u64::from(RENDER_FRAMES_PER_SIM_STEP) == 0
+    && (clock.mode == TimeMode::RealTime || tb.world_tick_pending)
 }
 
+
+// ---------------------------------------------------------------------------
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
-enum FramePipeline {
-  ApplyNavigation,
-  BumpRender,
-  TileIndex,
-  GlyphSetup,
-  TimeMode,
-  DialogueKey,
-  Menus,
-  FlushChest,
-  InteractKey,
-  UtilityMenus,
-  PlayerMove,
-  BumpResolve
-}
+struct EveryFrame;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
-struct SimStep;
+struct EveryFrameUi;
+
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
+struct SimFrame;
+
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
+struct WorldStep;
+
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
+struct Render;
 
 // ---------------------------------------------------------------------------
 // Resources & components
@@ -365,13 +352,6 @@ pub struct Fov(pub FovGrid);
 
 #[derive(Component)]
 pub struct Player;
-
-#[derive(Component)]
-pub struct PlayerPos {
-  pub x: i32,
-  pub y: i32,
-  pub z: usize
-}
 
 /// Marks which z-level a tilemap chunk belongs to.
 #[derive(Component)]
@@ -440,21 +420,14 @@ fn apply_visuals_move(vis: &mut Visuals, f: u64, local: Vec2) {
 /// (so direction changes pivot smoothly) and the move timer resets.
 fn track_movement(
   frame: Res<RenderFrame>,
-  mut params: ParamSet<(
-    Query<(&Location, &mut Visuals), Without<Player>>,
-    Query<(&PlayerPos, &mut Visuals), With<Player>>
-  )>
+  mut query: Query<(&Location, &mut Visuals)>
 ) {
   let f = frame.0;
-  for (loc, mut vis) in params.p0().iter_mut() {
+  for (loc, mut vis) in query.iter_mut() {
     if let Some(world_pos) = loc.as_vec2() {
       let local = Vec2::new(world_pos.x, world_pos.y);
       apply_visuals_move(&mut vis, f, local);
     }
-  }
-  if let Ok((pos, mut vis)) = params.p1().single_mut() {
-    let local = Vec2::new(pos.x as f32, pos.y as f32);
-    apply_visuals_move(&mut vis, f, local);
   }
 }
 
@@ -489,21 +462,14 @@ fn interpolate_visual_one(vis: &mut Visuals, f: u64, local: Vec2) {
 /// local tile (see [`track_movement`]).
 fn interpolate_visual_positions(
   frame: Res<RenderFrame>,
-  mut params: ParamSet<(
-    Query<(&Location, &mut Visuals), Without<Player>>,
-    Query<(&PlayerPos, &mut Visuals), With<Player>>
-  )>
+  mut query: Query<(&Location, &mut Visuals)>
 ) {
   let f = frame.0;
-  for (loc, mut vis) in params.p0().iter_mut() {
+  for (loc, mut vis) in query.iter_mut() {
     if let Some(world_pos) = loc.as_vec2() {
       let local = Vec2::new(world_pos.x, world_pos.y);
       interpolate_visual_one(&mut vis, f, local);
     }
-  }
-  if let Ok((pos, mut vis)) = params.p1().single_mut() {
-    let local = Vec2::new(pos.x as f32, pos.y as f32);
-    interpolate_visual_one(&mut vis, f, local);
   }
 }
 
@@ -597,11 +563,6 @@ fn sync_entity_positions(
     transform.translation =
       tile_screen_pos(vis.display.x, vis.display.y, w, h) + Vec3::new(0.0, 0.0, 2.0);
   }
-}
-
-fn sync_player_location(player: Single<(&PlayerPos, &mut Location), With<Player>>) {
-  let (pos, mut location) = player.into_inner();
-  *location = Location::xyz(pos.x, pos.y, pos.z);
 }
 
 fn animate_walk_sprites(
@@ -720,118 +681,91 @@ fn main() {
     .add_plugins(post_process::PostProcessPlugin)
     .add_plugins(outline::OutlinePlugin)
     .add_systems(Startup, (setup, ui::spawn_haalka_root).chain())
-    .configure_sets(
-      Update,
-      SimStep
-        .run_if(should_run_sim_step)
-        .after(FramePipeline::BumpRender)
-        .before(FramePipeline::PlayerMove)
-    )
-    .configure_sets(
+    .add_systems(PostStartup, (update_fov, init_follower_homes).chain())
+    // --- every frame: world bookkeeping ---
+    .add_systems(
       Update,
       (
-        FramePipeline::ApplyNavigation,
-        FramePipeline::BumpRender,
-        FramePipeline::TileIndex,
-        FramePipeline::GlyphSetup,
-        FramePipeline::TimeMode,
-        FramePipeline::DialogueKey,
-        FramePipeline::Menus,
-        FramePipeline::FlushChest,
-        FramePipeline::InteractKey,
-        FramePipeline::UtilityMenus,
-        FramePipeline::PlayerMove,
-        FramePipeline::BumpResolve
+        apply_pending_navigation,
+        bump_render_frame,
+        setup_glyph_visuals,
+        materialize_ground_items,
+        update_time_mode
       )
         .chain()
+        .in_set(EveryFrame)
     )
-    .add_systems(Update, apply_pending_navigation.in_set(FramePipeline::ApplyNavigation))
+    // --- every frame: input / UI ---
     .add_systems(
       Update,
-      (bump_render_frame, sync_player_location).chain().in_set(FramePipeline::BumpRender)
-    )
-    .add_systems(Update, maintain_tile_index.in_set(FramePipeline::TileIndex))
-    .add_systems(
-      Update,
-      (setup_glyph_visuals, materialize_ground_items).in_set(FramePipeline::GlyphSetup)
-    )
-    .add_systems(Update, update_time_mode.in_set(FramePipeline::TimeMode))
-    .add_systems(Update, handle_dialogue.in_set(FramePipeline::DialogueKey))
-    .add_systems(
-      Update,
-      (detect_menu_option_clicks, handle_menus, handle_crafting_menu)
+      (
+        handle_dialogue,
+        detect_menu_option_clicks,
+        handle_menus,
+        handle_crafting_menu,
+        flush_pending_loot,
+        apply_bed_save,
+        handle_interact,
+        handle_utility_menus,
+        abilities::handle_ability_keys,
+        abilities::handle_ability_click,
+        abilities::detect_ability_bar_clicks,
+        abilities::handle_ability_scroll,
+        path_overlay::update_ranged_path,
+        path_overlay::render_ranged_path
+      )
         .chain()
-        .in_set(FramePipeline::Menus)
+        .in_set(EveryFrameUi)
     )
+    // --- sim frames only: player turn ---
     .add_systems(
       Update,
-      (flush_pending_loot, apply_bed_save).chain().in_set(FramePipeline::FlushChest)
-    )
-    .add_systems(Update, handle_interact.in_set(FramePipeline::InteractKey))
-    .add_systems(Update, handle_utility_menus.in_set(FramePipeline::UtilityMenus))
-    .add_systems(
-      Update,
-      abilities::handle_ability_keys.in_set(FramePipeline::UtilityMenus)
-    )
-    .add_systems(
-      Update,
-      abilities::handle_ability_click.in_set(FramePipeline::UtilityMenus)
-    )
-    .add_systems(
-      Update,
-      abilities::detect_ability_bar_clicks.in_set(FramePipeline::UtilityMenus)
-    )
-    .add_systems(
-      Update,
-      abilities::handle_ability_scroll.in_set(FramePipeline::UtilityMenus)
-    )
-    .add_systems(Update, abilities::sync_ability_bar.after(FramePipeline::PlayerMove))
-    .add_systems(
-      Update,
-      (path_overlay::update_ranged_path, path_overlay::render_ranged_path)
+      (
+        maintain_tile_index,
+        accumulate_dir,
+        player_input,
+        resolve_bump_interact,
+        apply_bump_auto_interact,
+        abilities::sync_ability_bar,
+        auto_close_airlocks,
+        update_fov
+      )
         .chain()
-        .after(FramePipeline::UtilityMenus)
+        .run_if(is_sim_frame)
+        .in_set(SimFrame)
     )
-    .add_systems(PostStartup, (update_fov, init_follower_homes).chain())
-    .add_systems(
-      Update,
-      (accumulate_dir, player_input).chain().in_set(FramePipeline::PlayerMove)
-    )
-    .add_systems(Update, auto_close_airlocks.after(FramePipeline::PlayerMove))
-    .add_systems(Update, update_fov.after(FramePipeline::BumpResolve))
-    .add_systems(
-      Update,
-      (resolve_bump_interact, apply_bump_auto_interact)
-        .chain()
-        .in_set(FramePipeline::BumpResolve)
-    )
+    // --- sim frames only: world response (turn-based: only when player acted) ---
     .add_systems(
       Update,
       (
         ApplyDeferred,
-        enemy_death_check.in_set(SimStep),
-        compute_flow_field.in_set(SimStep).before(enemy_ai),
-        enemy_ai.in_set(SimStep),
-        mushroom_spore_attack.in_set(SimStep),
-        grenade_thrower_ai.in_set(SimStep),
-        gun_attacker_ai.in_set(SimStep),
-        enemy_stealth_ai.in_set(SimStep),
-        tick_grabbed.in_set(SimStep),
-        tick_invisible.in_set(SimStep),
-        tick_phasing.in_set(SimStep),
-        tick_grenade_in_flight.in_set(SimStep),
-        damage_cloud_tick.in_set(SimStep),
-        player_death_check.in_set(SimStep),
-        npc_wander.in_set(SimStep),
-        follower_ai.in_set(SimStep),
-        abilities::tick_cooldowns.in_set(SimStep),
-        abilities::advance_pending_fire.in_set(SimStep)
+        enemy_death_check,
+        compute_flow_field,
+        enemy_ai,
+        mushroom_spore_attack,
+        grenade_thrower_ai,
+        gun_attacker_ai,
+        enemy_stealth_ai,
+        tick_grabbed,
+        tick_invisible,
+        tick_phasing,
+        tick_grenade_in_flight,
+        damage_cloud_tick,
+        player_death_check,
+        npc_wander,
+        follower_ai,
+        abilities::tick_cooldowns,
+        abilities::advance_pending_fire
       )
         .chain()
+        .run_if(should_run_sim_step)
+        .in_set(WorldStep)
     )
+    // --- every frame: visuals ---
     .add_systems(
       Update,
       (
+        particles::liquid_splash_on_move,
         track_movement,
         interpolate_visual_positions,
         apply_bump_lunge,
@@ -846,7 +780,9 @@ fn main() {
         update_interactable_highlights
       )
         .chain()
+        .in_set(Render)
     )
+    .configure_sets(Update, (EveryFrame, EveryFrameUi, SimFrame, WorldStep, Render).chain())
     .run();
 }
 
@@ -1106,14 +1042,16 @@ fn update_tile_hover_highlight(
   camera: Single<(&Camera, &GlobalTransform), With<post_process::GameCamera>>,
   current: Res<CurrentZone>,
   fov: Res<Fov>,
-  player_pos: Single<&PlayerPos, With<Player>>,
+  player_pos: Single<&Location, With<Player>>,
   mut q: Query<(&mut Transform, &mut Visibility), With<TileHoverHighlight>>
 ) {
-  if let Ok((mut transform, mut vis)) = q.single_mut() {
+  if let Ok((mut transform, mut vis)) = q.single_mut()
+    && let Location::Coords { z, .. } = **player_pos
+  {
     *vis = Visibility::Hidden;
     let (camera, cam_transform) = *camera;
     {
-      let level = current.0.level(player_pos.z);
+      let level = current.0.level(z);
       let pick = |w: &Window,
                   c: &Camera,
                   ct: &GlobalTransform,
@@ -1181,7 +1119,7 @@ fn update_interactable_highlights(
   current: Res<CurrentZone>,
   index: Res<TileEntityIndex>,
   fov: Res<Fov>,
-  player_pos: Single<&PlayerPos, With<Player>>,
+  player_pos: Single<&Location, With<Player>>,
   ui: Res<UiState>,
   interact_q: Query<(
     Option<&Tree>,
@@ -1207,12 +1145,13 @@ fn update_interactable_highlights(
 
   let mut targets: Vec<(Vec3, Handle<Image>)> = Vec::new();
 
-  if !any_menu_open {
-    let z = player_pos.z;
+  if !any_menu_open
+    && let Location::Coords { x: px, y: py, z, .. } = **player_pos
+  {
     for dy in -1..=1i32 {
       for dx in -1..=1i32 {
-        let wx = player_pos.x + dx;
-        let wy = player_pos.y + dy;
+        let wx = px + dx;
+        let wy = py + dy;
         if wx < 0
           || wy < 0
           || (wx as usize) >= current.0.width
@@ -1261,7 +1200,7 @@ fn update_fov_visuals(
   frame: Res<RenderFrame>,
   tileset: Res<Tileset>,
   index: Res<TileEntityIndex>,
-  player: Single<(Entity, &PlayerPos, &mut Visibility), With<Player>>,
+  player: Single<(Entity, &Location, &mut Visibility), With<Player>>,
   mut chunk_q: Query<
     (&TilemapLayer, &mut TilemapChunkTileData, &mut Visibility),
     Without<Player>
@@ -1276,7 +1215,7 @@ fn update_fov_visuals(
   >
 ) {
   let (player_ent, pos, mut player_vis) = player.into_inner();
-  let z = pos.z;
+  let Location::Coords { x: pos_x, y: pos_y, z, .. } = *pos else { unreachable!() };
   let level = current.0.level(z);
   let width = current.0.width;
   let height = current.0.height;
@@ -1333,7 +1272,7 @@ fn update_fov_visuals(
   let t = frame.0 as f32 * 0.052;
   let tau = std::f32::consts::TAU;
   let mut stacks: HashMap<(i32, i32), Vec<Entity>> = HashMap::new();
-  stacks.entry((pos.x, pos.y)).or_default().push(player_ent);
+  stacks.entry((pos_x, pos_y)).or_default().push(player_ent);
   for (&(x, y, zz), ents) in index.0.iter() {
     if zz != z {
       continue;
@@ -1351,7 +1290,7 @@ fn update_fov_visuals(
 
   for (entity, location, mut vis) in entity_q.iter_mut() {
     let visible_in_fov = if let Location::Coords { x, y, z: lz, .. } = location
-      && *lz == pos.z
+      && *lz == z
       && fov.0.is_visible(*x as usize, *y as usize)
     {
       true
@@ -1387,7 +1326,7 @@ fn update_fov_visuals(
     }
   }
   for (entity, item, mut vis) in item_q.iter_mut() {
-    let visible_in_fov = item.z == pos.z && fov.0.is_visible(item.x, item.y);
+    let visible_in_fov = item.z == z && fov.0.is_visible(item.x, item.y);
     if !visible_in_fov {
       *vis = Visibility::Hidden;
     } else if let Some(list) = stacks.get(&(item.x as i32, item.y as i32))
@@ -1409,7 +1348,7 @@ fn update_fov_visuals(
       *vis = Visibility::Visible;
     }
   }
-  let key = (pos.x, pos.y);
+  let key = (pos_x, pos_y);
   *player_vis = stacks.get(&key).map_or(Visibility::Visible, |list| {
     if list.len() <= 1 {
       Visibility::Visible
@@ -1440,20 +1379,24 @@ const ENEMY_ALERT_RADIUS: i32 = 8;
 fn update_time_mode(
   mut clock: ResMut<Clock>,
   time_mode_auto: Res<TimeModeAuto>,
-  player_q: Query<&PlayerPos, With<Player>>,
-  enemy_q: Query<&Location, With<Enemy>>
+  player_q: Query<&Location, With<Player>>,
+  enemy_q: Query<&Location, (With<Enemy>, Without<Player>)>
 ) {
   if time_mode_auto.0 {
-    let enemy_near = player_q.single().is_ok_and(|pos| {
-      enemy_q.iter().any(|loc| {
-        if let Location::Coords { x, y, z, .. } = *loc {
-          z == pos.z
-            && (x - pos.x).abs() <= ENEMY_ALERT_RADIUS
-            && (y - pos.y).abs() <= ENEMY_ALERT_RADIUS
-        } else {
-          false
-        }
-      })
+    let enemy_near = player_q.single().is_ok_and(|ploc| {
+      if let Location::Coords { x: px, y: py, z: pz, .. } = *ploc {
+        enemy_q.iter().any(|loc| {
+          if let Location::Coords { x, y, z, .. } = *loc {
+            z == pz
+              && (x - px).abs() <= ENEMY_ALERT_RADIUS
+              && (y - py).abs() <= ENEMY_ALERT_RADIUS
+          } else {
+            false
+          }
+        })
+      } else {
+        false
+      }
     });
     clock.mode = if enemy_near { TimeMode::TurnBased } else { TimeMode::RealTime };
   }
@@ -1692,7 +1635,7 @@ fn handle_menus(
   mut clock: ResMut<Clock>,
   mut tb: ResMut<TurnBasedWorldState>,
   mut log: ResMut<LogEntries>,
-  mut player_query: Query<(&mut PlayerPos, &mut Inventory, &mut Loadout), With<Player>>,
+  mut player_query: Query<(&mut Location, &mut Inventory, &mut Loadout), With<Player>>,
   asset_server: Res<AssetServer>,
   mut palette_cache: ResMut<PaletteImageCache>,
   mut images: ResMut<Assets<Image>>,
@@ -1969,7 +1912,7 @@ fn direction_name(dx: i32, dy: i32) -> String {
 fn apply_open_chest(
   commands: &mut Commands,
   entity: Entity,
-  player_query: &mut Query<(&mut PlayerPos, &mut Inventory, &mut Loadout), With<Player>>,
+  player_query: &mut Query<(&mut Location, &mut Inventory, &mut Loadout), With<Player>>,
   loot_chest_q: &mut Query<(&mut LootChest, &mut Glyph, &Location)>,
   fixed_q: &Query<&FixedChestLoot>,
   log: &mut LogEntries,
@@ -2107,7 +2050,7 @@ fn handle_crafting_menu(
   mut clock: ResMut<Clock>,
   mut tb: ResMut<TurnBasedWorldState>,
   mut log: ResMut<LogEntries>,
-  mut player_query: Query<(&mut PlayerPos, &mut Inventory, &mut Loadout), With<Player>>
+  mut player_query: Query<(&mut Location, &mut Inventory, &mut Loadout), With<Player>>
 ) {
   if !matches!(ui.crafting, CraftingMenu::Open { .. }) {
     return;
@@ -2286,7 +2229,7 @@ fn execute_interaction(
   ui: &mut UiState,
   log: &mut LogEntries,
   commands: &mut Commands,
-  player_query: &mut Query<(&mut PlayerPos, &mut Inventory, &mut Loadout), With<Player>>,
+  player_query: &mut Query<(&mut Location, &mut Inventory, &mut Loadout), With<Player>>,
   item_glyph_q: &Query<(Entity, &ItemGlyph)>
 ) {
   // No player/position needed; must not sit behind `player_query` or logging can be skipped.
@@ -2301,6 +2244,7 @@ fn execute_interaction(
     log_dialogue_node_block(log, speaker, *speaker_color, node);
   } else if let InteractionAction::Navigate { .. } = action {
   } else if let Ok((mut pos, mut inventory, mut equipped)) = player_query.single_mut() {
+    let Location::Coords { z: cur_z, .. } = *pos else { unreachable!() };
     match action {
       InteractionAction::Talk { .. } => unreachable!(),
       InteractionAction::Navigate { .. } => {}
@@ -2313,7 +2257,7 @@ fn execute_interaction(
       }
       InteractionAction::PickUpItem(wx, wy) => {
         for (ig_ent, ig) in item_glyph_q.iter() {
-          if ig.x == *wx as usize && ig.y == *wy as usize && ig.z == pos.z {
+          if ig.x == *wx as usize && ig.y == *wy as usize && ig.z == cur_z {
             *inventory.0.entry(ig.item).or_insert(0) += 1;
             commands.entity(ig_ent).despawn();
           }
@@ -2416,9 +2360,7 @@ fn execute_interaction(
         log_message(log, format!("Loadout — weapon: {wpn}, armor: {arm}."));
       }
       InteractionAction::TakeElevator { dest_z, dest_x, dest_y } => {
-        pos.z = *dest_z;
-        pos.x = *dest_x;
-        pos.y = *dest_y;
+        *pos = Location::xyz(*dest_x, *dest_y, *dest_z);
         clock.spend_turn(tb);
       }
       InteractionAction::RecruitFollower { .. }
@@ -2436,7 +2378,7 @@ fn dispatch_interactive_choice(
   tb: &mut TurnBasedWorldState,
   ui: &mut UiState,
   log: &mut LogEntries,
-  player_query: &mut Query<(&mut PlayerPos, &mut Inventory, &mut Loadout), With<Player>>,
+  player_query: &mut Query<(&mut Location, &mut Inventory, &mut Loadout), With<Player>>,
   deferred: &mut DeferredActions,
   door_q: &mut Query<(
     &mut Door,
@@ -2832,7 +2774,7 @@ fn apply_bump_auto_interact(
   mut tb: ResMut<TurnBasedWorldState>,
   mut ui: ResMut<UiState>,
   mut log: ResMut<LogEntries>,
-  mut player_query: Query<(&mut PlayerPos, &mut Inventory, &mut Loadout), With<Player>>,
+  mut player_query: Query<(&mut Location, &mut Inventory, &mut Loadout), With<Player>>,
   mut deferred: ResMut<DeferredActions>,
   mut door_q: Query<(
     &mut Door,
@@ -2848,7 +2790,6 @@ fn apply_bump_auto_interact(
 ) {
   if let Some((entity, dir)) = pending_bump.1.take() {
     commands.entity(entity).insert(BumpLunge { dir, start_frame: frame.0 });
-    clock.move_cooldown_frames = RENDER_FRAMES_PER_SIM_STEP;
   }
   if let Some(option) = flash.0.take() {
     dispatch_interactive_choice(
@@ -2873,7 +2814,7 @@ fn apply_bump_auto_interact(
 fn flush_pending_loot(
   mut pending: ResMut<DeferredActions>,
   mut commands: Commands,
-  mut player_q: Query<(&mut PlayerPos, &mut Inventory, &mut Loadout), With<Player>>,
+  mut player_q: Query<(&mut Location, &mut Inventory, &mut Loadout), With<Player>>,
   mut loot_chest_q: Query<(&mut LootChest, &mut Glyph, &Location)>,
   fixed_q: Query<&FixedChestLoot>,
   mut log: ResMut<LogEntries>,
@@ -2898,14 +2839,15 @@ fn apply_bed_save(
   mut deferred: ResMut<DeferredActions>,
   mut bed_save: ResMut<BedSave>,
   ship: Res<ship::Ship>,
-  player: Single<(&PlayerPos, &Inventory, &Loadout), With<Player>>,
+  player: Single<(&Location, &Inventory, &Loadout), With<Player>>,
   mut log: ResMut<LogEntries>
 ) {
-  if std::mem::take(&mut deferred.save_at_bed) {
-    let (pos, inventory, loadout) = *player;
+  if std::mem::take(&mut deferred.save_at_bed)
+    && let (&Location::Coords { x, y, z, .. }, inventory, loadout) = *player
+  {
     bed_save.0 = Some(SaveData {
       docked_at: ship.docked_at,
-      pos: (pos.x, pos.y, pos.z),
+      pos: (x, y, z),
       inventory: inventory.0.clone(),
       loadout: loadout.clone()
     });
@@ -2918,7 +2860,7 @@ fn player_death_check(
   ship: Res<ship::Ship>,
   mut deferred: ResMut<DeferredActions>,
   mut player: Query<
-    (&mut PlayerPos, &mut Stats, &mut Inventory, &mut Loadout),
+    (&mut Location, &mut Stats, &mut Inventory, &mut Loadout),
     With<Player>
   >,
   mut log: ResMut<LogEntries>
@@ -2930,9 +2872,7 @@ fn player_death_check(
     return;
   }
   let Some(save) = bed_save.0.take() else { return };
-  pos.x = save.pos.0;
-  pos.y = save.pos.1;
-  pos.z = save.pos.2;
+  *pos = Location::xyz(save.pos.0, save.pos.1, save.pos.2);
   stats.hp = stats.max_hp;
   inventory.0 = save.inventory.clone();
   *loadout = save.loadout.clone();
@@ -2952,7 +2892,7 @@ fn handle_interact(
   mut ui: ResMut<UiState>,
   mut flash: ResMut<BumpInteractFlash>,
   index: Res<TileEntityIndex>,
-  player: Single<(&PlayerPos, &Inventory, &Loadout), With<Player>>,
+  player: Single<(&Location, &Inventory, &Loadout), With<Player>>,
   mut iq: InteractQueries
 ) {
   let space_consumed = std::mem::take(&mut ui.space_consumed);
@@ -2960,22 +2900,24 @@ fn handle_interact(
     return;
   }
 
-  let (pos, inventory, equipped) = *player;
+  let (&Location::Coords { x: px, y: py, z: pz, .. }, inventory, equipped) = *player else {
+    unreachable!()
+  };
   let mut options = Vec::new();
   for dy in -1i32..=1 {
     for dx in -1i32..=1 {
-      let (wx, wy) = (pos.x + dx, pos.y + dy);
+      let (wx, wy) = (px + dx, py + dy);
       let dir =
         if dx == 0 && dy == 0 { "here".to_string() } else { direction_name(dx, dy) };
       let has_items = iq
         .item_glyph_q
         .iter()
-        .any(|(_, ig)| ig.x == wx as usize && ig.y == wy as usize && ig.z == pos.z);
+        .any(|(_, ig)| ig.x == wx as usize && ig.y == wy as usize && ig.z == pz);
       options.extend(gather_interactions_at_tile(
         wx,
         wy,
         &dir,
-        index.0.get(&(wx, wy, pos.z)),
+        index.0.get(&(wx, wy, pz)),
         &mut iq,
         &galaxy,
         inventory,
@@ -3133,7 +3075,7 @@ fn apply_pending_navigation(
     )
   >,
   mut player: Query<
-    (&mut PlayerPos, &mut Location, &mut Visuals, &mut Transform),
+    (&mut Location, &mut Visuals, &mut Transform),
     With<Player>
   >,
   mut clock: ResMut<Clock>,
@@ -3162,11 +3104,15 @@ fn apply_pending_navigation(
     commands.entity(e).despawn();
   }
   // Capture the player's offset within the OLD ship before swapping zones.
-  let player_ship_offset = player.single().ok().map(|(pos, ..)| {
-    let (old_sox, old_soy) = current.0.ship_origin;
-    let rel_x = (pos.x - old_sox).clamp(0, ship::SHIP_WIDTH as i32 - 1);
-    let rel_y = (pos.y - old_soy).clamp(0, ship::SHIP_HEIGHT as i32 - 1);
-    (rel_x, rel_y)
+  let player_ship_offset = player.single().ok().and_then(|(pos, ..)| {
+    if let Location::Coords { x, y, .. } = *pos {
+      let (old_sox, old_soy) = current.0.ship_origin;
+      let rel_x = (x - old_sox).clamp(0, ship::SHIP_WIDTH as i32 - 1);
+      let rel_y = (y - old_soy).clamp(0, ship::SHIP_HEIGHT as i32 - 1);
+      Some((rel_x, rel_y))
+    } else {
+      None
+    }
   });
 
   *current = CurrentZone(new_zone);
@@ -3185,11 +3131,8 @@ fn apply_pending_navigation(
     .unwrap_or((ship::SHIP_WIDTH as i32 / 2, ship::SHIP_HEIGHT as i32 / 2));
   let local_x = sox + offset_x;
   let local_y = soy + offset_y;
-  if let Ok((mut pos, mut location, mut vis, mut tf)) = player.single_mut() {
+  if let Ok((mut location, mut vis, mut tf)) = player.single_mut() {
     let (lx, ly, lz) = pending.post_navigate_pos.take().unwrap_or((local_x, local_y, 0));
-    pos.x = lx;
-    pos.y = ly;
-    pos.z = lz;
     *location = Location::xyz(lx, ly, lz);
     let start_local = Vec2::new(lx as f32, ly as f32);
     vis.prev = start_local;
@@ -3304,7 +3247,6 @@ fn setup(
         + Vec3::Z
     ),
     Player,
-    PlayerPos { x: local_x, y: local_y, z: 0 },
     Location::xyz(local_x, local_y, 0),
     Stats { hp: 20, max_hp: 20, attack: 5, move_speed: 3.0, attack_speed: 1.0 },
     {
@@ -3360,10 +3302,10 @@ fn setup(
 fn update_fov(
   mut fov: ResMut<Fov>,
   current: Res<CurrentZone>,
-  player_pos: Single<&PlayerPos, With<Player>>,
-  sight_q: Query<&Location, With<BlocksSight>>
+  player_pos: Single<&Location, With<Player>>,
+  sight_q: Query<&Location, (With<BlocksSight>, Without<Player>)>
 ) {
-  let &PlayerPos { x, y, z } = *player_pos;
+  let Location::Coords { x, y, z, .. } = **player_pos else { unreachable!() };
   let blockers: HashSet<(i32, i32)> = sight_q
     .iter()
     .filter_map(|loc| {
@@ -3416,7 +3358,8 @@ fn camera_follow(
     &mut Transform,
     (With<post_process::EntityCamera>, Without<post_process::GameCamera>)
   >,
-  win: Single<&Window>
+  win: Single<&Window>,
+  mut player_screen: ResMut<post_process::PlayerScreenPos>
 ) {
   let w = win.resolution.width();
   let h = win.resolution.height();
@@ -3433,6 +3376,12 @@ fn camera_follow(
   t.y = t.y.round();
   entity_cam_tf.translation = cam_tf.translation;
   cam_tf.translation = t;
+  let rel = world_pos - t.truncate();
+  let scale = win.scale_factor();
+  player_screen.0 = Vec2::new(
+    (w * 0.5 + rel.x) * scale,
+    (h * 0.5 - rel.y) * scale
+  );
 }
 
 #[derive(bevy::ecs::system::SystemParam)]
@@ -3445,8 +3394,7 @@ struct PlayerInputRes<'w> {
   time_mode_auto: ResMut<'w, TimeModeAuto>,
   index: Res<'w, TileEntityIndex>,
   pending_bump: ResMut<'w, PendingBumpInteract>,
-  log: ResMut<'w, ui::LogEntries>,
-  pfx: Res<'w, particles::ParticleEffects>
+  log: ResMut<'w, ui::LogEntries>
 }
 
 fn player_input(
@@ -3457,7 +3405,7 @@ fn player_input(
   player: Single<
     (
       Entity,
-      &mut PlayerPos,
+      &mut Location,
       &Stats,
       &mut Inventory,
       &Loadout,
@@ -3486,11 +3434,11 @@ fn player_input(
   }
 
   if !r.ui.any_open() && !r.ui.dir_consumed {
-    let (player_entity, mut pos, stats, mut inventory, equipped, grabbed, phasing) =
+    let (player_entity, mut loc, stats, mut inventory, equipped, grabbed, phasing) =
       player.into_inner();
+    let &Location::Coords { x: px, y: py, z: pz, .. } = &*loc else { unreachable!() };
     let player_attack = stats.attack + equipped.weapon_attack_bonus();
-    let turn_based_block = r.clock.mode == TimeMode::TurnBased
-      && (r.clock.move_cooldown_frames > 0 || r.tb.world_tick_pending);
+    let turn_based_block = r.clock.mode == TimeMode::TurnBased && r.tb.world_tick_pending;
 
     let wait_pressed = keys.just_pressed(KeyCode::Period)
       || (r.clock.mode == TimeMode::TurnBased && keys.pressed(KeyCode::Space));
@@ -3511,9 +3459,8 @@ fn player_input(
       r.clock.spend_turn(&mut r.tb);
     } else if !turn_based_block
       && (any_direction_pressed(&keys) || acc.up || acc.down || acc.left || acc.right)
-      && r.clock.move_cooldown_frames == 0
     {
-      let level = r.current.0.level(pos.z);
+      let level = r.current.0.level(pz);
       let up = keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) || acc.up;
       let down =
         keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown) || acc.down;
@@ -3534,7 +3481,7 @@ fn player_input(
       };
 
       let is_entity_blocked = |x, y| {
-        r.index.0.get(&(x, y, pos.z)).is_some_and(|entities| {
+        r.index.0.get(&(x, y, pz)).is_some_and(|entities| {
           entities.iter().any(|&e| {
             collidable_q.get(e).is_ok_and(|c| c.0) && enemy_query.get(e).is_err()
           })
@@ -3542,8 +3489,8 @@ fn player_input(
       };
       let (dx, dy) = resolve_move(
         level,
-        pos.x,
-        pos.y,
+        px,
+        py,
         raw_dx,
         raw_dy,
         phasing.is_some(),
@@ -3553,18 +3500,18 @@ fn player_input(
       let diagonal_bump = raw_dx != 0
         && raw_dy != 0
         && (dx, dy) != (raw_dx, raw_dy)
-        && is_entity_blocked(pos.x + raw_dx, pos.y + raw_dy);
+        && is_entity_blocked(px + raw_dx, py + raw_dy);
 
       if (dx, dy) == (0, 0) || diagonal_bump {
-        r.pending_bump.0 = Some((pos.x + raw_dx, pos.y + raw_dy, pos.z));
+        r.pending_bump.0 = Some((px + raw_dx, py + raw_dy, pz));
         r.pending_bump.1 =
           Some((player_entity, Vec2::new(raw_dx as f32, raw_dy as f32)));
       } else {
-        let target_x = pos.x + dx;
-        let target_y = pos.y + dy;
+        let target_x = px + dx;
+        let target_y = py + dy;
 
         let enemy_hit =
-          r.index.0.get(&(target_x, target_y, pos.z)).and_then(|entities| {
+          r.index.0.get(&(target_x, target_y, pz)).and_then(|entities| {
             entities.iter().find(|&&e| enemy_query.get(e).is_ok()).copied()
           });
 
@@ -3577,25 +3524,10 @@ fn player_input(
             start_frame: r.frame.0
           });
         } else {
-          pos.x = target_x;
-          pos.y = target_y;
-
-          if let Some(tile) = level.get(target_x, target_y)
-            && tile.is_liquid()
-          {
-            particles::spawn_liquid_splash(
-              &mut commands,
-              &r.pfx,
-              target_x,
-              target_y,
-              level.width,
-              level.height,
-              tile.color()
-            );
-          }
+          *loc = Location::xyz(target_x, target_y, pz);
 
           for (ig_ent, ig) in item_glyph_q.iter() {
-            if ig.x == pos.x as usize && ig.y == pos.y as usize && ig.z == pos.z {
+            if ig.x == target_x as usize && ig.y == target_y as usize && ig.z == pz {
               *inventory.0.entry(ig.item).or_insert(0) += 1;
               commands.entity(ig_ent).despawn();
             }

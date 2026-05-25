@@ -1,15 +1,17 @@
 //! Player ability bar: Fire Gun, Throw Grenade, etc.
 //! Each sim turn, cooldowns decrement. Number keys select an ability; left-click fires it.
 
-use {std::collections::HashMap,
-     bevy::{prelude::*, input::mouse::AccumulatedMouseScroll},
-     crate::{Clock, CurrentZone, Inventory, Player, PlayerPos, TimeMode, TurnBasedWorldState, UiState,
+use {crate::{Clock, CurrentZone, Inventory, Player, TimeMode,
+             TurnBasedWorldState, UiState,
              entities::{Enemy, Glyph, GrenadeInFlight, Loadout, Location, Named, Stats},
              level::Item,
-             particles::{ParticleEffects, spawn_bullet_trail, spawn_laser_beam, spawn_plasma_burst,
-                         spawn_scatter_trails, spawn_pulse_beam, tile_to_world},
+             particles::{ParticleEffects, spawn_bullet_trail, spawn_laser_beam,
+                         spawn_plasma_burst, spawn_pulse_beam, spawn_scatter_trails,
+                         tile_to_world},
              path_overlay::{bresenham_path, dda_cells, euclidean_los_point},
-             ui::{AbilitySlotIndex, LogEntries, log_message}}};
+             ui::{AbilitySlotIndex, LogEntries, log_message}},
+     bevy::{input::mouse::AccumulatedMouseScroll, prelude::*},
+     std::collections::HashMap};
 
 /// Grenade flight speed: tiles traversed per sim turn before detonation.
 const GRENADE_TILES_PER_TURN: usize = 4;
@@ -83,7 +85,12 @@ pub fn sync_ability_bar(
       (AbilityKind::FireGun, "Fire Gun", 3)
     };
     let cd = targeting.cooldowns.get(&kind).copied().unwrap_or(0);
-    new_slots.push(AbilitySlot { kind, name: name.into(), cooldown: cd, max_cooldown: max_cd });
+    new_slots.push(AbilitySlot {
+      kind,
+      name: name.into(),
+      cooldown: cd,
+      max_cooldown: max_cd
+    });
   }
 
   for (slot, item) in loadout.grenade_slots() {
@@ -129,10 +136,18 @@ pub fn handle_ability_keys(
 ) {
   if !ui.any_open() {
     let pressed_idx = [
-      KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3,
-      KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6,
-      KeyCode::Digit7, KeyCode::Digit8, KeyCode::Digit9
-    ].iter().position(|k| keys.just_pressed(*k));
+      KeyCode::Digit1,
+      KeyCode::Digit2,
+      KeyCode::Digit3,
+      KeyCode::Digit4,
+      KeyCode::Digit5,
+      KeyCode::Digit6,
+      KeyCode::Digit7,
+      KeyCode::Digit8,
+      KeyCode::Digit9
+    ]
+    .iter()
+    .position(|k| keys.just_pressed(*k));
 
     if let Some(idx) = pressed_idx
       && idx < bar.slots.len()
@@ -174,7 +189,7 @@ pub fn handle_ability_click(
   current: Res<CurrentZone>,
   mut targeting: ResMut<TargetingState>,
   bar: Res<AbilityBarData>,
-  player: Single<(Entity, &PlayerPos, &mut Inventory, &mut Loadout), With<Player>>,
+  player: Single<(Entity, &Location, &mut Inventory, &mut Loadout), With<Player>>,
   mut enemy_q: Query<(&Location, &mut Stats, Option<&Named>), With<Enemy>>,
   mut commands: Commands,
   mut log: ResMut<LogEntries>,
@@ -183,50 +198,50 @@ pub fn handle_ability_click(
   effects: Res<ParticleEffects>
 ) {
   let (player_entity, pos, ref mut inventory, ref mut loadout) = player.into_inner();
+  let &Location::Coords { x: pos_x, y: pos_y, z: pos_z, .. } = pos else { unreachable!() };
 
   // Determine what to fire this frame — either a queued shot whose cooldown just hit 0,
   // or a fresh click. Produces (kind, cursor_tx, cursor_ty, max_cd) or None.
-  let fire_now: Option<(AbilityKind, i32, i32, u32)> =
-    if let Some((ref kind, (ptx, pty))) = targeting.pending_fire.clone()
-      && targeting.cooldowns.get(kind).copied().unwrap_or(0) == 0
-    {
-      targeting.pending_fire = None;
-      let max_cd = bar.slots.iter()
-        .find(|s| s.kind == *kind)
-        .map(|s| s.max_cooldown)
-        .unwrap_or(3);
-      Some((kind.clone(), ptx, pty, max_cd))
-    } else if let Some(slot_idx) = targeting.selected
-      && mouse.just_pressed(MouseButton::Left)
-      && let Ok(window) = windows.single()
-      && let Ok((camera, cam_transform)) = camera_q.single()
-      && let Some(cursor) = window.cursor_position()
-      && let Ok(world) = camera.viewport_to_world_2d(cam_transform, cursor)
-    {
-      if bar.slots.get(slot_idx).is_none() {
-        targeting.selected = None;
+  let fire_now: Option<(AbilityKind, i32, i32, u32)> = if let Some((ref kind, (ptx, pty))) =
+    targeting.pending_fire.clone()
+    && targeting.cooldowns.get(kind).copied().unwrap_or(0) == 0
+  {
+    targeting.pending_fire = None;
+    let max_cd =
+      bar.slots.iter().find(|s| s.kind == *kind).map(|s| s.max_cooldown).unwrap_or(3);
+    Some((kind.clone(), ptx, pty, max_cd))
+  } else if let Some(slot_idx) = targeting.selected
+    && mouse.just_pressed(MouseButton::Left)
+    && let Ok(window) = windows.single()
+    && let Ok((camera, cam_transform)) = camera_q.single()
+    && let Some(cursor) = window.cursor_position()
+    && let Ok(world) = camera.viewport_to_world_2d(cam_transform, cursor)
+  {
+    if bar.slots.get(slot_idx).is_none() {
+      targeting.selected = None;
+      None
+    } else {
+      let slot = &bar.slots[slot_idx];
+      let level = current.0.level(pos_z);
+      let (cursor_tx, cursor_ty) =
+        crate::world_to_level_cell(world, level.width, level.height);
+      let cd = targeting.cooldowns.get(&slot.kind).copied().unwrap_or(0);
+      if cd > 0 {
+        targeting.pending_fire = Some((slot.kind.clone(), (cursor_tx, cursor_ty)));
+        clock.spend_turn(&mut tb);
         None
       } else {
-        let slot = &bar.slots[slot_idx];
-        let level = current.0.level(pos.z);
-        let (cursor_tx, cursor_ty) = crate::world_to_level_cell(world, level.width, level.height);
-        let cd = targeting.cooldowns.get(&slot.kind).copied().unwrap_or(0);
-        if cd > 0 {
-          targeting.pending_fire = Some((slot.kind.clone(), (cursor_tx, cursor_ty)));
-          clock.spend_turn(&mut tb);
-          None
-        } else {
-          Some((slot.kind.clone(), cursor_tx, cursor_ty, slot.max_cooldown))
-        }
+        Some((slot.kind.clone(), cursor_tx, cursor_ty, slot.max_cooldown))
       }
-    } else {
-      None
-    };
+    }
+  } else {
+    None
+  };
 
   let Some((kind, cursor_tx, cursor_ty, max_cd)) = fire_now else { return };
-  let level = current.0.level(pos.z);
-  let px = pos.x as f32 + 0.5;
-  let py = pos.y as f32 + 0.5;
+  let level = current.0.level(pos_z);
+  let px = pos_x as f32 + 0.5;
+  let py = pos_y as f32 + 0.5;
 
   if let AbilityKind::ActivateDevice { item } = &kind {
     let item = *item;
@@ -252,19 +267,25 @@ pub fn handle_ability_click(
     return;
   }
 
-  let is_gun = matches!(kind,
-    AbilityKind::FireLaser | AbilityKind::FireGun | AbilityKind::FirePlasma
-    | AbilityKind::FireScatter | AbilityKind::FirePulse);
+  let is_gun = matches!(
+    kind,
+    AbilityKind::FireLaser
+      | AbilityKind::FireGun
+      | AbilityKind::FirePlasma
+      | AbilityKind::FireScatter
+      | AbilityKind::FirePulse
+  );
   let needs_los = is_gun || matches!(kind, AbilityKind::ThrowGrenade { .. });
-  let los_point = needs_los.then(|| euclidean_los_point(px, py, cursor_tx, cursor_ty, level)).flatten();
+  let los_point =
+    needs_los.then(|| euclidean_los_point(px, py, cursor_tx, cursor_ty, level)).flatten();
 
   if needs_los && los_point.is_none() {
     log_message(&mut log, "No LoS to target.".into());
     return;
   }
 
-  let (tx, ty) = los_point.map(|(lx, ly)| (lx as i32, ly as i32))
-    .unwrap_or((cursor_tx, cursor_ty));
+  let (tx, ty) =
+    los_point.map(|(lx, ly)| (lx as i32, ly as i32)).unwrap_or((cursor_tx, cursor_ty));
 
   let fired = match &kind {
     AbilityKind::FireLaser => {
@@ -277,7 +298,7 @@ pub fn handle_ability_click(
       let mut hit_names: Vec<&str> = vec![];
       for &(cx, cy) in cells.iter().skip(1) {
         if let Some((_, mut stats, named)) = enemy_q.iter_mut().find(|(loc, _, _)| {
-          matches!(loc, Location::Coords { x, y, z, .. } if *x == cx && *y == cy && *z == pos.z)
+          matches!(loc, Location::Coords { x, y, z, .. } if *x == cx && *y == cy && *z == pos_z)
         }) {
           stats.hp -= attack;
           hit_names.push(named.map(|n| n.name).unwrap_or("Enemy"));
@@ -295,15 +316,15 @@ pub fn handle_ability_click(
       let cells = dda_cells(px, py, los_x, los_y);
       let hit = cells.iter().skip(1).find(|&&(cx, cy)| {
         enemy_q.iter().any(|(loc, _, _)| {
-          matches!(loc, Location::Coords { x, y, z, .. } if *x == cx && *y == cy && *z == pos.z)
+          matches!(loc, Location::Coords { x, y, z, .. } if *x == cx && *y == cy && *z == pos_z)
         })
       }).copied();
       let (end_x, end_y) = hit.unwrap_or((los_x as i32, los_y as i32));
-      let trail_path = bresenham_path(pos.x, pos.y, end_x, end_y);
+      let trail_path = bresenham_path(pos_x, pos_y, end_x, end_y);
       spawn_bullet_trail(&mut commands, &effects, &trail_path, level.width, level.height);
       if let Some((hx, hy)) = hit
         && let Some((_, mut stats, named)) = enemy_q.iter_mut().find(|(loc, _, _)| {
-          matches!(loc, Location::Coords { x, y, z, .. } if *x == hx && *y == hy && *z == pos.z)
+          matches!(loc, Location::Coords { x, y, z, .. } if *x == hx && *y == hy && *z == pos_z)
         })
       {
         let attack = loadout.weapon_attack_bonus() + 5;
@@ -320,15 +341,15 @@ pub fn handle_ability_click(
       let cells = dda_cells(px, py, los_x, los_y);
       let hit = cells.iter().skip(1).find(|&&(cx, cy)| {
         enemy_q.iter().any(|(loc, _, _)| {
-          matches!(loc, Location::Coords { x, y, z, .. } if *x == cx && *y == cy && *z == pos.z)
+          matches!(loc, Location::Coords { x, y, z, .. } if *x == cx && *y == cy && *z == pos_z)
         })
       }).copied();
       let (end_x, end_y) = hit.unwrap_or((los_x as i32, los_y as i32));
-      let trail_path = bresenham_path(pos.x, pos.y, end_x, end_y);
+      let trail_path = bresenham_path(pos_x, pos_y, end_x, end_y);
       spawn_plasma_burst(&mut commands, &effects, &trail_path, level.width, level.height);
       if let Some((hx, hy)) = hit
         && let Some((_, mut stats, named)) = enemy_q.iter_mut().find(|(loc, _, _)| {
-          matches!(loc, Location::Coords { x, y, z, .. } if *x == hx && *y == hy && *z == pos.z)
+          matches!(loc, Location::Coords { x, y, z, .. } if *x == hx && *y == hy && *z == pos_z)
         })
       {
         let per_bolt = loadout.weapon_attack_bonus() + 2;
@@ -361,14 +382,14 @@ pub fn handle_ability_click(
         let cells = dda_cells(px, py, rx, ry);
         let hit = cells.iter().skip(1).find(|&&(cx, cy)| {
           enemy_q.iter().any(|(loc, _, _)| {
-            matches!(loc, Location::Coords { x, y, z, .. } if *x == cx && *y == cy && *z == pos.z)
+            matches!(loc, Location::Coords { x, y, z, .. } if *x == cx && *y == cy && *z == pos_z)
           })
         }).copied();
         let (end_x, end_y) = hit.unwrap_or((rx as i32, ry as i32));
-        paths.push(bresenham_path(pos.x, pos.y, end_x, end_y));
+        paths.push(bresenham_path(pos_x, pos_y, end_x, end_y));
         if let Some((hx, hy)) = hit
           && let Some((_, mut stats, named)) = enemy_q.iter_mut().find(|(loc, _, _)| {
-            matches!(loc, Location::Coords { x, y, z, .. } if *x == hx && *y == hy && *z == pos.z)
+            matches!(loc, Location::Coords { x, y, z, .. } if *x == hx && *y == hy && *z == pos_z)
           })
         {
           stats.hp -= attack;
@@ -380,7 +401,11 @@ pub fn handle_ability_click(
       spawn_scatter_trails(&mut commands, &effects, &paths, level.width, level.height);
       log_message(&mut log, match hit_names.len() {
         0 => "Your scatter shot hits nothing.".into(),
-        _ => format!("Scatter shot peppers {} for {} total damage!", hit_names.join(", "), total_damage),
+        _ => format!(
+          "Scatter shot peppers {} for {} total damage!",
+          hit_names.join(", "),
+          total_damage
+        )
       });
       true
     }
@@ -394,7 +419,7 @@ pub fn handle_ability_click(
       let mut hit_names: Vec<&str> = vec![];
       for &(cx, cy) in cells.iter().skip(1) {
         if let Some((_, mut stats, named)) = enemy_q.iter_mut().find(|(loc, _, _)| {
-          matches!(loc, Location::Coords { x, y, z, .. } if *x == cx && *y == cy && *z == pos.z)
+          matches!(loc, Location::Coords { x, y, z, .. } if *x == cx && *y == cy && *z == pos_z)
         }) {
           stats.hp -= attack;
           hit_names.push(named.map(|n| n.name).unwrap_or("Enemy"));
@@ -403,7 +428,9 @@ pub fn handle_ability_click(
       log_message(&mut log, match hit_names.len() {
         0 => "Your pulse blast hits nothing.".into(),
         1 => format!("Pulse blast devastates {} for {} damage!", hit_names[0], attack),
-        n => format!("Pulse blast tears through {} enemies for {} damage each!", n, attack),
+        n => {
+          format!("Pulse blast tears through {} enemies for {} damage each!", n, attack)
+        }
       });
       true
     }
@@ -419,7 +446,7 @@ pub fn handle_ability_click(
           inventory.0.remove(&item);
           loadout.remove_grenade_by_item(item);
         }
-        let path = bresenham_path(pos.x, pos.y, tx, ty);
+        let path = bresenham_path(pos_x, pos_y, tx, ty);
         commands.spawn((
           Glyph::palette_sprite(
             "textures/space_qud/grenade.png",
@@ -427,19 +454,19 @@ pub fn handle_ability_click(
             Color::srgb(0.85, 0.50, 0.10),
             Color::srgb(0.30, 0.20, 0.10)
           ),
-          Location::xyz(pos.x, pos.y, pos.z),
+          Location::xyz(pos_x, pos_y, pos_z),
           GrenadeInFlight {
             path,
             step: 0,
             tiles_per_turn: GRENADE_TILES_PER_TURN,
-            z: pos.z
+            z: pos_z
           }
         ));
         log_message(&mut log, format!("You hurl a {}!", item.name()));
         true
       }
     }
-    AbilityKind::ActivateDevice { .. } => unreachable!(),
+    AbilityKind::ActivateDevice { .. } => unreachable!()
   };
 
   if fired {
@@ -459,7 +486,9 @@ pub fn advance_pending_fire(
   mut tb: ResMut<TurnBasedWorldState>
 ) {
   if clock.mode == TimeMode::TurnBased
-    && targeting.pending_fire.as_ref()
+    && targeting
+      .pending_fire
+      .as_ref()
       .is_some_and(|(kind, _)| targeting.cooldowns.get(kind).copied().unwrap_or(0) > 0)
   {
     clock.spend_turn(&mut tb);
@@ -498,7 +527,7 @@ pub fn handle_ability_scroll(
       Some(cur) if scroll.delta.y > 0.0 => (cur + n - 1) % n,
       Some(cur) => (cur + 1) % n,
       None if scroll.delta.y > 0.0 => n - 1,
-      None => 0,
+      None => 0
     });
   }
 }

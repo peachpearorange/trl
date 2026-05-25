@@ -129,13 +129,13 @@ pub struct FlowField {
 
 pub fn compute_flow_field(
   current: Res<crate::CurrentZone>,
-  player: Single<&crate::PlayerPos, With<crate::Player>>,
+  player: Single<&Location, With<crate::Player>>,
   mut flow: ResMut<FlowField>,
 ) {
-  let pos = player.into_inner();
-  let key = (pos.x, pos.y, pos.z);
+  let &Location::Coords { x, y, z, .. } = &*player.into_inner() else { unreachable!() };
+  let key = (x, y, z);
   if flow.computed_for != Some(key) {
-    flow.field = bfs_flow_field((pos.x, pos.y), current.0.level(pos.z));
+    flow.field = bfs_flow_field((x, y), current.0.level(z));
     flow.computed_for = Some(key);
   }
 }
@@ -229,11 +229,11 @@ pub fn follower_ai(
   current: Res<crate::CurrentZone>,
   index: Res<TileEntityIndex>,
   collidable_q: Query<&Collidable>,
-  player: Single<(&crate::PlayerPos, &Stats), With<crate::Player>>,
-  mut follower_q: Query<(&mut Location, &mut FollowerState, &mut FollowerData, &Stats, &mut Path)>
+  player: Single<(&Location, &Stats), With<crate::Player>>,
+  mut follower_q: Query<(&mut Location, &mut FollowerState, &mut FollowerData, &Stats, &mut Path), Without<crate::Player>>
 ) {
-  let (player_pos, player_stats) = *player;
-  let (px, py, pz) = (player_pos.x, player_pos.y, player_pos.z);
+  let (player_loc, player_stats) = *player;
+  let &Location::Coords { x: px, y: py, z: pz, .. } = player_loc else { unreachable!() };
 
   for (mut location, mut state, mut data, stats, mut path) in follower_q.iter_mut() {
     if let Location::Coords { x: fx, y: fy, z: fz, .. } = *location {
@@ -309,7 +309,7 @@ pub fn enemy_ai(
   flow: Res<FlowField>,
   fov: Res<crate::Fov>,
   player: Single<
-    (Entity, &crate::PlayerPos, &mut Stats, &Loadout, Option<&Invisible>),
+    (Entity, &Location, &mut Stats, &Loadout, Option<&Invisible>),
     (With<crate::Player>, Without<Enemy>)
   >,
   mut enemy_q: Query<
@@ -318,8 +318,8 @@ pub fn enemy_ai(
   >,
   collidable_q: Query<&Collidable>
 ) {
-  let (player_entity, player_pos, ref mut player_stats, player_loadout, player_invis) = player.into_inner();
-  let (px, py, pz) = (player_pos.x, player_pos.y, player_pos.z);
+  let (player_entity, player_loc, ref mut player_stats, player_loadout, player_invis) = player.into_inner();
+  let &Location::Coords { x: px, y: py, z: pz, .. } = player_loc else { unreachable!() };
   let player_invisible = player_invis.is_some();
 
   let mut claimed: HashSet<(i32, i32)> = HashSet::new();
@@ -441,10 +441,10 @@ fn spawn_cloud_area(
 pub fn mushroom_spore_attack(
   mut commands: Commands,
   mut log: ResMut<LogEntries>,
-  player_q: Single<(&crate::PlayerPos, Option<&Invisible>), With<crate::Player>>,
+  player_q: Single<(&Location, Option<&Invisible>), With<crate::Player>>,
   mut emitter_q: Query<(&Location, &mut Loadout, Option<&Named>), With<Enemy>>
 ) {
-  let (&crate::PlayerPos { x: px, y: py, z: pz }, player_invis) = *player_q;
+  let (&Location::Coords { x: px, y: py, z: pz, .. }, player_invis) = *player_q else { unreachable!() };
   if player_invis.is_none() {
     for (location, mut loadout, named) in emitter_q.iter_mut() {
     let Some(slot) = loadout.spore_mut() else { continue };
@@ -467,10 +467,10 @@ pub fn mushroom_spore_attack(
 pub fn grenade_thrower_ai(
   mut commands: Commands,
   mut log: ResMut<LogEntries>,
-  player_q: Single<(&crate::PlayerPos, Option<&Invisible>), With<crate::Player>>,
+  player_q: Single<(&Location, Option<&Invisible>), With<crate::Player>>,
   mut thrower_q: Query<(&Location, &mut Loadout, Option<&Named>), With<Enemy>>
 ) {
-  let (&crate::PlayerPos { x: px, y: py, z: pz }, player_invis) = *player_q;
+  let (&Location::Coords { x: px, y: py, z: pz, .. }, player_invis) = *player_q else { unreachable!() };
   if player_invis.is_none() {
     for (location, mut loadout, named) in thrower_q.iter_mut() {
     let Some(slot) = loadout.grenade_throw_mut() else { continue };
@@ -505,12 +505,12 @@ pub fn gun_attacker_ai(
   mut log: ResMut<LogEntries>,
   current: Res<crate::CurrentZone>,
   effects: Res<ParticleEffects>,
-  player_q: Single<(&crate::PlayerPos, Option<&Invisible>), (With<crate::Player>, Without<Enemy>)>,
+  player_q: Single<(&Location, Option<&Invisible>), (With<crate::Player>, Without<Enemy>)>,
   mut player_stats: Single<&mut Stats, (With<crate::Player>, Without<Enemy>)>,
   player_loadout: Single<&Loadout, (With<crate::Player>, Without<Enemy>)>,
   mut gunner_q: Query<(&Location, &mut Loadout, Option<&Named>), (With<Enemy>, Without<crate::Player>)>
 ) {
-  let (&crate::PlayerPos { x: px, y: py, z: pz }, player_invis) = *player_q;
+  let (&Location::Coords { x: px, y: py, z: pz, .. }, player_invis) = *player_q else { unreachable!() };
   if player_invis.is_none() {
     let level = current.0.level(pz);
     let player_dr = player_loadout.armor_dr();
@@ -598,11 +598,11 @@ pub fn tick_grenade_in_flight(
 pub fn damage_cloud_tick(
   mut commands: Commands,
   mut log: ResMut<LogEntries>,
-  player: Single<(&crate::PlayerPos, &mut Stats), With<crate::Player>>,
+  player: Single<(&Location, &mut Stats), With<crate::Player>>,
   mut enemy_q: Query<(&Location, &mut Stats, Option<&Named>), (With<Enemy>, Without<crate::Player>)>,
   mut cloud_q: Query<(Entity, &Location, &mut DamageCloud, Option<&Named>)>
 ) {
-  let (&crate::PlayerPos { x: px, y: py, z: pz }, ref mut player_stats) = player.into_inner();
+  let (&Location::Coords { x: px, y: py, z: pz, .. }, ref mut player_stats) = player.into_inner() else { unreachable!() };
   for (entity, location, mut cloud, source_name) in cloud_q.iter_mut() {
     cloud.tick_timer += 1;
     if cloud.tick_timer >= cloud.tick_interval {
@@ -683,11 +683,11 @@ pub fn tick_phasing(
 pub fn enemy_stealth_ai(
   mut commands: Commands,
   mut log: ResMut<LogEntries>,
-  player_pos: Single<&crate::PlayerPos, With<crate::Player>>,
+  player_pos: Single<&Location, With<crate::Player>>,
   fov: Res<crate::Fov>,
   mut enemy_q: Query<(Entity, &Location, &mut Loadout, Option<&Named>, Option<&Invisible>), With<Enemy>>
 ) {
-  let &crate::PlayerPos { x: px, y: py, z: pz } = *player_pos;
+  let Location::Coords { x: px, y: py, z: pz, .. } = **player_pos else { unreachable!() };
   for (entity, location, mut loadout, named, already_invis) in enemy_q.iter_mut() {
     if already_invis.is_some() { continue; }
     let has_device = loadout.gear.iter().any(|s| matches!(s.gear, Gear::Device(crate::level::Item::StealthDevice)));

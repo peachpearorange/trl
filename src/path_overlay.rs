@@ -1,22 +1,22 @@
 //! Ranged attack trajectory overlay — shows a yellow path from the player to the
 //! hovered tile when a ranged ability is selected, stopping at walls.
 
-use bevy::prelude::*;
-use std::f32::consts::{FRAC_PI_2, PI};
-use crate::{
-  CurrentZone, Player, PlayerPos, TILE_SIZE,
-  abilities::{AbilityBarData, AbilityKind, TargetingState},
-  sprites::{PaletteImageCache, palette_sprite_handle},
-  game_pane_rect, tile_screen_pos, world_to_level_cell,
-};
+use {crate::{CurrentZone, Player, TILE_SIZE,
+             abilities::{AbilityBarData, AbilityKind, TargetingState},
+             entities::Location,
+             game_pane_rect,
+             sprites::{PaletteImageCache, palette_sprite_handle},
+             tile_screen_pos, world_to_level_cell},
+     bevy::prelude::*,
+     std::f32::consts::{FRAC_PI_2, PI}};
 
-const LINE_NS:      &str = "textures/space_qud/lines N S.png";
-const LINE_N_NE:    &str = "textures/space_qud/lines N NE.png";
-const LINE_N_SE:    &str = "textures/space_qud/lines N SE.png";
-const LINE_CORNER:  &str = "textures/space_qud/lines N E.png";
+const LINE_NS: &str = "textures/space_qud/lines N S.png";
+const LINE_N_NE: &str = "textures/space_qud/lines N NE.png";
+const LINE_N_SE: &str = "textures/space_qud/lines N SE.png";
+const LINE_CORNER: &str = "textures/space_qud/lines N E.png";
 const LINE_DIAG_NW: &str = "textures/space_qud/lines NW SE.png";
 const LINE_DIAG_NE: &str = "textures/space_qud/lines NE SW.png";
-const LINE_HALF_N:  &str = "textures/space_qud/lines N.png";
+const LINE_HALF_N: &str = "textures/space_qud/lines N.png";
 const LINE_HALF_NE: &str = "textures/space_qud/lines NE.png";
 
 /// Yellow — used as both primary AND secondary so all non-transparent pixels bake yellow.
@@ -35,7 +35,7 @@ pub struct RangedPathOverlay {
   pub blocked: bool,
   /// For laser weapons: world-space start and end of the Euclidean aim line.
   /// When Some, `render_ranged_path` draws a straight line instead of tile sprites.
-  pub laser_line: Option<(Vec3, Vec3)>,
+  pub laser_line: Option<(Vec3, Vec3)>
 }
 
 // ---------------------------------------------------------------------------
@@ -75,10 +75,17 @@ pub fn dda_cells(x0: f32, y0: f32, x1: f32, y1: f32) -> Vec<(i32, i32)> {
     };
 
     loop {
-      if t_max_x < t_max_y { cx += step_x; t_max_x += t_delta_x; }
-      else                  { cy += step_y; t_max_y += t_delta_y; }
+      if t_max_x < t_max_y {
+        cx += step_x;
+        t_max_x += t_delta_x;
+      } else {
+        cy += step_y;
+        t_max_y += t_delta_y;
+      }
       cells.push((cx, cy));
-      if cx == end_cx && cy == end_cy { break; }
+      if cx == end_cx && cy == end_cy {
+        break;
+      }
     }
   }
   cells
@@ -96,7 +103,7 @@ pub fn euclidean_los_point(
   level: &crate::level::Level
 ) -> Option<(f32, f32)> {
   let candidates = [
-    (tx as f32 + 0.5, ty as f32 + 0.5),  // center first
+    (tx as f32 + 0.5, ty as f32 + 0.5), // center first
     (tx as f32 + 0.1, ty as f32 + 0.1),
     (tx as f32 + 0.9, ty as f32 + 0.1),
     (tx as f32 + 0.1, ty as f32 + 0.9),
@@ -104,12 +111,12 @@ pub fn euclidean_los_point(
     (tx as f32 + 0.5, ty as f32 + 0.1),
     (tx as f32 + 0.5, ty as f32 + 0.9),
     (tx as f32 + 0.1, ty as f32 + 0.5),
-    (tx as f32 + 0.9, ty as f32 + 0.5),
+    (tx as f32 + 0.9, ty as f32 + 0.5)
   ];
   candidates.into_iter().find(|&(cx, cy)| {
     dda_cells(px, py, cx, cy)
       .into_iter()
-      .skip(1)  // skip player's cell
+      .skip(1) // skip player's cell
       .all(|(gx, gy)| (gx, gy) == (tx, ty) || level.walkable(gx, gy))
   })
 }
@@ -126,10 +133,18 @@ pub fn bresenham_path(x0: i32, y0: i32, x1: i32, y1: i32) -> Vec<(i32, i32)> {
     let mut x = x0;
     let mut y = y0;
     loop {
-      if x == x1 && y == y1 { break; }
+      if x == x1 && y == y1 {
+        break;
+      }
       let e2 = 2 * err;
-      if e2 >= dy { err += dy; x += sx; }
-      if e2 <= dx { err += dx; y += sy; }
+      if e2 >= dy {
+        err += dy;
+        x += sx;
+      }
+      if e2 <= dx {
+        err += dx;
+        y += sy;
+      }
       tiles.push((x, y));
     }
   }
@@ -189,35 +204,35 @@ fn connection_sprite(arm_a: (i32, i32), arm_b: (i32, i32)) -> (&'static str, f32
   //              NW      W      SW     N      S     NE     E     SE
   match (a, b) {
     // --- Straight cardinal ---
-    ((0, -1), (0, 1))   => (LINE_NS, 0.0, false),          // {N,S}
-    ((-1, 0), (1, 0))   => (LINE_NS, FRAC_PI_2, false),    // {W,E}
+    ((0, -1), (0, 1)) => (LINE_NS, 0.0, false), // {N,S}
+    ((-1, 0), (1, 0)) => (LINE_NS, FRAC_PI_2, false), // {W,E}
 
     // --- Straight diagonal ---
-    ((-1, -1), (1, 1))  => (LINE_DIAG_NW, 0.0, false),     // {NW,SE}
-    ((-1, 1), (1, -1))  => (LINE_DIAG_NE, 0.0, false),     // {NE,SW}
+    ((-1, -1), (1, 1)) => (LINE_DIAG_NW, 0.0, false), // {NW,SE}
+    ((-1, 1), (1, -1)) => (LINE_DIAG_NE, 0.0, false), // {NE,SW}
 
     // --- 45° bends (N-NE family) ---
-    ((0, -1), (1, -1))  => (LINE_N_NE, 0.0, false),        // {N,NE}
-    ((-1, -1), (0, -1)) => (LINE_N_NE, 0.0, true),         // {NW,N} flip
-    ((-1, -1), (-1, 0)) => (LINE_N_NE, FRAC_PI_2, false),  // {NW,W}
-    ((-1, 0), (-1, 1))  => (LINE_N_NE, FRAC_PI_2, true),   // {W,SW} flip
-    ((-1, 1), (0, 1))   => (LINE_N_NE, PI, false),          // {SW,S}
-    ((0, 1), (1, 1))    => (LINE_N_NE, PI, true),           // {S,SE} flip
-    ((1, 0), (1, 1))    => (LINE_N_NE, -FRAC_PI_2, false),  // {E,SE}
-    ((1, -1), (1, 0))   => (LINE_N_NE, -FRAC_PI_2, true),  // {NE,E} flip
+    ((0, -1), (1, -1)) => (LINE_N_NE, 0.0, false), // {N,NE}
+    ((-1, -1), (0, -1)) => (LINE_N_NE, 0.0, true), // {NW,N} flip
+    ((-1, -1), (-1, 0)) => (LINE_N_NE, FRAC_PI_2, false), // {NW,W}
+    ((-1, 0), (-1, 1)) => (LINE_N_NE, FRAC_PI_2, true), // {W,SW} flip
+    ((-1, 1), (0, 1)) => (LINE_N_NE, PI, false),   // {SW,S}
+    ((0, 1), (1, 1)) => (LINE_N_NE, PI, true),     // {S,SE} flip
+    ((1, 0), (1, 1)) => (LINE_N_NE, -FRAC_PI_2, false), // {E,SE}
+    ((1, -1), (1, 0)) => (LINE_N_NE, -FRAC_PI_2, true), // {NE,E} flip
 
     // --- 135° bends (N-SE family) ---
-    ((0, -1), (1, 1))   => (LINE_N_SE, 0.0, false),         // {N,SE}
-    ((-1, 1), (0, -1))  => (LINE_N_SE, 0.0, true),          // {N,SW} flip
-    ((-1, 0), (1, -1))  => (LINE_N_SE, FRAC_PI_2, false),   // {W,NE}
-    ((-1, 0), (1, 1))   => (LINE_N_SE, FRAC_PI_2, true),    // {W,SE} flip
-    ((-1, -1), (0, 1))  => (LINE_N_SE, PI, false),           // {NW,S}
-    ((0, 1), (1, -1))   => (LINE_N_SE, PI, true),            // {S,NE} flip
-    ((-1, 1), (1, 0))   => (LINE_N_SE, -FRAC_PI_2, false),  // {SW,E}
-    ((-1, -1), (1, 0))  => (LINE_N_SE, -FRAC_PI_2, true),   // {NW,E} flip
+    ((0, -1), (1, 1)) => (LINE_N_SE, 0.0, false), // {N,SE}
+    ((-1, 1), (0, -1)) => (LINE_N_SE, 0.0, true), // {N,SW} flip
+    ((-1, 0), (1, -1)) => (LINE_N_SE, FRAC_PI_2, false), // {W,NE}
+    ((-1, 0), (1, 1)) => (LINE_N_SE, FRAC_PI_2, true), // {W,SE} flip
+    ((-1, -1), (0, 1)) => (LINE_N_SE, PI, false), // {NW,S}
+    ((0, 1), (1, -1)) => (LINE_N_SE, PI, true),   // {S,NE} flip
+    ((-1, 1), (1, 0)) => (LINE_N_SE, -FRAC_PI_2, false), // {SW,E}
+    ((-1, -1), (1, 0)) => (LINE_N_SE, -FRAC_PI_2, true), // {NW,E} flip
 
     // Fallback (shouldn't happen in Bresenham paths)
-    _ => (LINE_NS, 0.0, false),
+    _ => (LINE_NS, 0.0, false)
   }
 }
 
@@ -225,15 +240,15 @@ fn connection_sprite(arm_a: (i32, i32), arm_b: (i32, i32)) -> (&'static str, f32
 /// Cardinal arms use `lines N` rotated; diagonal arms use `lines NE` rotated/flipped.
 fn half_sprite(arm_dir: (i32, i32)) -> (&'static str, f32, bool) {
   match arm_dir {
-    (0, -1)  => (LINE_HALF_N, 0.0, false),          // N
-    (1, 0)   => (LINE_HALF_N, -FRAC_PI_2, false),   // E
-    (0, 1)   => (LINE_HALF_N, PI, false),            // S
-    (-1, 0)  => (LINE_HALF_N, FRAC_PI_2, false),    // W
-    (1, -1)  => (LINE_HALF_NE, 0.0, false),          // NE
-    (-1, -1) => (LINE_HALF_NE, 0.0, true),           // NW (flip)
-    (1, 1)   => (LINE_HALF_NE, PI, true),             // SE (flip + 180°)
-    (-1, 1)  => (LINE_HALF_NE, PI, false),            // SW (180°)
-    _ => (LINE_HALF_N, 0.0, false),
+    (0, -1) => (LINE_HALF_N, 0.0, false),       // N
+    (1, 0) => (LINE_HALF_N, -FRAC_PI_2, false), // E
+    (0, 1) => (LINE_HALF_N, PI, false),         // S
+    (-1, 0) => (LINE_HALF_N, FRAC_PI_2, false), // W
+    (1, -1) => (LINE_HALF_NE, 0.0, false),      // NE
+    (-1, -1) => (LINE_HALF_NE, 0.0, true),      // NW (flip)
+    (1, 1) => (LINE_HALF_NE, PI, true),         // SE (flip + 180°)
+    (-1, 1) => (LINE_HALF_NE, PI, false),       // SW (180°)
+    _ => (LINE_HALF_N, 0.0, false)
   }
 }
 
@@ -249,23 +264,27 @@ pub fn update_ranged_path(
   targeting: Res<TargetingState>,
   bar: Res<AbilityBarData>,
   current: Res<CurrentZone>,
-  player_q: Query<&PlayerPos, With<Player>>,
+  player_q: Query<&Location, With<Player>>,
   mut overlay: ResMut<RangedPathOverlay>
 ) {
   let new = if targeting.selected.is_none() {
     Some(RangedPathOverlay::default())
   } else if let Ok(window) = windows.single()
     && let Ok((camera, cam_transform)) = camera_q.single()
-    && let Ok(pos) = player_q.single()
+    && let Ok(&Location::Coords { x: pos_x, y: pos_y, z: pos_z, .. }) = player_q.single()
   {
-    let is_laser = targeting.selected
-      .and_then(|i| bar.slots.get(i))
-      .is_some_and(|s| matches!(s.kind,
-        AbilityKind::FireLaser | AbilityKind::FirePlasma
-        | AbilityKind::FireScatter | AbilityKind::FirePulse
-        | AbilityKind::FireGun));
+    let is_laser = targeting.selected.and_then(|i| bar.slots.get(i)).is_some_and(|s| {
+      matches!(
+        s.kind,
+        AbilityKind::FireLaser
+          | AbilityKind::FirePlasma
+          | AbilityKind::FireScatter
+          | AbilityKind::FirePulse
+          | AbilityKind::FireGun
+      )
+    });
 
-    let level = current.0.level(pos.z);
+    let level = current.0.level(pos_z);
     let w = level.width;
     let h = level.height;
 
@@ -276,19 +295,21 @@ pub fn update_ranged_path(
       let (tx, ty) = world_to_level_cell(world, w, h);
 
       if is_laser {
-        let px = pos.x as f32 + 0.5;
-        let py = pos.y as f32 + 0.5;
+        let px = pos_x as f32 + 0.5;
+        let py = pos_y as f32 + 0.5;
         // Tile-space → world-space for overlay z-layer
-        let tile_world = |x: f32, y: f32| Vec3::new(
-          (x - 0.5 - w as f32 / 2.0) * TILE_SIZE,
-          (h as f32 / 2.0 - y + 0.5) * TILE_SIZE,
-          0.35,
-        );
+        let tile_world = |x: f32, y: f32| {
+          Vec3::new(
+            (x - 0.5 - w as f32 / 2.0) * TILE_SIZE,
+            (h as f32 / 2.0 - y + 0.5) * TILE_SIZE,
+            0.35
+          )
+        };
         let laser_line = euclidean_los_point(px, py, tx, ty, level)
           .map(|(lx, ly)| (tile_world(px, py), tile_world(lx, ly)));
         RangedPathOverlay { laser_line, ..default() }
       } else {
-        let all_tiles = bresenham_path(pos.x, pos.y, tx, ty);
+        let all_tiles = bresenham_path(pos_x, pos_y, tx, ty);
         let path_tiles = &all_tiles[1..];
         let block_idx = path_tiles.iter().position(|&(x, y)| {
           x < 0
@@ -300,7 +321,7 @@ pub fn update_ranged_path(
         RangedPathOverlay {
           tiles: path_tiles[..block_idx.unwrap_or(path_tiles.len())].to_vec(),
           blocked: block_idx.is_some(),
-          laser_line: None,
+          laser_line: None
         }
       }
     } else {
@@ -312,8 +333,9 @@ pub fn update_ranged_path(
   };
 
   if let Some(new) = new
-    && (overlay.tiles != new.tiles || overlay.blocked != new.blocked
-        || overlay.laser_line != new.laser_line)
+    && (overlay.tiles != new.tiles
+      || overlay.blocked != new.blocked
+      || overlay.laser_line != new.laser_line)
   {
     *overlay = new;
   }
@@ -328,9 +350,8 @@ fn spawn_path_tile(
   palette_cache: &mut PaletteImageCache,
   images: &mut Assets<Image>
 ) {
-  let img = palette_sprite_handle(
-    sprite_path, PATH_COLOR, PATH_COLOR, palette_cache, images
-  );
+  let img =
+    palette_sprite_handle(sprite_path, PATH_COLOR, PATH_COLOR, palette_cache, images);
   commands.spawn((
     PathOverlayTile,
     Sprite {
@@ -340,7 +361,8 @@ fn spawn_path_tile(
       color: Color::WHITE,
       ..default()
     },
-    Transform::from_translation(screen_pos).with_rotation(Quat::from_rotation_z(rotation)),
+    Transform::from_translation(screen_pos)
+      .with_rotation(Quat::from_rotation_z(rotation)),
     Visibility::Visible
   ));
 }
@@ -351,7 +373,7 @@ const LASER_LINE_COLOR: Color = Color::srgb(0.0, 0.88, 1.0);
 /// Spawns/despawns path overlay tile entities whenever `RangedPathOverlay` changes.
 pub fn render_ranged_path(
   overlay: Res<RangedPathOverlay>,
-  pos: Single<&PlayerPos, With<Player>>,
+  pos: Single<&Location, With<Player>>,
   current: Res<CurrentZone>,
   existing: Query<Entity, With<PathOverlayTile>>,
   mut commands: Commands,
@@ -360,6 +382,7 @@ pub fn render_ranged_path(
   mut palette_cache: ResMut<PaletteImageCache>,
   mut images: ResMut<Assets<Image>>
 ) {
+  let Location::Coords { x: pos_x, y: pos_y, .. } = **pos else { unreachable!() };
   for entity in &existing {
     commands.entity(entity).despawn();
   }
@@ -376,41 +399,52 @@ pub fn render_ranged_path(
         Mesh2d(meshes.add(Rectangle::new(length, LASER_LINE_WIDTH))),
         MeshMaterial2d(materials.add(ColorMaterial::from_color(LASER_LINE_COLOR))),
         Transform::from_translation(mid.with_z(0.35))
-          .with_rotation(Quat::from_rotation_z(angle)),
+          .with_rotation(Quat::from_rotation_z(angle))
       ));
     }
   } else if !overlay.tiles.is_empty() {
+    let w = current.0.width;
+    let h = current.0.height;
+    let last_i = overlay.tiles.len() - 1;
 
-  let w = current.0.width;
-  let h = current.0.height;
-  let last_i = overlay.tiles.len() - 1;
-
-  // Start tile on the player position — half-line pointing toward first path tile
-  let fwd_dir = (overlay.tiles[0].0 - pos.x, overlay.tiles[0].1 - pos.y);
-  let (sp, rot, flip) = half_sprite(fwd_dir);
-  let start_pos = tile_screen_pos(pos.x as f32, pos.y as f32, w, h)
-    + Vec3::new(0.0, 0.0, 0.35);
-  spawn_path_tile(
-    &mut commands, sp, rot, flip, start_pos, &mut palette_cache, &mut images
-  );
-
-  for (i, &(tx, ty)) in overlay.tiles.iter().enumerate() {
-    let prev = if i == 0 { (pos.x, pos.y) } else { overlay.tiles[i - 1] };
-    let back_arm = (prev.0 - tx, prev.1 - ty);
-    let screen_pos =
-      tile_screen_pos(tx as f32, ty as f32, w, h) + Vec3::new(0.0, 0.0, 0.35);
-
-    let (sp, rot, flip) = if i == last_i {
-      half_sprite(back_arm)
-    } else {
-      let next = overlay.tiles[i + 1];
-      let fwd_arm = (next.0 - tx, next.1 - ty);
-      connection_sprite(back_arm, fwd_arm)
-    };
-
+    // Start tile on the player position — half-line pointing toward first path tile
+    let fwd_dir = (overlay.tiles[0].0 - pos_x, overlay.tiles[0].1 - pos_y);
+    let (sp, rot, flip) = half_sprite(fwd_dir);
+    let start_pos =
+      tile_screen_pos(pos_x as f32, pos_y as f32, w, h) + Vec3::new(0.0, 0.0, 0.35);
     spawn_path_tile(
-      &mut commands, sp, rot, flip, screen_pos, &mut palette_cache, &mut images
+      &mut commands,
+      sp,
+      rot,
+      flip,
+      start_pos,
+      &mut palette_cache,
+      &mut images
     );
-  }
+
+    for (i, &(tx, ty)) in overlay.tiles.iter().enumerate() {
+      let prev = if i == 0 { (pos_x, pos_y) } else { overlay.tiles[i - 1] };
+      let back_arm = (prev.0 - tx, prev.1 - ty);
+      let screen_pos =
+        tile_screen_pos(tx as f32, ty as f32, w, h) + Vec3::new(0.0, 0.0, 0.35);
+
+      let (sp, rot, flip) = if i == last_i {
+        half_sprite(back_arm)
+      } else {
+        let next = overlay.tiles[i + 1];
+        let fwd_arm = (next.0 - tx, next.1 - ty);
+        connection_sprite(back_arm, fwd_arm)
+      };
+
+      spawn_path_tile(
+        &mut commands,
+        sp,
+        rot,
+        flip,
+        screen_pos,
+        &mut palette_cache,
+        &mut images
+      );
     }
+  }
 }
