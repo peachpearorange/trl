@@ -222,7 +222,7 @@ impl UiState {
 }
 
 // ---------------------------------------------------------------------------
-// Merged timing — all progression is in integer render / sim units (no `Time::delta`)
+// Merged timing - all progression is in integer render / sim units (no `Time::delta`)
 // ---------------------------------------------------------------------------
 
 /// Monotonic `Update` count (one step per game tick at ~60Hz).
@@ -471,8 +471,8 @@ fn track_movement(
 }
 
 /// One slide is [`RENDER_FRAMES_PER_SIM_STEP`] display frames with `t = (e + 1) / n` for
-/// `e` in `0..n` (e.g. 1/6…1). The prior `t = e / (n - 1)` had `t = 0` on the first frame of
-/// each move, which matched the previous move’s `t = 1` (same `display`), so the camera held
+/// `e` in `0..n` (e.g. 1/6...1). The prior `t = e / (n - 1)` had `t = 0` on the first frame of
+/// each move, which matched the previous move's `t = 1` (same `display`), so the camera held
 /// one extra frame on every grid integer while walking. First frame of a move now already
 /// moves toward `local` (no zero lerp step).
 fn interpolate_visual_one(vis: &mut Visuals, f: u64, local: Vec2) {
@@ -691,7 +691,7 @@ fn main() {
     .add_plugins(haalka::HaalkaPlugin::default())
     .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()).set(WindowPlugin {
       primary_window: Some(Window {
-        title: format!("{} — space", ship::SHIP_NAME).into(),
+        title: format!("{} - space", ship::SHIP_NAME).into(),
         resolution: (1200u32, 800u32).into(),
         ..default()
       }),
@@ -1317,7 +1317,7 @@ fn update_fov_visuals(
             let tileset_index = match info.select {
               sprites::TileSelect::Single => info.base,
               sprites::TileSelect::RandomHash => {
-                // SplitMix64 finalizer on (x, y) packed into 64 bits — no correlation between positions.
+                // SplitMix64 finalizer on (x, y) packed into 64 bits - no correlation between positions.
                 let h: u64 = (x as u64) | ((y as u64) << 32);
                 let h = (h ^ (h >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
                 let h = (h ^ (h >> 27)).wrapping_mul(0x94d049bb133111eb);
@@ -1507,7 +1507,7 @@ fn accumulate_dir(
     acc.wait = true;
   }
   // If handle_menus consumed a direction key this frame for menu navigation/confirmation,
-  // do not latch it — it must not bleed into player movement.
+  // do not latch it - it must not bleed into player movement.
   if !ui.dir_consumed {
     if keys.just_pressed(KeyCode::KeyW) || keys.just_pressed(KeyCode::ArrowUp) {
       acc.up = true;
@@ -2389,7 +2389,7 @@ fn execute_interaction(
       InteractionAction::EquipItem(item) => {
         if item.is_weapon() {
           if let Some(reason) = equipped.rejection_reason(entities::Gear::Weapon(*item)) {
-            log_message(log, format!("Can't equip {} — {}.", item.name(), reason));
+            log_message(log, format!("Can't equip {} - {}.", item.name(), reason));
           } else {
             equipped.equip_weapon(*item);
             log_message(log, format!("Equipped {} as weapon.", item.name()));
@@ -2397,7 +2397,7 @@ fn execute_interaction(
           }
         } else if item.is_armor() {
           if let Some(reason) = equipped.rejection_reason(entities::Gear::Armor(*item)) {
-            log_message(log, format!("Can't equip {} — {}.", item.name(), reason));
+            log_message(log, format!("Can't equip {} - {}.", item.name(), reason));
           } else {
             equipped.equip_armor(*item);
             log_message(log, format!("Equipped {} as armor.", item.name()));
@@ -2406,7 +2406,7 @@ fn execute_interaction(
         } else if item.is_grenade() {
           if let Some(reason) = equipped.rejection_reason(entities::Gear::Grenade(*item))
           {
-            log_message(log, format!("Can't equip {} — {}.", item.name(), reason));
+            log_message(log, format!("Can't equip {} - {}.", item.name(), reason));
           } else {
             equipped.equip_grenade(*item);
             log_message(log, format!("Equipped {}.", item.name()));
@@ -2450,7 +2450,7 @@ fn execute_interaction(
       InteractionAction::ShowLoadoutStatus => {
         let wpn = equipped.weapon().map(|w| w.name()).unwrap_or("none");
         let arm = equipped.armor_item().map(|a| a.name()).unwrap_or("none");
-        log_message(log, format!("Loadout — weapon: {wpn}, armor: {arm}."));
+        log_message(log, format!("Loadout - weapon: {wpn}, armor: {arm}."));
       }
       InteractionAction::TakeElevator { dest_z, dest_x, dest_y } => {
         *pos = Location::xyz(*dest_x, *dest_y, *dest_z);
@@ -2590,7 +2590,7 @@ fn auto_close_airlocks(
 
 /// Check if pos would step off the zone edge in direction (dx, dy).
 /// If so and the adjacent zone exists and target tile is walkable, perform the transition.
-/// Returns true if a transition happened (or was blocked at world boundary) — caller skips normal move.
+/// Returns true if a transition happened (or was blocked at world boundary) - caller skips normal move.
 
 fn is_equipped(action: &InteractionAction, loadout: &Loadout) -> bool {
   match action {
@@ -2770,7 +2770,7 @@ fn gather_interactions_at_tile(
             label: if is_cave {
               if z == 0 { "Return to surface".into() } else { "Enter cave".into() }
             } else {
-              format!("Elevator — Deck {}", z + 1)
+              format!("Elevator - Deck {}", z + 1)
             },
             action: InteractionAction::TakeElevator { dest_z: z, dest_x: dx, dest_y: dy }
           });
@@ -2786,7 +2786,7 @@ fn gather_interactions_at_tile(
                 .map_or(true, |loc| loc.location_type != LocationType::ShipInterior)
             })
             .map(|(id, name)| InteractionOption {
-              label: format!("Chart course — {name}"),
+              label: format!("Chart course - {name}"),
               action: InteractionAction::Navigate { dest: id }
             })
             .collect();
@@ -3237,7 +3237,7 @@ fn apply_pending_navigation(
   }
   clock.spend_turn(&mut tb);
   let dest_name = galaxy.get(dest).map_or("destination", |loc| loc.name);
-  log_message(&mut *log, format!("Astrogation: docked — {dest_name} sector."));
+  log_message(&mut *log, format!("Astrogation: docked - {dest_name} sector."));
 }
 
 fn init_follower_homes(mut follower_q: Query<(&mut FollowerData, &Location)>) {
