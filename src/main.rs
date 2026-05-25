@@ -253,7 +253,13 @@ pub struct AccumulatedDir {
   pub up: bool,
   pub down: bool,
   pub left: bool,
-  pub right: bool
+  pub right: bool,
+  /// Latches T (time-mode toggle) pressed between sim frames.
+  pub toggle_time: bool,
+  /// Latches Shift+T (auto time-mode) pressed between sim frames.
+  pub toggle_time_auto: bool,
+  /// Latches wait (./Space) pressed between sim frames.
+  pub wait: bool
 }
 
 impl Clock {
@@ -1489,6 +1495,17 @@ fn accumulate_dir(
   ui: Res<UiState>,
   mut acc: ResMut<AccumulatedDir>
 ) {
+  // Latch T and wait every frame (these are just_pressed-only and can't afford to be lost).
+  if keys.just_pressed(KeyCode::KeyT) {
+    if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
+      acc.toggle_time_auto = true;
+    } else {
+      acc.toggle_time = true;
+    }
+  }
+  if keys.just_pressed(KeyCode::Period) {
+    acc.wait = true;
+  }
   // If handle_menus consumed a direction key this frame for menu navigation/confirmation,
   // do not latch it — it must not bleed into player movement.
   if !ui.dir_consumed {
@@ -3494,8 +3511,8 @@ fn player_input(
   collidable_q: Query<&Collidable>,
   item_glyph_q: Query<(Entity, &ItemGlyph)>
 ) {
-  if !r.ui.any_open() && keys.just_pressed(KeyCode::KeyT) {
-    if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
+  if !r.ui.any_open() && (acc.toggle_time || acc.toggle_time_auto) {
+    if acc.toggle_time_auto {
       r.time_mode_auto.0 = true;
     } else {
       r.time_mode_auto.0 = false;
@@ -3507,6 +3524,8 @@ fn player_input(
         }
       };
     }
+    acc.toggle_time = false;
+    acc.toggle_time_auto = false;
   }
 
   if !r.ui.any_open() && !r.ui.dir_consumed {
@@ -3516,8 +3535,9 @@ fn player_input(
     let player_attack = stats.attack + equipped.weapon_attack_bonus();
     let turn_based_block = r.clock.mode == TimeMode::TurnBased && r.tb.world_tick_pending;
 
-    let wait_pressed = keys.just_pressed(KeyCode::Period)
+    let wait_pressed = acc.wait
       || (r.clock.mode == TimeMode::TurnBased && keys.pressed(KeyCode::Space));
+    acc.wait = false;
 
     if grabbed.is_some()
       && !turn_based_block
