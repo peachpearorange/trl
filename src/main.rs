@@ -229,9 +229,9 @@ impl UiState {
 #[derive(Resource, Default)]
 pub struct RenderFrame(pub u64);
 
-/// Tracks the render frame on which the last sim step occurred. Used to enforce the
-/// minimum gap of [`RENDER_FRAMES_PER_SIM_STEP`] between sim frames instead of a fixed
-/// modulo, so real-time ticks are correctly spaced after navigation or other gaps.
+/// Tracks the render frame on which the last sim step occurred. Replaces the old
+/// `frame % 8 == 0` modulo approach with a gap check, so sim frames are correctly
+/// spaced even after navigation or other frame-count discontinuities.
 #[derive(Resource, Default)]
 pub struct SimClock(pub u64);
 
@@ -275,8 +275,8 @@ impl Clock {
   }
 }
 
-/// In turn-based mode, the world only advances in [`SimStep`] after a player spends a turn.
-/// Cleared at the end of [`combat::enemy_ai`] once all world systems have run.
+/// In turn-based mode, set when a player spends a turn. Read by [`combat::enemy_ai`]
+/// to determine whether the world should advance; cleared at the end of `enemy_ai`.
 #[derive(Resource, Default)]
 pub struct TurnBasedWorldState {
   pub world_tick_pending: bool
@@ -334,18 +334,6 @@ fn is_sim_frame(
     && frame.0.saturating_sub(sim_clock.0) >= u64::from(RENDER_FRAMES_PER_SIM_STEP)
 }
 
-/// True when a sim frame is due AND the world should advance (player spent a turn, or
-/// we're in real-time mode).
-fn should_run_sim_step(
-  frame: Res<RenderFrame>,
-  sim_clock: Res<SimClock>,
-  clock: Res<Clock>,
-  tb: Res<TurnBasedWorldState>,
-) -> bool {
-  frame.0 > 0
-    && frame.0.saturating_sub(sim_clock.0) >= u64::from(RENDER_FRAMES_PER_SIM_STEP)
-    && (clock.mode == TimeMode::RealTime || tb.world_tick_pending)
-}
 
 /// Records the render frame on which a sim frame ran, so the minimum gap is enforced
 /// relative to the last actual sim frame rather than a fixed modulo boundary.
@@ -764,7 +752,10 @@ fn main() {
       Update,
       accumulate_dir.after(handle_menus).in_set(EveryFrameUi)
     )
-    // --- sim frames only: player turn ---
+    // --- sim frames only: player turn, then world response ---
+    // In turn-based mode, player_input runs first, sets wtp=true via spend_turn,
+    // then world systems run in the same frame and enemy_ai clears wtp.
+    // No separate run_if on WorldStep — is_sim_frame gates the whole pipeline.
     .add_systems(
       Update,
       (
@@ -781,7 +772,7 @@ fn main() {
         .run_if(is_sim_frame)
         .in_set(SimFrame)
     )
-    // --- sim frames only: world response (turn-based: only when player acted) ---
+    // World systems run after player turn in the same sim frame.
     .add_systems(
       Update,
       (
@@ -805,7 +796,8 @@ fn main() {
         abilities::advance_pending_fire
       )
         .chain()
-        .run_if(should_run_sim_step)
+        .after(record_sim_ran)
+        .run_if(is_sim_frame)
         .in_set(WorldStep)
     )
     // --- every frame: visuals ---
