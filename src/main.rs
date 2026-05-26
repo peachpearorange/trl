@@ -229,11 +229,14 @@ impl UiState {
 #[derive(Resource, Default)]
 pub struct RenderFrame(pub u64);
 
-/// Tracks the render frame on which the last sim step occurred. Replaces the old
-/// `frame % 8 == 0` modulo approach with a gap check, so sim frames are correctly
-/// spaced even after navigation or other frame-count discontinuities.
+/// Tracks render frames of last sim steps for gap enforcement.
 #[derive(Resource, Default)]
-pub struct SimClock(pub u64);
+pub struct SimClock {
+  /// Last sim frame (any mode) — used for RT cadence.
+  pub last_frame: u64,
+  /// Last player-driven sim frame — used for TB gap so RT idle frames don't steal it.
+  pub last_player_frame: u64,
+}
 
 #[derive(Resource)]
 pub struct Clock {
@@ -242,10 +245,6 @@ pub struct Clock {
   pub mode: TimeMode
 }
 
-/// When `true`, [`update_time_mode`] may switch to turn-based when enemies are near.
-/// `T` sets a manual mode and sets this to `false`; `Shift+T` restores auto.
-#[derive(Resource)]
-pub struct TimeModeAuto(pub bool);
 
 /// Latches direction key presses between move ticks so a tap that lands between ticks isn't lost.
 #[derive(Resource, Default)]
@@ -256,8 +255,6 @@ pub struct AccumulatedDir {
   pub right: bool,
   /// Latches T (time-mode toggle) pressed between sim frames.
   pub toggle_time: bool,
-  /// Latches Shift+T (auto time-mode) pressed between sim frames.
-  pub toggle_time_auto: bool,
   /// Latches wait (./Space) pressed between sim frames.
   pub wait: bool
 }
@@ -317,28 +314,43 @@ fn bump_render_frame(
   sim_clock: Res<SimClock>,
 ) {
   frame.0 = frame.0.saturating_add(1);
-  let gap = frame.0.saturating_sub(sim_clock.0);
+  let gap = frame.0.saturating_sub(sim_clock.last_frame);
   if clock.mode == TimeMode::RealTime && frame.0 > 0 && gap >= u64::from(RENDER_FRAMES_PER_SIM_STEP) {
     clock.time = clock.time.saturating_add(1);
   }
 }
 
-/// True when at least [`RENDER_FRAMES_PER_SIM_STEP`] frames have elapsed since the last sim
-/// frame. Fires on the fixed schedule regardless of player input; the player simply no-ops
-/// when there's no action.
+/// True when the sim should advance this frame.
+/// - In real-time mode: every [`RENDER_FRAMES_PER_SIM_STEP`] frames (fixed cadence).
+/// - In turn-based mode: immediately when the player has queued input, provided the
+///   minimum gap has elapsed since the last *player-driven* sim frame.
 fn is_sim_frame(
   frame: Res<RenderFrame>,
   sim_clock: Res<SimClock>,
+  clock: Res<Clock>,
+  acc: Res<AccumulatedDir>,
+  keys: Res<ButtonInput<KeyCode>>,
 ) -> bool {
-  frame.0 > 0
-    && frame.0.saturating_sub(sim_clock.0) >= u64::from(RENDER_FRAMES_PER_SIM_STEP)
+  if frame.0 == 0 { false }
+  else if clock.mode == TimeMode::RealTime {
+    frame.0.saturating_sub(sim_clock.last_frame) >= u64::from(RENDER_FRAMES_PER_SIM_STEP)
+  } else {
+    let has_input = acc.up || acc.down || acc.left || acc.right
+      || acc.wait || acc.toggle_time
+      || any_direction_pressed(&keys)
+      || keys.pressed(KeyCode::Space)
+      || keys.pressed(KeyCode::Period);
+    has_input
+      && frame.0.saturating_sub(sim_clock.last_player_frame) >= u64::from(RENDER_FRAMES_PER_SIM_STEP)
+  }
 }
 
 
-/// Records the render frame on which a sim frame ran, so the minimum gap is enforced
-/// relative to the last actual sim frame rather than a fixed modulo boundary.
-fn record_sim_ran(frame: Res<RenderFrame>, mut sim_clock: ResMut<SimClock>) {
-  sim_clock.0 = frame.0;
+fn record_sim_ran(frame: Res<RenderFrame>, clock: Res<Clock>, tb: Res<TurnBasedWorldState>, mut sim_clock: ResMut<SimClock>) {
+  sim_clock.last_frame = frame.0;
+  if clock.mode == TimeMode::TurnBased || tb.world_tick_pending {
+    sim_clock.last_player_frame = frame.0;
+  }
 }
 
 
@@ -693,7 +705,6 @@ fn main() {
     .init_resource::<TurnBasedWorldState>()
     .init_resource::<SimClock>()
     .insert_resource(Clock::new())
-    .insert_resource(TimeModeAuto(false))
     .init_resource::<DeferredActions>()
     .init_resource::<BedSave>()
     .init_resource::<BumpInteractFlash>()
@@ -721,7 +732,7 @@ fn main() {
         bump_render_frame,
         setup_glyph_visuals,
         materialize_ground_items,
-        update_time_mode
+        update_fov
       )
         .chain()
         .in_set(EveryFrame)
@@ -764,15 +775,15 @@ fn main() {
         resolve_bump_interact,
         apply_bump_auto_interact,
         abilities::sync_ability_bar,
-        auto_close_airlocks,
-        update_fov,
-        record_sim_ran
+        auto_close_airlocks
       )
         .chain()
         .run_if(is_sim_frame)
         .in_set(SimFrame)
     )
     // World systems run after player turn in the same sim frame.
+    // record_sim_ran is last so is_sim_frame still sees the gap when WorldStep's
+    // run condition is evaluated (after SimFrame completes).
     .add_systems(
       Update,
       (
@@ -793,10 +804,10 @@ fn main() {
         npc_wander,
         follower_ai,
         abilities::tick_cooldowns,
-        abilities::advance_pending_fire
+        abilities::advance_pending_fire,
+        record_sim_ran
       )
         .chain()
-        .after(record_sim_ran)
         .run_if(is_sim_frame)
         .in_set(WorldStep)
     )
@@ -1443,38 +1454,6 @@ fn update_fov_visuals(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Time
-// ---------------------------------------------------------------------------
-
-/// In real-time mode, one abstract time tick every [`RENDER_FRAMES_PER_SIM_STEP`] display frames.
-const ENEMY_ALERT_RADIUS: i32 = 8;
-
-fn update_time_mode(
-  mut clock: ResMut<Clock>,
-  time_mode_auto: Res<TimeModeAuto>,
-  player_q: Query<&Location, With<Player>>,
-  enemy_q: Query<&Location, (With<Enemy>, Without<Player>)>
-) {
-  if time_mode_auto.0 {
-    let enemy_near = player_q.single().is_ok_and(|ploc| {
-      if let Location::Coords { x: px, y: py, z: pz, .. } = *ploc {
-        enemy_q.iter().any(|loc| {
-          if let Location::Coords { x, y, z, .. } = *loc {
-            z == pz
-              && (x - px).abs() <= ENEMY_ALERT_RADIUS
-              && (y - py).abs() <= ENEMY_ALERT_RADIUS
-          } else {
-            false
-          }
-        })
-      } else {
-        false
-      }
-    });
-    clock.mode = if enemy_near { TimeMode::TurnBased } else { TimeMode::RealTime };
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Input helpers
@@ -1489,11 +1468,7 @@ fn accumulate_dir(
 ) {
   // Latch T and wait every frame (these are just_pressed-only and can't afford to be lost).
   if keys.just_pressed(KeyCode::KeyT) {
-    if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
-      acc.toggle_time_auto = true;
-    } else {
-      acc.toggle_time = true;
-    }
+    acc.toggle_time = true;
   }
   if keys.just_pressed(KeyCode::Period) {
     acc.wait = true;
@@ -1514,25 +1489,6 @@ fn accumulate_dir(
       acc.right = true;
     }
   }
-}
-
-fn read_direction(keys: &ButtonInput<KeyCode>) -> (i32, i32) {
-  let up = keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp);
-  let down = keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown);
-  let left = keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft);
-  let right = keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight);
-
-  let dx = match (left, right) {
-    (true, false) => -1,
-    (false, true) => 1,
-    _ => 0
-  };
-  let dy = match (up, down) {
-    (true, false) => -1,
-    (false, true) => 1,
-    _ => 0
-  };
-  (dx, dy)
 }
 
 fn any_direction_pressed(keys: &ButtonInput<KeyCode>) -> bool {
@@ -3476,7 +3432,6 @@ struct PlayerInputRes<'w> {
   ui: Res<'w, UiState>,
   clock: ResMut<'w, Clock>,
   tb: ResMut<'w, TurnBasedWorldState>,
-  time_mode_auto: ResMut<'w, TimeModeAuto>,
   index: Res<'w, TileEntityIndex>,
   pending_bump: ResMut<'w, PendingBumpInteract>,
   log: ResMut<'w, ui::LogEntries>
@@ -3503,23 +3458,16 @@ fn player_input(
   collidable_q: Query<&Collidable>,
   item_glyph_q: Query<(Entity, &ItemGlyph)>
 ) {
-  if !r.ui.any_open() && (acc.toggle_time || acc.toggle_time_auto) {
-    if acc.toggle_time_auto {
-      r.time_mode_auto.0 = true;
-    } else {
-      r.time_mode_auto.0 = false;
-      r.clock.mode = match r.clock.mode {
-        TimeMode::RealTime => TimeMode::TurnBased,
-        TimeMode::TurnBased => {
-          // Flush all accumulated inputs so they don't fire as moves in real-time mode
-          *acc = AccumulatedDir::default();
-          r.tb.world_tick_pending = false;
-          TimeMode::RealTime
-        }
-      };
-    }
+  if !r.ui.any_open() && acc.toggle_time {
+    r.clock.mode = match r.clock.mode {
+      TimeMode::RealTime => TimeMode::TurnBased,
+      TimeMode::TurnBased => {
+        *acc = AccumulatedDir::default();
+        r.tb.world_tick_pending = false;
+        TimeMode::RealTime
+      }
+    };
     acc.toggle_time = false;
-    acc.toggle_time_auto = false;
   }
 
   if !r.ui.any_open() && !r.ui.dir_consumed {
