@@ -202,7 +202,7 @@ impl Prefab {
     )
     .assoc('w', (Tile::StationWall, []))
     .assoc('f', (Tile::StationFloor, []))
-    .assoc('d', (Tile::StationFloor, [Object::door()]))
+    .assoc('d', (Tile::StationFloor, [Object::DOOR.clone()]))
     .assoc('n', (Tile::StationFloor, [resident()]))
   }
 
@@ -221,8 +221,8 @@ impl Prefab {
     .assoc('b', (Tile::Bulkhead, []))
     .assoc('w', (Tile::Window, []))
     .assoc('.', (Tile::DeckPlate, []))
-    .assoc('c', (Tile::DeckPlate, [Object::flight_console()]))
-    .assoc('a', (Tile::DeckPlate, [Object::airlock_door()]))
+    .assoc('c', (Tile::DeckPlate, [Object::FLIGHT_CONSOLE.clone()]))
+    .assoc('a', (Tile::DeckPlate, [Object::AIRLOCK_DOOR.clone()]))
     .assoc('p', (Tile::DeckPlate, [ship_pilot()]))
   }
 
@@ -249,13 +249,13 @@ impl Prefab {
     .assoc('.', (Tile::DeckPlate, []))
     .assoc(',', (Tile::WoodTile, []))
     .assoc('W', (Tile::Window, []))
-    .assoc('a', (Tile::DeckPlate, [Object::airlock_door()]))
-    .assoc('l', (Tile::WoodTile, [Object::airlock_door()]))
+    .assoc('a', (Tile::DeckPlate, [Object::AIRLOCK_DOOR.clone()]))
+    .assoc('l', (Tile::WoodTile, [Object::AIRLOCK_DOOR.clone()]))
     .assoc('=', (Tile::Conduit, []))
-    .assoc('C', (Tile::DeckPlate, [Object::flight_console()]))
-    .assoc('Q', (Tile::DeckPlate, [Object::loadout_console()]))
+    .assoc('C', (Tile::DeckPlate, [Object::FLIGHT_CONSOLE.clone()]))
+    .assoc('Q', (Tile::DeckPlate, [Object::LOADOUT_CONSOLE.clone()]))
     .assoc('k', (Tile::DeckPlate, [Object::SPACE_CAT.clone()]))
-    .assoc('B', (Tile::WoodTile, [Object::bed()]))
+    .assoc('B', (Tile::WoodTile, [Object::BED.clone()]))
     .assoc('T', (Tile::DeckPlate, [Object::TABLE.clone()]))
     .assoc('c', (Tile::DeckPlate, [Object::CHAIR.clone()]))
     .assoc('L', (Tile::WoodTile, [Object::LOCKER.clone()]))
@@ -292,7 +292,7 @@ mod tests {
   use {super::*,
        crate::level::{Level, Tile}};
 
-  fn chest() -> Object { Object::loot_chest() }
+  fn chest() -> Object { Object::LOOT_CHEST.clone() }
 
   fn enemy() -> Object { Object::RAT_SOLDIER.clone() }
 
@@ -368,7 +368,7 @@ aa
 
   #[test]
   fn accepts_object_templates() {
-    let p = prefab("c").assoc('c', (Tile::DeckPlate, [Object::loot_chest()]));
+    let p = prefab("c").assoc('c', (Tile::DeckPlate, [Object::LOOT_CHEST.clone()]));
     let mut n = 0usize;
     p.for_each_assoc_object(|_, _, _| {
       n += 1;

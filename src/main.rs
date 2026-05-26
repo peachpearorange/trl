@@ -3090,7 +3090,7 @@ fn spawn_zone_geometry(
       let ent = obj.clone().spawn_at(commands, wx, wy, *lz);
       commands.entity(ent).queue(move |mut e: bevy::ecs::world::EntityWorldMut| {
         if let Some(mut elev) = e.get_mut::<Elevator>() {
-          for (_, x, y) in &mut elev.floors {
+          for (_, x, y) in elev.floors.to_mut() {
             *x += dox;
             *y += doy;
           }

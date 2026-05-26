@@ -62,10 +62,10 @@ gggggggggggggggggggggggggggggggggggggggggggggggg
   .assoc('~', (Tile::AlienFluid, []))
   .assoc('t', (Tile::AlienGrass, [Object::tree()]))
   .assoc('P', (Tile::ShipDock, []))
-  .assoc('@', (Tile::WoodTile, [Object::bed()]))
+  .assoc('@', (Tile::WoodTile, [Object::BED.clone()]))
   .assoc('R', (Tile::StationFloor, [npcs::tutorial::ori1()]))
-  .assoc('K', (Tile::StationFloor, [Object::crafting_table()]))
-  .assoc('D', (Tile::StationFloor, [Object::door()]))
+  .assoc('K', (Tile::StationFloor, [Object::CRAFTING_TABLE.clone()]))
+  .assoc('D', (Tile::StationFloor, [Object::DOOR.clone()]))
   .assoc('.', (Tile::StationFloor, []))
 }
 

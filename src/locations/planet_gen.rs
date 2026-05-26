@@ -475,7 +475,7 @@ fn generate_cave_sublevel(loc: &mut Location) {
   let chest_step = chest_candidates.len().max(1) / chest_count.max(1);
   for i in 0..chest_count.min(chest_candidates.len()) {
     let (cx, cy) = chest_candidates[i * chest_step];
-    loc.spawn_objects.push((cx, cy, 1, Object::loot_chest()));
+    loc.spawn_objects.push((cx, cy, 1, Object::LOOT_CHEST.clone()));
   }
 }
 

@@ -287,7 +287,7 @@ pub fn generate(params: &StationParams) -> Location {
 
   // Spawn airlock Objects at door positions collected above.
   for (dx, dy, z) in door_positions {
-    loc.spawn_objects.push((dx, dy, z, Object::airlock_door()));
+    loc.spawn_objects.push((dx, dy, z, Object::AIRLOCK_DOOR.clone()));
   }
 
   // Build the full floor routing table: (deck_index, local_x, local_y) for every deck.

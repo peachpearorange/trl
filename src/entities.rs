@@ -451,7 +451,7 @@ pub struct Bed;
 #[derive(Component, Clone)]
 pub struct Elevator {
   pub current_z: usize,
-  pub floors: Vec<(usize, i32, i32)>
+  pub floors: Cow<'static, [(usize, i32, i32)]>
 }
 
 /// Placed loot container; blocks the tile until emptied.
@@ -666,8 +666,8 @@ macro_rules! object_data {
     object_data!(
       @pair $name;
       [];
-      @idx (0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19);
-      @var (a b c d e f g h i j k l m n o p q r s t);
+      @idx (0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39);
+      @var (a b c d e f g h i j k l m n o p q r s t u v w x y z aa ab ac ad ae af ag ah ai aj ak al am an);
       @ty [ $($ty),+ ] @end
     );
   };
@@ -699,7 +699,7 @@ macro_rules! object_data {
   };
 
   (@pair $name:ident; $pairs:tt; @idx (); @var (); @ty [ $ty:ty $(,)? ] @end) => {
-    compile_error!("object_data! supports at most 20 component types");
+    compile_error!("object_data! supports at most 40 component types");
   };
 
   (@def $name:ident; [ $(($idx:tt, $ty:ty, $var:ident),)* ]) => {
@@ -757,7 +757,10 @@ object_data! {
   pub struct ObjectData(
     Named, Stats, Glyph, Loadout, Collidable, Character, FactionComp, Gravity,
     Enemy, Player, TimeSinceAction, DriftChance, WalkAnim, DamageCloud, Dialogue,
-    WalkAroundRandomly, BlocksSight
+    WalkAroundRandomly, BlocksSight,
+    Door, Bed, CraftingTable, FlightConsole, LoadoutConsole, LootChest, AirlockDoor,
+    Tree, GroundItem, LightSource, WallComp, Elevator, FixedChestLoot,
+    FollowerState, FollowerData, Path
   )
 }
 
@@ -1140,6 +1143,62 @@ impl Object {
     ))
     .with(Named { name: "Crate", flavor: "A battered storage crate. Probably empty." });
 
+  pub const DOOR: Self = Self::STRUCTURE
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/door closed (1).png", '+',
+      DOOR_CLOSED_PRI, DOOR_CLOSED_SEC,
+    ))
+    .with(Named { name: "Door", flavor: "Press Space to open." })
+    .with(BlocksSight)
+    .with(Door { open: false, closed_color: DOOR_CLOSED_PRI });
+
+  pub const AIRLOCK_DOOR: Self = Self::DOOR
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/airlock closed.png", '+',
+      crate::AIRLOCK_PRI, crate::AIRLOCK_SEC,
+    ))
+    .with(AirlockDoor { opened_at_sim_time: None });
+
+  pub const FLIGHT_CONSOLE: Self = Self::STRUCTURE
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/computer .png", 'C',
+      Color::srgb(0.18, 0.34, 0.52), Color::srgb(0.32, 0.88, 0.45),
+    ))
+    .with(Named { name: "Flight Console", flavor: "Navigation computer. Plot a course to a destination." })
+    .with(FlightConsole);
+
+  pub const LOADOUT_CONSOLE: Self = Self::STRUCTURE
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/locker (1).png", 'Q',
+      Color::srgb(0.25, 0.38, 0.52), Color::srgb(0.55, 0.75, 0.88),
+    ))
+    .with(Named { name: "Loadout Console", flavor: "Manage your equipped weapon and armor from your collected gear." })
+    .with(LoadoutConsole);
+
+  pub const LOOT_CHEST: Self = Self::STRUCTURE
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/crate.png", '&',
+      Color::srgb(0.72, 0.52, 0.28), Color::srgb(0.42, 0.32, 0.22),
+    ))
+    .with(Named { name: "Chest", flavor: "Someone stashed supplies here." })
+    .with(LootChest { opened: false });
+
+  pub const BED: Self = Self::STRUCTURE
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/bed.png", 'b',
+      Color::srgb(0.52, 0.38, 0.22), Color::srgb(0.88, 0.84, 0.72),
+    ))
+    .with(Named { name: "Bed", flavor: "A place to sleep. Looks like it hasn't been used in a while." })
+    .with(Bed);
+
+  pub const CRAFTING_TABLE: Self = Self::STRUCTURE
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/crafting table.png", 'C',
+      Color::srgb(0.38, 0.42, 0.48), Color::srgb(0.62, 0.62, 0.62),
+    ))
+    .with(Named { name: "Crafting Table", flavor: "A workbench for assembling equipment from salvaged parts." })
+    .with(CraftingTable);
+
   // ---- const fn factories (take args, only .with()) ----
 
   pub const fn mushroom(primary: Color, secondary: Color, name: &'static str) -> Self {
@@ -1148,153 +1207,15 @@ impl Object {
       .with(Named { name, flavor: "A large fungal growth rooted in the alien soil." })
   }
 
-  // ---- fn factories (use .add(), rand, Vec, etc.) ----
-
-  pub fn tree() -> Self {
-    let sprite = if rand::random::<bool>() { "textures/space_qud/tree.png" } else { "textures/space_qud/tree2.png" };
-    Self::STRUCTURE_PASSABLE
-      .with(Glyph::palette_sprite(
-        sprite, 'T',
-        Color::srgb(0.14, 0.42, 0.16), Color::srgb(0.38, 0.62, 0.24),
-      ))
-      .with(Named { name: "Tree", flavor: "A sturdy tree. Could be chopped for wood." })
-      .with(BlocksSight)
-      .add(Tree)
+  pub const fn torch(radius: u32) -> Self {
+    Self::EMPTY.with(LightSource { radius })
   }
 
-  pub fn door() -> Self {
-    Self::STRUCTURE
-      .with(Glyph::palette_sprite(
-        "textures/space_qud/door closed (1).png", '+',
-        DOOR_CLOSED_PRI, DOOR_CLOSED_SEC,
-      ))
-      .with(Named { name: "Door", flavor: "Press Space to open." })
-      .with(BlocksSight)
-      .add(Door { open: false, closed_color: DOOR_CLOSED_PRI })
+  pub const fn wall(material: Material) -> Self {
+    Self::STRUCTURE.with(WallComp { material })
   }
 
-  pub fn airlock_door() -> Self {
-    Self::door()
-      .with(Glyph::palette_sprite(
-        "textures/space_qud/airlock closed.png", '+',
-        crate::AIRLOCK_PRI, crate::AIRLOCK_SEC,
-      ))
-      .add(AirlockDoor { opened_at_sim_time: None })
-  }
-
-  pub fn flight_console() -> Self {
-    Self::STRUCTURE
-      .with(Glyph::palette_sprite(
-        "textures/space_qud/computer .png", 'C',
-        Color::srgb(0.18, 0.34, 0.52), Color::srgb(0.32, 0.88, 0.45),
-      ))
-      .with(Named { name: "Flight Console", flavor: "Navigation computer. Plot a course to a destination." })
-      .add(FlightConsole)
-  }
-
-  pub fn loadout_console() -> Self {
-    Self::STRUCTURE
-      .with(Glyph::palette_sprite(
-        "textures/space_qud/locker (1).png", 'Q',
-        Color::srgb(0.25, 0.38, 0.52), Color::srgb(0.55, 0.75, 0.88),
-      ))
-      .with(Named { name: "Loadout Console", flavor: "Manage your equipped weapon and armor from your collected gear." })
-      .add(LoadoutConsole)
-  }
-
-  pub fn elevator(current_z: usize, floors: Vec<(usize, i32, i32)>) -> Self {
-    Self::STRUCTURE
-      .with(Glyph::palette_sprite(
-        "textures/space_qud/elevator.png", 'E',
-        Color::srgb(0.42, 0.46, 0.50), Color::srgb(1.0, 0.85, 0.10),
-      ))
-      .with(Named { name: "Elevator", flavor: "Vertical transport. Choose a deck." })
-      .add(Elevator { current_z, floors })
-  }
-
-  pub fn cave_entrance(surface_x: i32, surface_y: i32, cave_x: i32, cave_y: i32) -> Self {
-    Self::STRUCTURE_PASSABLE
-      .with(Glyph::palette_sprite(
-        "textures/space_qud/stairs.png", '>',
-        Color::srgb(0.35, 0.32, 0.28), Color::srgb(0.55, 0.50, 0.40),
-      ))
-      .with(Named { name: "Cave Entrance", flavor: "A dark opening leads underground." })
-      .add(Elevator {
-        current_z: 0,
-        floors: vec![(0, surface_x, surface_y), (1, cave_x, cave_y)]
-      })
-  }
-
-  pub fn cave_exit(surface_x: i32, surface_y: i32, cave_x: i32, cave_y: i32) -> Self {
-    Self::STRUCTURE_PASSABLE
-      .with(Glyph::palette_sprite(
-        "textures/space_qud/stairs up.png", '<',
-        Color::srgb(0.55, 0.50, 0.40), Color::srgb(0.35, 0.32, 0.28),
-      ))
-      .with(Named { name: "Cave Exit", flavor: "Daylight filters in from above." })
-      .add(Elevator {
-        current_z: 1,
-        floors: vec![(0, surface_x, surface_y), (1, cave_x, cave_y)]
-      })
-  }
-
-  pub fn loot_chest() -> Self {
-    Self::STRUCTURE
-      .with(Glyph::palette_sprite(
-        "textures/space_qud/crate.png", '&',
-        Color::srgb(0.72, 0.52, 0.28), Color::srgb(0.42, 0.32, 0.22),
-      ))
-      .with(Named { name: "Chest", flavor: "Someone stashed supplies here." })
-      .add(LootChest { opened: false })
-  }
-
-  pub fn bed() -> Self {
-    Self::STRUCTURE
-      .with(Glyph::palette_sprite(
-        "textures/space_qud/bed.png", 'b',
-        Color::srgb(0.52, 0.38, 0.22), Color::srgb(0.88, 0.84, 0.72),
-      ))
-      .with(Named { name: "Bed", flavor: "A place to sleep. Looks like it hasn't been used in a while." })
-      .add(Bed)
-  }
-
-  pub fn crafting_table() -> Self {
-    Self::STRUCTURE
-      .with(Glyph::palette_sprite(
-        "textures/space_qud/crafting table.png", 'C',
-        Color::srgb(0.38, 0.42, 0.48), Color::srgb(0.62, 0.62, 0.62),
-      ))
-      .with(Named { name: "Crafting Table", flavor: "A workbench for assembling equipment from salvaged parts." })
-      .add(CraftingTable)
-  }
-
-  pub fn supply_cache(contents: &'static [(crate::level::Item, u32)]) -> Self {
-    Self::EMPTY
-      .with(Collidable(true))
-      .with(Glyph::palette_sprite(
-        "textures/space_qud/crate.png", 'S',
-        Color::srgb(0.28, 0.42, 0.52), Color::srgb(0.52, 0.75, 0.88),
-      ))
-      .with(Named { name: "Supply Cache", flavor: "A sealed cache. Whoever left this behind had plans they didn't finish." })
-      .add((LootChest { opened: false }, FixedChestLoot(contents)))
-  }
-
-  pub fn ground_item(item: crate::level::Item) -> Self {
-    let (primary, secondary) = item.loot_colors();
-    Self::EMPTY
-      .with(Glyph::palette_sprite(item.loot_texture(), '*', primary, secondary))
-      .add(GroundItem(item))
-  }
-
-  pub fn torch(radius: u32) -> Self {
-    Self::EMPTY.add(LightSource { radius })
-  }
-
-  pub fn wall(material: Material) -> Self {
-    Self::STRUCTURE.add(WallComp { material })
-  }
-
-  pub fn defined_npc(
+  pub const fn defined_npc(
     named: Named,
     stats: Stats,
     loadout: Loadout,
@@ -1309,11 +1230,80 @@ impl Object {
       .with(Dialogue(dialogue))
   }
 
-  pub fn as_follower(obj: Self) -> Self {
+  pub const fn as_follower(obj: Self) -> Self {
     obj
-      .add(FollowerState::Available)
-      .add(FollowerData { home: (0, 0, 0), move_timer: 0 })
-      .add(Path::default())
+      .with(FollowerState::Available)
+      .with(FollowerData { home: (0, 0, 0), move_timer: 0 })
+      .with(Path { steps: VecDeque::new(), cached_goal: None })
+  }
+
+  pub const fn supply_cache(contents: &'static [(crate::level::Item, u32)]) -> Self {
+    Self::EMPTY
+      .with(Collidable(true))
+      .with(Glyph::palette_sprite(
+        "textures/space_qud/crate.png", 'S',
+        Color::srgb(0.28, 0.42, 0.52), Color::srgb(0.52, 0.75, 0.88),
+      ))
+      .with(Named { name: "Supply Cache", flavor: "A sealed cache. Whoever left this behind had plans they didn't finish." })
+      .with(LootChest { opened: false })
+      .with(FixedChestLoot(contents))
+  }
+
+  // ---- fn factories (need rand, runtime Vec, etc.) ----
+
+  pub fn tree() -> Self {
+    let sprite = if rand::random::<bool>() { "textures/space_qud/tree.png" } else { "textures/space_qud/tree2.png" };
+    Self::STRUCTURE_PASSABLE
+      .with(Glyph::palette_sprite(
+        sprite, 'T',
+        Color::srgb(0.14, 0.42, 0.16), Color::srgb(0.38, 0.62, 0.24),
+      ))
+      .with(Named { name: "Tree", flavor: "A sturdy tree. Could be chopped for wood." })
+      .with(BlocksSight)
+      .with(Tree)
+  }
+
+  pub fn elevator(current_z: usize, floors: Vec<(usize, i32, i32)>) -> Self {
+    Self::STRUCTURE
+      .with(Glyph::palette_sprite(
+        "textures/space_qud/elevator.png", 'E',
+        Color::srgb(0.42, 0.46, 0.50), Color::srgb(1.0, 0.85, 0.10),
+      ))
+      .with(Named { name: "Elevator", flavor: "Vertical transport. Choose a deck." })
+      .with(Elevator { current_z, floors: Cow::Owned(floors) })
+  }
+
+  pub fn cave_entrance(surface_x: i32, surface_y: i32, cave_x: i32, cave_y: i32) -> Self {
+    Self::STRUCTURE_PASSABLE
+      .with(Glyph::palette_sprite(
+        "textures/space_qud/stairs.png", '>',
+        Color::srgb(0.35, 0.32, 0.28), Color::srgb(0.55, 0.50, 0.40),
+      ))
+      .with(Named { name: "Cave Entrance", flavor: "A dark opening leads underground." })
+      .with(Elevator {
+        current_z: 0,
+        floors: Cow::Owned(vec![(0, surface_x, surface_y), (1, cave_x, cave_y)])
+      })
+  }
+
+  pub fn cave_exit(surface_x: i32, surface_y: i32, cave_x: i32, cave_y: i32) -> Self {
+    Self::STRUCTURE_PASSABLE
+      .with(Glyph::palette_sprite(
+        "textures/space_qud/stairs up.png", '<',
+        Color::srgb(0.55, 0.50, 0.40), Color::srgb(0.35, 0.32, 0.28),
+      ))
+      .with(Named { name: "Cave Exit", flavor: "Daylight filters in from above." })
+      .with(Elevator {
+        current_z: 1,
+        floors: Cow::Owned(vec![(0, surface_x, surface_y), (1, cave_x, cave_y)])
+      })
+  }
+
+  pub fn ground_item(item: crate::level::Item) -> Self {
+    let (primary, secondary) = item.loot_colors();
+    Self::EMPTY
+      .with(Glyph::palette_sprite(item.loot_texture(), '*', primary, secondary))
+      .with(GroundItem(item))
   }
 }
 
