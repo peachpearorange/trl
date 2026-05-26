@@ -1299,7 +1299,7 @@ impl Object {
       })
   }
 
-  pub fn ground_item(item: crate::level::Item) -> Self {
+  pub const fn ground_item(item: crate::level::Item) -> Self {
     let (primary, secondary) = item.loot_colors();
     Self::EMPTY
       .with(Glyph::palette_sprite(item.loot_texture(), '*', primary, secondary))

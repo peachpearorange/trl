@@ -15,14 +15,14 @@ pub enum LocationType {
 pub use crate::tiles::Tile;
 
 #[derive(Assoc, Clone, Copy, PartialEq, Eq, Debug, Hash)]
-#[func(pub fn name(&self) -> &'static str)]
-#[func(pub fn glyph(&self) -> &'static str)]
-#[func(pub fn color(&self) -> [f32; 3])]
-#[func(pub fn equip_slot(&self) -> Option<EquipSlot> { None })]
-#[func(pub fn attack_bonus(&self) -> i32 { 0 })]
-#[func(pub fn defense_bonus(&self) -> i32 { 0 })]
-#[func(pub fn scrap_yield(&self) -> &'static [(Item, u32)] { &[] })]
-#[func(pub fn is_ranged(&self) -> bool { false })]
+#[func(pub const fn name(&self) -> &'static str)]
+#[func(pub const fn glyph(&self) -> &'static str)]
+#[func(pub const fn color(&self) -> [f32; 3])]
+#[func(pub const fn equip_slot(&self) -> Option<EquipSlot> { None })]
+#[func(pub const fn attack_bonus(&self) -> i32 { 0 })]
+#[func(pub const fn defense_bonus(&self) -> i32 { 0 })]
+#[func(pub const fn scrap_yield(&self) -> &'static [(Item, u32)] { &[] })]
+#[func(pub const fn is_ranged(&self) -> bool { false })]
 pub enum Item {
   #[assoc(name = "Gold Coin", glyph = "$", color = [1.0, 0.85, 0.0])]
   GoldCoin,
@@ -134,13 +134,13 @@ pub enum Item {
 }
 
 impl Item {
-  pub fn can_salvage(self) -> bool { !self.scrap_yield().is_empty() }
-  pub fn is_weapon(self) -> bool { self.equip_slot() == Some(EquipSlot::Weapon) }
-  pub fn is_armor(self) -> bool { self.equip_slot() == Some(EquipSlot::Armor) }
-  pub fn is_grenade(self) -> bool { self.equip_slot() == Some(EquipSlot::Grenade) }
-  pub fn is_device(self) -> bool { self.equip_slot() == Some(EquipSlot::Device) }
+  pub const fn can_salvage(self) -> bool { !self.scrap_yield().is_empty() }
+  pub const fn is_weapon(self) -> bool { matches!(self.equip_slot(), Some(EquipSlot::Weapon)) }
+  pub const fn is_armor(self) -> bool { matches!(self.equip_slot(), Some(EquipSlot::Armor)) }
+  pub const fn is_grenade(self) -> bool { matches!(self.equip_slot(), Some(EquipSlot::Grenade)) }
+  pub const fn is_device(self) -> bool { matches!(self.equip_slot(), Some(EquipSlot::Device)) }
 
-  pub fn loot_texture(self) -> &'static str {
+  pub const fn loot_texture(self) -> &'static str {
     match self {
       Item::GoldCoin => "textures/space_qud/coin.png",
       Item::StealthDevice => "textures/space_qud/stealth device.png",
@@ -149,7 +149,7 @@ impl Item {
     }
   }
 
-  pub fn loot_colors(self) -> (Color, Color) {
+  pub const fn loot_colors(self) -> (Color, Color) {
     match self {
       Item::GoldCoin => (Color::srgb(1.0, 0.85, 0.0), Color::srgb(0.9, 0.75, 0.0)),
       Item::StealthDevice => {
