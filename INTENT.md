@@ -2,11 +2,21 @@
 
 ## Elevator Pitch
 
-Space mercenary RPG. You are a bounty hunter in a mysterious, dangerous galaxy. Fly between handcrafted planets and stations, take jobs from bounty boards and cantina NPCs, explore sprawling alien worlds, recruit crew, upgrade your ship, and get better gear. Save-on-ship-only creates tension. The world is dark and strange — there's magic no one fully understands, factions with hidden agendas, and things in the deep caves that shouldn't exist.
+Turn-based space mercenary RPG in the tradition of Caves of Qud and Space Station 13. You are a bounty hunter in a mysterious, dangerous galaxy. Fly between handcrafted planets and stations, take jobs from bounty boards and cantina NPCs, explore sprawling alien worlds, recruit crew, upgrade your ship, and get better gear. Save-on-ship-only creates tension. The world is dark and strange — there's magic no one fully understands, factions with hidden agendas, and things in the deep caves that shouldn't exist.
+
+## Simulation Model
+
+Tile-based, turn-based. The game runs at 60fps but only every Nth frame (currently 8) is a **sim step** where gameplay actually advances — entities move, AI acts, status effects tick, combat resolves. The other frames are purely for rendering: linear interpolation of entity positions between tiles, particle effects, animations, and collecting player input. This means movement and actions look smooth despite the discrete tile grid.
+
+Two time modes:
+- **Turn-based** (default): sim steps only advance when the player spends a turn (moves, attacks, uses an ability). The world waits for you.
+- **Real-time:** sim steps tick automatically every N render frames regardless of player input. Used for specific contexts where the world should keep moving.
+
+The game will primarily run in WASM which is single-threaded, so you can't do any multi-threading and shouldn't try to enable that.
 
 ## Tone
 
-Mysterious. The player pursues their goals but doesn't know what's really going on. The world seems dark and serious, but many NPCs don't take things so seriously — you can't tell how bad things really are until you're in too deep. Magic exists but it's just another thing life throws at you, and what's behind it is unknowable. Think Morrowind's atmosphere more than Skyrim's heroism.
+Mysterious. The player pursues their goals but doesn't know what's really going on. The world seems dark and serious, but many NPCs don't take things so seriously — you can't tell how bad things really are until you're in too deep. Magic exists but it's just another thing life throws at you, and what's behind it is unknowable. Underrail-esque atmosphere.
 
 ## Core Loop
 
@@ -45,7 +55,7 @@ Quests come from bounty boards on stations and from NPCs in cantinas, bars, and 
 ## Combat
 
 ### Basics:
-- Tile-based, turn-based
+- Tile-based, turn-based (see Simulation Model above)
 - Melee: bump-attack (current system)
 - Ranged/abilities: select with number key, click target tile with mouse
 - Some abilities are untargeted (self-buffs, AoE around player, etc.)

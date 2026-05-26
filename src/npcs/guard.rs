@@ -1,6 +1,6 @@
-use {bevy::prelude::Color, crate::entities::*};
+use {crate::entities::*, bevy::prelude::Color};
 
-static DIALOGUE: DialogueTree = tree(&[
+static DIALOGUE: DialogueTree = dialogue_tree(&[
   node("root", "Hmm? Oh. Another one. What do you want?", &[
     go("Who are you?", "who"),
     go("Seen anything unusual?", "unusual"),
@@ -41,7 +41,7 @@ static DIALOGUE: DialogueTree = tree(&[
 ]);
 
 pub fn guard() -> Object {
-  Object::defined_npc(
+  Object::as_follower(Object::defined_npc(
     Named {
       name: "Guard",
       flavor: "A tired-looking guard leaning on a sword. Seems like he'd rather be elsewhere."
@@ -53,6 +53,5 @@ pub fn guard() -> Object {
     ]),
     npc_person_glyph('G', Color::srgb(0.72, 0.76, 0.8), Color::srgb(0.42, 0.46, 0.52)),
     &DIALOGUE
-  )
-  .as_follower()
+  ))
 }

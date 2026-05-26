@@ -1,4 +1,4 @@
-use {crate::{entities::Object,
+use {crate::{entities::*,
              galaxy::{Location, LocationId},
              level::{Level, LocationType, Tile}},
      rand::{Rng, SeedableRng, rngs::SmallRng},
@@ -10,6 +10,9 @@ pub const ID_ARCTIC_WASTE: LocationId = (6, 0, 0);
 pub const ID_DESERT_WORLD: LocationId = (1, 1, 0);
 pub const ID_LAVA_WORLD: LocationId = (7, 0, 0);
 pub const ID_BRIGHT_WORLD: LocationId = (8, 0, 0);
+pub const ID_PLANET_GRASS: LocationId = (9, 0, 0);
+pub const ID_PLANET_GRABLOB: LocationId = (10, 0, 0);
+pub const ID_PLANET_ZUGXUBLU: LocationId = (11, 0, 0);
 
 pub fn all_ids() -> Vec<(LocationId, &'static str)> {
   vec![
@@ -19,25 +22,51 @@ pub fn all_ids() -> Vec<(LocationId, &'static str)> {
     (ID_DESERT_WORLD, "Khamsin Reach"),
     (ID_LAVA_WORLD, "Pyros Maw"),
     (ID_BRIGHT_WORLD, "Lumos Reach"),
+    (ID_PLANET_GRASS, "Planet Grass"),
+    (ID_PLANET_GRABLOB, "Planet Grablob"),
+    (ID_PLANET_ZUGXUBLU, "Planet Zugxublu"),
   ]
 }
 
 const GRID_ALIEN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/planet_alien.bin"));
-const GRID_CRYSTAL: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/planet_crystal.bin"));
+const GRID_CRYSTAL: &[u8] =
+  include_bytes!(concat!(env!("OUT_DIR"), "/planet_crystal.bin"));
 const GRID_ARCTIC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/planet_arctic.bin"));
 const GRID_DESERT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/planet_desert.bin"));
 const GRID_BRIGHT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/planet_bright.bin"));
 const GRID_LAVA: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/planet_lava.bin"));
+const GRID_GRASS: &[u8] =
+  include_bytes!("../../assets/generated/planets/planet_grass.bin");
+const GRID_GRABLOB: &[u8] =
+  include_bytes!("../../assets/generated/planets/planet_grablob.bin");
+const GRID_ZUGXUBLU: &[u8] =
+  include_bytes!("../../assets/generated/planets/planet_zugxublu.bin");
+const PLANET_GRASS_MAGIC: &[u8; 4] = b"PGR1";
 
 pub fn generate_by_id(id: LocationId) -> Option<Location> {
   match id {
     ID_ALIEN_JUNGLE => Some(generate(&PlanetParams::alien("Xel-Nara IV"), GRID_ALIEN)),
-    ID_CRYSTAL_CAVES => Some(generate(&PlanetParams::crystal("Keth Caverns"), GRID_CRYSTAL)),
+    ID_CRYSTAL_CAVES => {
+      Some(generate(&PlanetParams::crystal("Keth Caverns"), GRID_CRYSTAL))
+    }
     ID_ARCTIC_WASTE => Some(generate(&PlanetParams::arctic("Boreas Prime"), GRID_ARCTIC)),
-    ID_DESERT_WORLD => Some(generate(&PlanetParams::desert("Khamsin Reach"), GRID_DESERT)),
+    ID_DESERT_WORLD => {
+      Some(generate(&PlanetParams::desert("Khamsin Reach"), GRID_DESERT))
+    }
     ID_LAVA_WORLD => Some(generate_lava(&PlanetParams::lava("Pyros Maw"), GRID_LAVA)),
     ID_BRIGHT_WORLD => Some(generate(&PlanetParams::bright("Lumos Reach"), GRID_BRIGHT)),
-    _ => None,
+    ID_PLANET_GRASS => {
+      Some(generate_editor_planet(&PlanetParams::grassland("Planet Grass"), GRID_GRASS))
+    }
+    ID_PLANET_GRABLOB => Some(generate_editor_planet(
+      &PlanetParams::grassland("Planet Grablob"),
+      GRID_GRABLOB
+    )),
+    ID_PLANET_ZUGXUBLU => Some(generate_editor_planet(
+      &PlanetParams::grassland("Planet Zugxublu"),
+      GRID_ZUGXUBLU
+    )),
+    _ => None
   }
 }
 
@@ -166,6 +195,85 @@ fn is_solid_ground(tile: Tile) -> bool {
 
 fn scaled(param: f32, scale: f32) -> f32 { (param * scale).max(0.05) }
 
+fn editor_object(index: u16) -> Option<fn() -> Object> {
+  match index {
+    0 => Some(Object::tree as fn() -> Object),
+    _ => None
+  }
+}
+
+fn decode_editor_cell(encoded: u16) -> (Tile, Option<fn() -> Object>) {
+  let tile = Tile::try_from(encoded & 0xFF).unwrap_or(Tile::Grass);
+  let object = (encoded >> 8).checked_sub(1).and_then(editor_object);
+  (tile, object)
+}
+
+enum EditorPlanetGrid<'a> {
+  Palette { palette: &'a [u8], indices: &'a [u8] },
+  Raw(&'a [u8])
+}
+
+impl<'a> EditorPlanetGrid<'a> {
+  fn new(bytes: &'a [u8]) -> Self {
+    if bytes.starts_with(PLANET_GRASS_MAGIC) {
+      let palette_len = u16::from_le_bytes([bytes[4], bytes[5]]) as usize;
+      let indices_start = 6 + palette_len * 2;
+      Self::Palette {
+        palette: &bytes[6..indices_start],
+        indices: &bytes[indices_start..]
+      }
+    } else {
+      Self::Raw(bytes)
+    }
+  }
+
+  fn cell(&self, index: usize) -> u16 {
+    match self {
+      Self::Palette { palette, indices } => {
+        let palette_index = indices[index] as usize;
+        let byte_index = palette_index * 2;
+        u16::from_le_bytes([palette[byte_index], palette[byte_index + 1]])
+      }
+      Self::Raw(bytes) => {
+        let byte_index = index * 2;
+        u16::from_le_bytes([bytes[byte_index], bytes[byte_index + 1]])
+      }
+    }
+  }
+}
+
+fn generate_editor_planet(params: &PlanetParams, grid_cells: &[u8]) -> Location {
+  let mut loc = Location::new(
+    params.name,
+    PLANET_SIZE,
+    PLANET_SIZE,
+    2,
+    LocationType::PlanetSurface { breathable: params.breathable },
+    Tile::Grass
+  );
+  let grid = EditorPlanetGrid::new(grid_cells);
+  let mut spawn_objects = Vec::new();
+
+  {
+    let level = loc.level_mut(0);
+    for y in 0..PLANET_SIZE {
+      for x in 0..PLANET_SIZE {
+        let (tile, entity_fn) = decode_editor_cell(grid.cell(y * PLANET_SIZE + x));
+        level.set(x as i32, y as i32, tile);
+        if let Some(spawn) = entity_fn {
+          spawn_objects.push((x as i32, y as i32, 0, spawn()));
+        }
+      }
+    }
+    place_ship_dock(level, Tile::Grass);
+  }
+  loc.spawn_objects.extend(spawn_objects);
+
+  generate_cave_sublevel(&mut loc);
+
+  loc
+}
+
 fn generate(params: &PlanetParams, grid_indices: &[u8]) -> Location {
   let mut tile_map: Vec<(Tile, Option<fn() -> Object>)> = Vec::new();
 
@@ -192,7 +300,8 @@ fn generate(params: &PlanetParams, grid_indices: &[u8]) -> Location {
       tile_map.push((Tile::Ash, None));
       tile_map.push((Tile::BioluminescentPool, None));
       tile_map.push((Tile::AcidPool, None));
-      tile_map.push((Tile::CrystalFormation, Some(Object::mantis_alien as fn() -> Object)));
+      tile_map
+        .push((Tile::CrystalFormation, Some((|| Object::MANTIS_ALIEN.clone()) as fn() -> Object)));
     }
     PlanetBiome::Alien => {
       tile_map.push((Tile::AlienSoil, None));
@@ -200,8 +309,8 @@ fn generate(params: &PlanetParams, grid_indices: &[u8]) -> Location {
       tile_map.push((Tile::AlienFluid, None));
       tile_map.push((Tile::BioluminescentPool, None));
       tile_map.push((Tile::CaveWall, None));
-      tile_map.push((Tile::AlienSoil, Some(Object::alien_runner as fn() -> Object)));
-      tile_map.push((Tile::AlienSoil, Some(Object::crab_alien as fn() -> Object)));
+      tile_map.push((Tile::AlienSoil, Some((|| Object::ALIEN_RUNNER.clone()) as fn() -> Object)));
+      tile_map.push((Tile::AlienSoil, Some((|| Object::CRAB_ALIEN.clone()) as fn() -> Object)));
     }
     PlanetBiome::Arctic => {
       tile_map.push((Tile::IceFloor, None));
@@ -215,8 +324,9 @@ fn generate(params: &PlanetParams, grid_indices: &[u8]) -> Location {
       tile_map.push((Tile::BrightCobbleWall, None));
       tile_map.push((Tile::ShallowWater, None));
       tile_map.push((Tile::DeepWater, None));
-      tile_map.push((Tile::BrightGround, Some(Object::gunman as fn() -> Object)));
-      tile_map.push((Tile::BrightGround, Some(Object::grenade_thrower as fn() -> Object)));
+      tile_map.push((Tile::BrightGround, Some((|| Object::GUNMAN.clone()) as fn() -> Object)));
+      tile_map
+        .push((Tile::BrightGround, Some((|| Object::GRENADE_THROWER.clone()) as fn() -> Object)));
     }
   }
 
@@ -470,7 +580,15 @@ fn place_ship_dock(level: &mut Level, fill: Tile) {
 
 fn generate_lava(params: &PlanetParams, grid_indices: &[u8]) -> Location {
   // model_index → tile: 0=CaveWall, 1=Ash(edge), 2=Ash(straight), 3=Ash(corner), 4=Ash(T), 5=Ash(cross), 6=CaveWall(patches)
-  let tile_map: &[Tile] = &[Tile::CaveWall, Tile::Ash, Tile::Ash, Tile::Ash, Tile::Ash, Tile::Ash, Tile::CaveWall];
+  let tile_map: &[Tile] = &[
+    Tile::CaveWall,
+    Tile::Ash,
+    Tile::Ash,
+    Tile::Ash,
+    Tile::Ash,
+    Tile::Ash,
+    Tile::CaveWall
+  ];
 
   let mut loc = Location::new(
     params.name,
@@ -485,7 +603,11 @@ fn generate_lava(params: &PlanetParams, grid_indices: &[u8]) -> Location {
     let level = loc.level_mut(0);
     for y in 0..PLANET_SIZE {
       for x in 0..PLANET_SIZE {
-        level.set(x as i32, y as i32, tile_map[grid_indices[y * PLANET_SIZE + x] as usize]);
+        level.set(
+          x as i32,
+          y as i32,
+          tile_map[grid_indices[y * PLANET_SIZE + x] as usize]
+        );
       }
     }
 
@@ -522,7 +644,7 @@ fn generate_lava(params: &PlanetParams, grid_indices: &[u8]) -> Location {
       } else {
         let _: f64 = rng.r#gen();
         if rng.gen_bool(0.01) {
-          loc.spawn_objects.push((x, y, 0, Object::lava_crab()));
+          loc.spawn_objects.push((x, y, 0, Object::LAVA_CRAB.clone()));
         }
       }
     }

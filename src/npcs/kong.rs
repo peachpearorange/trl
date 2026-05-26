@@ -1,6 +1,6 @@
-use {bevy::prelude::Color, crate::entities::*};
+use {crate::entities::*, bevy::prelude::Color};
 
-static DIALOGUE: DialogueTree = tree(&[
+static DIALOGUE: DialogueTree = dialogue_tree(&[
   node(
     "root",
     "[A presence presses against your mind. Words form, not in your ears, \
@@ -111,7 +111,7 @@ static DIALOGUE: DialogueTree = tree(&[
 ]);
 
 pub fn kong() -> Object {
-  Object::defined_npc(
+  Object::as_follower(Object::defined_npc(
     Named {
       name: "Kong",
       flavor: "A small monkey with unsettlingly intelligent eyes. You feel watched from the inside."
@@ -120,6 +120,5 @@ pub fn kong() -> Object {
     Loadout::default(),
     npc_person_glyph('M', Color::srgb(0.38, 0.72, 0.32), Color::srgb(0.72, 0.92, 0.48)),
     &DIALOGUE
-  )
-  .as_follower()
+  ))
 }

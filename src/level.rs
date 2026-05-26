@@ -1,5 +1,4 @@
-use bevy::prelude::Color;
-use enum_assoc::Assoc;
+use {bevy::prelude::Color, enum_assoc::Assoc};
 
 /// What kind of place a Location is. Determines atmosphere, procgen strategy, and flavor.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -153,11 +152,14 @@ impl Item {
   pub fn loot_colors(self) -> (Color, Color) {
     match self {
       Item::GoldCoin => (Color::srgb(1.0, 0.85, 0.0), Color::srgb(0.9, 0.75, 0.0)),
-      Item::StealthDevice => (Color::srgb(0.75, 0.75, 0.78), Color::srgb(0.55, 0.15, 1.0)),
+      Item::StealthDevice => {
+        (Color::srgb(0.75, 0.75, 0.78), Color::srgb(0.55, 0.15, 1.0))
+      }
       _ => {
         let [r, g, b] = self.color();
         let primary = Color::srgb(r, g, b);
-        let secondary = Color::srgb((r + 0.3).min(1.0), (g + 0.3).min(1.0), (b + 0.3).min(1.0));
+        let secondary =
+          Color::srgb((r + 0.3).min(1.0), (g + 0.3).min(1.0), (b + 0.3).min(1.0));
         (primary, secondary)
       }
     }
@@ -179,7 +181,6 @@ pub enum EquipSlot {
   Device
 }
 
-
 #[derive(Clone, Debug)]
 pub struct Level {
   pub tiles: Vec<Vec<Tile>>,
@@ -189,11 +190,7 @@ pub struct Level {
 
 impl Level {
   pub fn new(width: usize, height: usize, fill: Tile) -> Self {
-    Level {
-      tiles: vec![vec![fill; width]; height],
-      width,
-      height
-    }
+    Level { tiles: vec![vec![fill; width]; height], width, height }
   }
 
   pub fn get(&self, x: i32, y: i32) -> Option<Tile> {
@@ -202,7 +199,6 @@ impl Level {
       .filter(|&(ux, uy)| ux < self.width && uy < self.height)
       .map(|(ux, uy)| self.tiles[uy][ux])
   }
-
 
   pub fn set(&mut self, x: i32, y: i32, tile: Tile) {
     if x >= 0 && y >= 0 && (x as usize) < self.width && (y as usize) < self.height {
@@ -364,11 +360,7 @@ pub struct FovGrid {
 
 impl FovGrid {
   pub fn new(width: usize, height: usize) -> Self {
-    FovGrid {
-      visible: vec![vec![false; width]; height],
-      width,
-      height
-    }
+    FovGrid { visible: vec![vec![false; width]; height], width, height }
   }
 
   pub fn clear_visible(&mut self) {
@@ -401,120 +393,139 @@ pub fn compute_fov(
 ) {
   fov.clear_visible();
   if cx >= 0 && cy >= 0 && (cx as usize) < fov.width && (cy as usize) < fov.height {
-    let max_dist = cx.max((fov.width as i32) - 1 - cx)
-      .max(cy.max((fov.height as i32) - 1 - cy));
+    let max_dist =
+      cx.max((fov.width as i32) - 1 - cx).max(cy.max((fov.height as i32) - 1 - cy));
     let r = radius.min(max_dist);
-  let size = (2 * r + 1) as usize;
-  // 0 = unvisited, positive = propagation depth, -1 = opaque (visible but blocks)
-  let mut vis2 = vec![0i32; size * size];
-  let mut vis = vec![0i32; size * size];
+    let size = (2 * r + 1) as usize;
+    // 0 = unvisited, positive = propagation depth, -1 = opaque (visible but blocks)
+    let mut vis2 = vec![0i32; size * size];
+    let mut vis = vec![0i32; size * size];
 
-  let mut is_opaque = |dx: i32, dy: i32| -> bool {
-    (dx, dy) != (0, 0) && {
-      let (wx, wy) = (cx + dx, cy + dy);
-      match level.get(wx, wy) {
-        None => true,
-        Some(t) => t.opaque() || blocks_sight(wx, wy)
+    let mut is_opaque = |dx: i32, dy: i32| -> bool {
+      (dx, dy) != (0, 0) && {
+        let (wx, wy) = (cx + dx, cy + dy);
+        match level.get(wx, wy) {
+          None => true,
+          Some(t) => t.opaque() || blocks_sight(wx, wy)
+        }
+      }
+    };
+
+    let idx = |dx: i32, dy: i32| (dy + r) as usize * size + (dx + r) as usize;
+
+    fn chebyshev_ring(d: i32, mut f: impl FnMut(i32, i32)) {
+      for dx in -d..=d {
+        f(dx, -d);
+        f(dx, d);
+      }
+      for dy in (-d + 1)..d {
+        f(-d, dy);
+        f(d, dy);
       }
     }
-  };
 
-  let idx = |dx: i32, dy: i32| (dy + r) as usize * size + (dx + r) as usize;
-
-  fn chebyshev_ring(d: i32, mut f: impl FnMut(i32, i32)) {
-    for dx in -d..=d { f(dx, -d); f(dx, d); }
-    for dy in (-d + 1)..d { f(-d, dy); f(d, dy); }
-  }
-
-  fn manhattan_shell(d: i32, mut f: impl FnMut(i32, i32)) {
-    for dx in -d..=d {
-      let ady = d - dx.abs();
-      f(dx, ady);
-      if ady != 0 { f(dx, -ady); }
+    fn manhattan_shell(d: i32, mut f: impl FnMut(i32, i32)) {
+      for dx in -d..=d {
+        let ady = d - dx.abs();
+        f(dx, ady);
+        if ady != 0 {
+          f(dx, -ady);
+        }
+      }
     }
-  }
 
-  const NEIGHBORS: [(i32, i32); 8] = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)];
+    const NEIGHBORS: [(i32, i32); 8] =
+      [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)];
 
-  let in_grid = |dx: i32, dy: i32| dx >= -r && dx <= r && dy >= -r && dy <= r;
+    let in_grid = |dx: i32, dy: i32| dx >= -r && dx <= r && dy >= -r && dy <= r;
 
-  // Pass 1: Diagonal shadow — propagate by Chebyshev distance
-  // Only propagate from neighbors at exactly distance d (one ring closer)
-  for d in 0..r {
-    chebyshev_ring(d + 1, |dx, dy| {
-      if !in_grid(dx, dy) { return; }
-      let gi = idx(dx, dy);
-      let reached = d == 0 || NEIGHBORS.iter().any(|&(ndx, ndy)| {
-        let (nx, ny) = (dx + ndx, dy + ndy);
-        in_grid(nx, ny) && vis2[idx(nx, ny)] == d
+    // Pass 1: Diagonal shadow — propagate by Chebyshev distance
+    // Only propagate from neighbors at exactly distance d (one ring closer)
+    for d in 0..r {
+      chebyshev_ring(d + 1, |dx, dy| {
+        if !in_grid(dx, dy) {
+          return;
+        }
+        let gi = idx(dx, dy);
+        let reached = d == 0
+          || NEIGHBORS.iter().any(|&(ndx, ndy)| {
+            let (nx, ny) = (dx + ndx, dy + ndy);
+            in_grid(nx, ny) && vis2[idx(nx, ny)] == d
+          });
+        if reached {
+          vis2[gi] = if is_opaque(dx, dy) { -1 } else { d + 1 };
+        }
       });
-      if reached {
-        vis2[gi] = if is_opaque(dx, dy) { -1 } else { d + 1 };
-      }
-    });
-  }
+    }
 
-  // Pass 2: Straight shadow — propagate by Manhattan distance
-  // Only propagate from neighbors at exactly distance d (one shell closer)
-  let sum_max = 2 * r;
-  for d in 0..sum_max {
-    manhattan_shell(d + 1, |dx, dy| {
-      if !in_grid(dx, dy) { return; }
-      let gi = idx(dx, dy);
-      if vis2[gi] == 0 { return; }
-      let reached = d == 0 || NEIGHBORS.iter().any(|&(ndx, ndy)| {
-        let (nx, ny) = (dx + ndx, dy + ndy);
-        in_grid(nx, ny) && vis[idx(nx, ny)] == d
+    // Pass 2: Straight shadow — propagate by Manhattan distance
+    // Only propagate from neighbors at exactly distance d (one shell closer)
+    let sum_max = 2 * r;
+    for d in 0..sum_max {
+      manhattan_shell(d + 1, |dx, dy| {
+        if !in_grid(dx, dy) {
+          return;
+        }
+        let gi = idx(dx, dy);
+        if vis2[gi] == 0 {
+          return;
+        }
+        let reached = d == 0
+          || NEIGHBORS.iter().any(|&(ndx, ndy)| {
+            let (nx, ny) = (dx + ndx, dy + ndy);
+            in_grid(nx, ny) && vis[idx(nx, ny)] == d
+          });
+        if reached {
+          vis[gi] = if is_opaque(dx, dy) { -1 } else { d + 1 };
+        }
       });
-      if reached {
-        vis[gi] = if is_opaque(dx, dy) { -1 } else { d + 1 };
-      }
-    });
-  }
+    }
 
-  // Mark eye visible
-  vis[idx(0, 0)] = 1;
+    // Mark eye visible
+    vis[idx(0, 0)] = 1;
 
-  // Boundary pass: reveal opaque tiles adjacent to visible areas
-  for dx in -r..=r {
-    for dy in -r..=r {
-      let gi = idx(dx, dy);
-      if vis[gi] != 0 || !is_opaque(dx, dy) { continue; }
-      let get_vis = |ddx: i32, ddy: i32| {
-        let (nx, ny) = (dx + ddx, dy + ddy);
-        if nx.abs().max(ny.abs()) <= r { vis[idx(nx, ny)] } else { 0 }
-      };
-      // Wall rule: both opposite cardinal neighbors visible
-      if (get_vis(1, 0) != 0 && get_vis(-1, 0) != 0)
-        || (get_vis(0, 1) != 0 && get_vis(0, -1) != 0)
-      {
-        vis[gi] = -1;
-      } else {
-        // Corner rule
-        for &(cdx, cdy) in &[(-1, -1), (-1, 1), (1, -1), (1, 1)] {
-          if get_vis(cdx, cdy) != 0
-            && get_vis(cdx, 0) != 0
-            && get_vis(0, cdy) != 0
-            && is_opaque(dx + cdx, dy)
-            && is_opaque(dx, dy + cdy)
-            && !is_opaque(dx + cdx, dy + cdy)
-          {
-            vis[gi] = -1;
-            break;
+    // Boundary pass: reveal opaque tiles adjacent to visible areas
+    for dx in -r..=r {
+      for dy in -r..=r {
+        let gi = idx(dx, dy);
+        if vis[gi] != 0 || !is_opaque(dx, dy) {
+          continue;
+        }
+        let get_vis = |ddx: i32, ddy: i32| {
+          let (nx, ny) = (dx + ddx, dy + ddy);
+          if nx.abs().max(ny.abs()) <= r { vis[idx(nx, ny)] } else { 0 }
+        };
+        // Wall rule: both opposite cardinal neighbors visible
+        if (get_vis(1, 0) != 0 && get_vis(-1, 0) != 0)
+          || (get_vis(0, 1) != 0 && get_vis(0, -1) != 0)
+        {
+          vis[gi] = -1;
+        } else {
+          // Corner rule
+          for &(cdx, cdy) in &[(-1, -1), (-1, 1), (1, -1), (1, 1)] {
+            if get_vis(cdx, cdy) != 0
+              && get_vis(cdx, 0) != 0
+              && get_vis(0, cdy) != 0
+              && is_opaque(dx + cdx, dy)
+              && is_opaque(dx, dy + cdy)
+              && !is_opaque(dx + cdx, dy + cdy)
+            {
+              vis[gi] = -1;
+              break;
+            }
           }
         }
       }
     }
-  }
 
-  // Transfer to FovGrid
-  for dx in -r..=r {
-    for dy in -r..=r {
-      if vis[idx(dx, dy)] != 0 {
-        fov.mark_visible((cx + dx) as usize, (cy + dy) as usize);
+    // Transfer to FovGrid
+    for dx in -r..=r {
+      for dy in -r..=r {
+        if vis[idx(dx, dy)] != 0 {
+          fov.mark_visible((cx + dx) as usize, (cy + dy) as usize);
+        }
       }
     }
-  }
   }
 }
 
@@ -549,8 +560,13 @@ mod fov_tests {
     // #...#
     // #####
     let mut level = Level::new(7, 5, Tile::StationFloor);
-    for x in 0..5 { level.set(x, 0, Tile::StationWall); level.set(x, 4, Tile::StationWall); }
-    for y in 0..5 { level.set(0, y, Tile::StationWall); }
+    for x in 0..5 {
+      level.set(x, 0, Tile::StationWall);
+      level.set(x, 4, Tile::StationWall);
+    }
+    for y in 0..5 {
+      level.set(0, y, Tile::StationWall);
+    }
     level.set(4, 0, Tile::StationWall);
     level.set(4, 1, Tile::StationWall);
     level.set(4, 3, Tile::StationWall);
@@ -565,7 +581,10 @@ mod fov_tests {
     println!("door open:\n{map}");
     for y in 1..=3 {
       for x in 1..=3 {
-        assert!(fov.is_visible(x, y), "({x},{y}) should be visible with door open\n{map}");
+        assert!(
+          fov.is_visible(x, y),
+          "({x},{y}) should be visible with door open\n{map}"
+        );
       }
     }
   }
@@ -573,8 +592,13 @@ mod fov_tests {
   #[test]
   fn bedroom_door_closed_hides_interior() {
     let mut level = Level::new(7, 5, Tile::StationFloor);
-    for x in 0..5 { level.set(x, 0, Tile::StationWall); level.set(x, 4, Tile::StationWall); }
-    for y in 0..5 { level.set(0, y, Tile::StationWall); }
+    for x in 0..5 {
+      level.set(x, 0, Tile::StationWall);
+      level.set(x, 4, Tile::StationWall);
+    }
+    for y in 0..5 {
+      level.set(0, y, Tile::StationWall);
+    }
     level.set(4, 0, Tile::StationWall);
     level.set(4, 1, Tile::StationWall);
     level.set(4, 3, Tile::StationWall);
@@ -592,7 +616,10 @@ mod fov_tests {
     // interior should NOT be visible
     for y in 1..=3 {
       for x in 1..=3 {
-        assert!(!fov.is_visible(x, y), "({x},{y}) should be hidden with door closed\n{map}");
+        assert!(
+          !fov.is_visible(x, y),
+          "({x},{y}) should be hidden with door closed\n{map}"
+        );
       }
     }
   }

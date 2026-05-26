@@ -1,4 +1,6 @@
-use {crate::{entities::Object, level::{Level, LocationType, Tile}, prefabs::Prefab},
+use {crate::{entities::Object,
+             level::{Level, LocationType, Tile},
+             prefabs::Prefab},
      bevy::prelude::*,
      std::collections::HashMap};
 
@@ -16,7 +18,7 @@ pub struct Location {
   pub location_type: LocationType,
   /// Objects to spawn when this location is loaded.
   /// Each entry: (local_x, local_y, z, object) — world offset applied at spawn time.
-  pub spawn_objects: Vec<(i32, i32, usize, Object)>,
+  pub spawn_objects: Vec<(i32, i32, usize, Object)>
 }
 
 impl Location {
@@ -55,12 +57,16 @@ impl Location {
 pub struct Galaxy {
   pub locations: HashMap<LocationId, Location>,
   generators: HashMap<LocationId, fn(LocationId) -> Option<Location>>,
-  deferred_names: HashMap<LocationId, &'static str>,
+  deferred_names: HashMap<LocationId, &'static str>
 }
 
 impl Galaxy {
   pub fn new() -> Self {
-    Galaxy { locations: HashMap::new(), generators: HashMap::new(), deferred_names: HashMap::new() }
+    Galaxy {
+      locations: HashMap::new(),
+      generators: HashMap::new(),
+      deferred_names: HashMap::new()
+    }
   }
 
   pub fn get(&self, id: LocationId) -> Option<&Location> { self.locations.get(&id) }
@@ -84,13 +90,21 @@ impl Galaxy {
     self.locations.insert(id, location);
   }
 
-  pub fn register_deferred(&mut self, id: LocationId, name: &'static str, make: fn(LocationId) -> Option<Location>) {
+  pub fn register_deferred(
+    &mut self,
+    id: LocationId,
+    name: &'static str,
+    make: fn(LocationId) -> Option<Location>
+  ) {
     self.generators.insert(id, make);
     self.deferred_names.insert(id, name);
   }
 
   pub fn all_location_names(&self) -> impl Iterator<Item = (LocationId, &str)> {
-    self.locations.iter().map(|(&id, loc)| (id, loc.name))
+    self
+      .locations
+      .iter()
+      .map(|(&id, loc)| (id, loc.name))
       .chain(self.deferred_names.iter().map(|(&id, &name)| (id, name)))
   }
 

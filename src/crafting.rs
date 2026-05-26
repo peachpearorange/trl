@@ -39,7 +39,12 @@ pub static RECIPES: &[Recipe] = &[
   Recipe {
     output: Item::LaserRifle,
     output_qty: 1,
-    ingredients: &[(Item::Crystal, 2), (Item::SyntheticMaterial, 2), (Item::Glass, 1), (Item::Screws, 2)]
+    ingredients: &[
+      (Item::Crystal, 2),
+      (Item::SyntheticMaterial, 2),
+      (Item::Glass, 1),
+      (Item::Screws, 2)
+    ]
   },
   // Armor
   Recipe {
@@ -99,7 +104,7 @@ pub static RECIPES: &[Recipe] = &[
     output: Item::Torch,
     output_qty: 1,
     ingredients: &[(Item::Wood, 1), (Item::OrganicMaterial, 1)]
-  },
+  }
 ];
 
 pub fn can_craft(inv: &HashMap<Item, u32>, recipe: &Recipe) -> bool {

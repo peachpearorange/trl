@@ -10,14 +10,18 @@ struct EmbeddedAssets;
 fn load_asset_bytes(relative_path: &str) -> Vec<u8> {
   #[cfg(not(target_arch = "wasm32"))]
   {
-    let fs_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets").join(relative_path);
-    std::fs::read(&fs_path)
-      .unwrap_or_else(|e| panic!("load_asset_bytes: failed to read {}: {e}", fs_path.display()))
+    let fs_path =
+      PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets").join(relative_path);
+    std::fs::read(&fs_path).unwrap_or_else(|e| {
+      panic!("load_asset_bytes: failed to read {}: {e}", fs_path.display())
+    })
   }
   #[cfg(target_arch = "wasm32")]
   {
     EmbeddedAssets::get(relative_path)
-      .unwrap_or_else(|| panic!("load_asset_bytes: embedded asset not found: {relative_path}"))
+      .unwrap_or_else(|| {
+        panic!("load_asset_bytes: embedded asset not found: {relative_path}")
+      })
       .data
       .into_owned()
   }
@@ -26,11 +30,10 @@ fn load_asset_bytes(relative_path: &str) -> Vec<u8> {
 use {bevy::{asset::RenderAssetUsages,
             color::LinearRgba,
             prelude::*,
-            render::render_resource::{
-              Extent3d, TextureAspect, TextureDimension, TextureFormat, TextureViewDescriptor,
-              TextureViewDimension
-            }},
-     image::{imageops, RgbaImage}};
+            render::render_resource::{Extent3d, TextureAspect, TextureDimension,
+                                      TextureFormat, TextureViewDescriptor,
+                                      TextureViewDimension}},
+     image::{RgbaImage, imageops}};
 
 /// How the renderer picks a layer for a tile at a given position.
 #[derive(Clone, Copy)]
@@ -223,8 +226,7 @@ fn connected_border_variant(base: &RgbaImage, mask: u8) -> RgbaImage {
       if on_edge && !is_corner {
         img.put_pixel(x, y, clear);
       }
-      let is_inner_corner =
-        (x == 1 && y == 1 && (n || west))
+      let is_inner_corner = (x == 1 && y == 1 && (n || west))
         || (x == w - 2 && y == 1 && (n || e))
         || (x == 1 && y == h - 2 && (s || west))
         || (x == w - 2 && y == h - 2 && (s || e));
@@ -262,22 +264,23 @@ fn apply_transform(img: &RgbaImage, t: Transform) -> RgbaImage {
 /// Every entry uses a parity-preserving transform; reverse_L exists to fill
 /// the two L corners (masks 6 and 9) that are unreachable from L's orbit.
 const CONNECTED_LOOKUP: [(usize, Transform); 16] = [
-  /* 0000        */ (0, Transform::Identity),       // iso
-  /* 0001 N      */ (1, Transform::AntiTranspose),  // end (transposed)
-  /* 0010 E      */ (1, Transform::Identity),       // end (transposed)
-  /* 0011 N+E    */ (3, Transform::Identity),       // L
-  /* 0100 S      */ (1, Transform::Transpose),      // end (transposed)
-  /* 0101 N+S    */ (2, Transform::Transpose),      // straight:   E+W → N+S
-  /* 0110 E+S    */ (6, Transform::R180),           // reverse_L:  N+W → S+E
-  /* 0111 N+E+S  */ (4, Transform::AntiTranspose),  // T:          N+E+W → N+E+S
-  /* 1000 W      */ (1, Transform::R180),           // end (transposed)
-  /* 1001 N+W    */ (6, Transform::Identity),       // reverse_L
-  /* 1010 E+W    */ (2, Transform::Identity),       // straight
-  /* 1011 N+E+W  */ (4, Transform::Identity),       // T (missing S)
-  /* 1100 S+W    */ (3, Transform::R180),           // L:          N+E → S+W
-  /* 1101 N+S+W  */ (4, Transform::Transpose),      // T:          N+E+W → N+S+W
-  /* 1110 E+S+W  */ (4, Transform::R180),           // T (missing N)
-  /* 1111 all    */ (5, Transform::Identity)        // cross
+  /* 0000        */ (0, Transform::Identity), // iso
+  /* 0001 N      */ (1, Transform::AntiTranspose), // end (transposed)
+  /* 0010 E      */ (1, Transform::Identity), // end (transposed)
+  /* 0011 N+E    */ (3, Transform::Identity), // L
+  /* 0100 S      */ (1, Transform::Transpose), // end (transposed)
+  /* 0101 N+S    */ (2, Transform::Transpose), // straight:   E+W → N+S
+  /* 0110 E+S    */ (6, Transform::R180), // reverse_L:  N+W → S+E
+  /* 0111 N+E+S  */
+  (4, Transform::AntiTranspose), // T:          N+E+W → N+E+S
+  /* 1000 W      */ (1, Transform::R180), // end (transposed)
+  /* 1001 N+W    */ (6, Transform::Identity), // reverse_L
+  /* 1010 E+W    */ (2, Transform::Identity), // straight
+  /* 1011 N+E+W  */ (4, Transform::Identity), // T (missing S)
+  /* 1100 S+W    */ (3, Transform::R180), // L:          N+E → S+W
+  /* 1101 N+S+W  */ (4, Transform::Transpose), // T:          N+E+W → N+S+W
+  /* 1110 E+S+W  */ (4, Transform::R180), // T (missing N)
+  /* 1111 all    */ (5, Transform::Identity) // cross
 ];
 
 /// Build a 2D array image with one layer per tile variant.
@@ -303,7 +306,12 @@ pub fn build_tileset(images: &mut Assets<Image>) -> TilesetInfo {
       match tile.render_mode() {
         TileRenderMode::SolidColor => {
           let [r, g, b] = tile.color();
-          let px = [(r * 255.0).round() as u8, (g * 255.0).round() as u8, (b * 255.0).round() as u8, 255u8];
+          let px = [
+            (r * 255.0).round() as u8,
+            (g * 255.0).round() as u8,
+            (b * 255.0).round() as u8,
+            255u8
+          ];
           for _ in 0..(s * s) {
             data.extend_from_slice(&px);
           }
@@ -341,12 +349,15 @@ pub fn build_tileset(images: &mut Assets<Image>) -> TilesetInfo {
         TileRenderMode::ConnectedSprite(paths, pri, sec) => {
           let prim = Color::srgb(pri[0], pri[1], pri[2]);
           let sec_col = Color::srgb(sec[0], sec[1], sec[2]);
-          let shapes: Vec<RgbaImage> = paths.iter().map(|p| {
-            let bytes = load_asset_bytes(p);
-            image::load_from_memory(&bytes)
-              .unwrap_or_else(|e| panic!("build_tileset: failed to decode {p}: {e}"))
-              .to_rgba8()
-          }).collect();
+          let shapes: Vec<RgbaImage> = paths
+            .iter()
+            .map(|p| {
+              let bytes = load_asset_bytes(p);
+              image::load_from_memory(&bytes)
+                .unwrap_or_else(|e| panic!("build_tileset: failed to decode {p}: {e}"))
+                .to_rgba8()
+            })
+            .collect();
           for &(shape_idx, transform) in &CONNECTED_LOOKUP {
             let oriented = apply_transform(&shapes[shape_idx], transform);
             data.extend_from_slice(&bake_palette_png(&oriented, prim, sec_col));

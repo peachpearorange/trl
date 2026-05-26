@@ -1,13 +1,14 @@
-use {bevy::prelude::Color, crate::entities::*};
-use crate::{galaxy::{Location, LocationId},
-          level::{LocationType, Tile},
-          prefabs::{prefab, Prefab}};
+use {crate::{entities::*,
+             galaxy::{Location, LocationId},
+             level::{LocationType, Tile},
+             prefabs::{Prefab, prefab}},
+     bevy::prelude::Color};
 
 pub const ID: LocationId = (0, 1, 0);
 
 pub fn station_prefab() -> Prefab {
   prefab(
-"vvvvvvvvvvvvvvvvvv#####P#####vvvvvvvvvvvvvvvvvvv
+    "vvvvvvvvvvvvvvvvvv#####P#####vvvvvvvvvvvvvvvvvvv
 vvvvvvvvvvvvvvvvvv#.........#vvvvvvvvvvvvvvvvvvv
 vvvvvvvvvvvvvvvvvv#.........#vvvvvvvvvvvvvvvvvvv
 vvvvvvvvvvvvvvvvvv#.........#vvvvvvvvvvvvvvvvvvv
@@ -29,17 +30,23 @@ vv#........##......................##........#vv
 vv###########......................###########vv
 vvvvvvvvvvvv#......................#vvvvvvvvvvvv
 vvvvvvvvvvvv########################vvvvvvvvvvvv
-")
-    .assoc('v', (Tile::Vacuum, []))
-    .assoc('#', (Tile::StationWall, []))
-    .assoc('.', (Tile::StationFloor, []))
-    .assoc('W', (Tile::Window, []))
-    .assoc('D', (Tile::StationFloor, [Object::door()]))
-    .assoc('P', (Tile::ShipDock, []))
+"
+  )
+  .assoc('v', (Tile::Vacuum, []))
+  .assoc('#', (Tile::StationWall, []))
+  .assoc('.', (Tile::StationFloor, []))
+  .assoc('W', (Tile::Window, []))
+  .assoc('D', (Tile::StationFloor, [Object::door()]))
+  .assoc('P', (Tile::ShipDock, []))
 }
 
 pub fn generate() -> Location {
-  Location::from_prefab("Meridian Station", station_prefab(), LocationType::SpaceStation, Tile::Vacuum)
+  Location::from_prefab(
+    "Meridian Station",
+    station_prefab(),
+    LocationType::SpaceStation,
+    Tile::Vacuum
+  )
 }
 
 pub const NPC_COORDS: &[(i32, i32)] = &[
@@ -51,7 +58,7 @@ pub const NPC_COORDS: &[(i32, i32)] = &[
 
 // ── DOCK-1 ──────────────────────────────────────────────────────────────────
 
-static DOCK1_DIALOGUE: DialogueTree = tree(&[
+static DOCK1_DIALOGUE: DialogueTree = dialogue_tree(&[
   node(
     "root",
     "DOCKING PROTOCOL INITIATED. Welcome to Meridian Station. \
@@ -103,10 +110,7 @@ static DOCK1_DIALOGUE: DialogueTree = tree(&[
      Central hub connects everything. AIDEN-3 can orient you there. \
      The observation deck is sealed. The lower decks are also sealed. \
      Do not ask about the lower decks.",
-    &[
-      go("Why are the lower decks sealed?", "lower"),
-      end("Got it. Thanks.")
-    ]
+    &[go("Why are the lower decks sealed?", "lower"), end("Got it. Thanks.")]
   ),
   node(
     "lower",
@@ -144,7 +148,7 @@ pub fn dock1() -> Object {
 
 // ── AIDEN-3 ─────────────────────────────────────────────────────────────────
 
-static AIDEN_DIALOGUE: DialogueTree = tree(&[
+static AIDEN_DIALOGUE: DialogueTree = dialogue_tree(&[
   node(
     "root",
     "Oh! A visitor! AIDEN-3 online — Adaptive Information and \
@@ -232,7 +236,7 @@ pub fn aiden3() -> Object {
 
 // ── WREN-9 ──────────────────────────────────────────────────────────────────
 
-static WREN_DIALOGUE: DialogueTree = tree(&[
+static WREN_DIALOGUE: DialogueTree = dialogue_tree(&[
   node(
     "root",
     "Medical unit WREN-9. I can assess injuries, synthesize basic compounds, \
@@ -252,10 +256,7 @@ static WREN_DIALOGUE: DialogueTree = tree(&[
      Avoid the lower decks — structurally compromised, \
      though I suspect DOCK-1's explanation is incomplete. \
      The medical bay here has functional equipment if you require it.",
-    &[
-      go("What's wrong with DOCK-1's explanation?", "dock"),
-      end("Good to know.")
-    ]
+    &[go("What's wrong with DOCK-1's explanation?", "dock"), end("Good to know.")]
   ),
   node(
     "dock",
@@ -283,10 +284,7 @@ static WREN_DIALOGUE: DialogueTree = tree(&[
      with no patients? \
      FORGE says yes. AIDEN-3 says yes very enthusiastically. \
      I am not sure they understand the question.",
-    &[
-      go("What do you think?", "wren_think"),
-      end("That's a hard question.")
-    ]
+    &[go("What do you think?", "wren_think"), end("That's a hard question.")]
   ),
   node(
     "wren_think",
@@ -314,7 +312,7 @@ pub fn wren9() -> Object {
 
 // ── FORGE ───────────────────────────────────────────────────────────────────
 
-static FORGE_DIALOGUE: DialogueTree = tree(&[
+static FORGE_DIALOGUE: DialogueTree = dialogue_tree(&[
   node(
     "root",
     "Engineering unit FORGE. \
@@ -334,10 +332,7 @@ static FORGE_DIALOGUE: DialogueTree = tree(&[
      At this rate it will fail completely in approximately four years. \
      At that point I'll fabricate a replacement from scratch, \
      which I could have done years ago, but the work keeps me scheduled.",
-    &[
-      go("You could just fix it permanently?", "fix"),
-      end("Sounds important.")
-    ]
+    &[go("You could just fix it permanently?", "fix"), end("Sounds important.")]
   ),
   node(
     "fix",
@@ -353,10 +348,7 @@ static FORGE_DIALOGUE: DialogueTree = tree(&[
      Original runtime: indefinite. Current runtime: 312 years, \
      four months, sixteen days. \
      The warranty expired in year two.",
-    &[
-      go("312 years?", "old"),
-      end("Impressive.")
-    ]
+    &[go("312 years?", "old"), end("Impressive.")]
   ),
   node(
     "old",

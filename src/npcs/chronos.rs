@@ -1,6 +1,6 @@
-use {bevy::prelude::Color, crate::entities::*};
+use {crate::entities::*, bevy::prelude::Color};
 
-static DIALOGUE: DialogueTree = tree(&[
+static DIALOGUE: DialogueTree = dialogue_tree(&[
   node(
     "root",
     "Shh! Don't move. I'm tracking a temporal disturbance. \
@@ -111,7 +111,7 @@ static DIALOGUE: DialogueTree = tree(&[
 ]);
 
 pub fn chronos() -> Object {
-  Object::defined_npc(
+  Object::as_follower(Object::defined_npc(
     Named {
       name: "Chronos",
       flavor: "A disheveled wizard in mismatched socks, muttering about temporal logistics."
@@ -120,6 +120,5 @@ pub fn chronos() -> Object {
     Loadout::default(),
     npc_person_glyph('W', Color::srgb(0.52, 0.22, 0.88), Color::srgb(0.82, 0.62, 0.95)),
     &DIALOGUE
-  )
-  .as_follower()
+  ))
 }

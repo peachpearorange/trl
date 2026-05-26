@@ -41,7 +41,7 @@ pub struct DialogueChoice {
 pub struct Dialogue(pub &'static DialogueTree);
 
 /// Construct a [`DialogueTree`] (for use in `static` initializers).
-pub const fn tree(nodes: &'static [DialogueNode]) -> DialogueTree {
+pub const fn dialogue_tree(nodes: &'static [DialogueNode]) -> DialogueTree {
   DialogueTree { nodes }
 }
 
@@ -647,900 +647,9 @@ pub struct Visuals {
 const DOOR_CLOSED_PRI: Color = Color::srgb(0.34, 0.37, 0.41);
 const DOOR_CLOSED_SEC: Color = Color::srgb(0.52, 0.55, 0.58);
 
-/// Composable entity blueprint. Chain constructor fns that delegate to
-/// each other, then call `.spawn()`.
-///
-/// [`Clone`] uses `Arc` internally so the same blueprint can spawn many entities (e.g. prefabs).
-///
-/// ```ignore
-/// player().add(Location::xyz(5, 3, 2)).spawn(&mut commands);
-/// ```
-#[derive(Clone)]
-pub struct Object(Arc<dyn Fn(&mut EntityCommands) + Send + Sync + 'static>);
+// (old Object, ObjectConst, const_blueprint!, object_const! removed — replaced by Object above)
 
-/// Const-storable spawn thunk.
-pub type ConstObjectFn = dyn Fn(&mut EntityCommands) + Sync + 'static;
-
-/// Capture a cloneable bundle in a const-constructible closure thunk.
-pub const fn insert<B>(bundle: B) -> impl Fn(&mut EntityCommands) + Sync + 'static
-where
-  B: Bundle + Clone + Sync + 'static
-{
-  move |e| {
-    e.insert(bundle.clone());
-  }
-}
-
-/// Compose two const-constructible spawn thunks.
-pub const fn then<F, G>(f: F, g: G) -> impl Fn(&mut EntityCommands) + Sync + 'static
-where
-  F: Fn(&mut EntityCommands) + Sync + 'static,
-  G: Fn(&mut EntityCommands) + Sync + 'static
-{
-  move |e| {
-    f(e);
-    g(e);
-  }
-}
-
-/// Define a blueprint struct + spawn method from const-friendly fields and
-/// spawn-time expressions. Pair with a call-site macro for function-like syntax.
-///
-/// ```ignore
-/// const_blueprint!(npc(name: &'static str, flavor: &'static str) {
-///     Named { name, flavor },
-///     Collidable(false),
-///     Loadout::new(vec![]),  // heap alloc is fine — runs at spawn time
-/// });
-///
-/// // call-site macro (2 lines per blueprint):
-/// macro_rules! npc {
-///     ($parent:expr; $($tt:tt)*) => {
-///         $parent.with(&|e| npc { $($tt)* }.insert_into(e))
-///     };
-///     ($($tt:tt)*) => { ObjectConst::new(&|e| npc { $($tt)* }.insert_into(e)) };
-/// }
-///
-/// static BOB: ObjectConst = npc!(name: "Bob", flavor: "This is Bob.");
-/// static BOB2: ObjectConst = npc!(&NPC_BASE; name: "Bob", flavor: "This is Bob.");
-/// ```
-#[macro_export]
-macro_rules! const_blueprint {
-  ($name:ident($($field:ident: $ty:ty),* $(,)?) { $($bundle:expr),* $(,)? }) => {
-    #[allow(non_camel_case_types)]
-    pub struct $name { $(pub $field: $ty),* }
-
-    unsafe impl Sync for $name {}
-
-    impl $name {
-      #[allow(unused_variables)]
-      pub fn insert_into(&self, e: &mut ::bevy::prelude::EntityCommands) {
-        $(let $field = &self.$field;)*
-        $(e.insert($bundle);)*
-      }
-    }
-  };
-}
-
-/// Define an [`ObjectConst`] without exposing closure plumbing or `e.insert(...)`.
-///
-/// ```ignore
-/// static TREE_BASE: ObjectConst = object_const! {
-///   Collidable(true),
-/// };
-///
-/// static OAK_TREE: ObjectConst = object_const! { &TREE_BASE;
-///   Named { name: "Oak Tree", flavor: "A thick, old tree." },
-/// };
-/// ```
-#[macro_export]
-macro_rules! object_const {
-  ($parent:expr; $($bundle:expr),* $(,)?) => {
-    $parent.with(&|e: &mut ::bevy::prelude::EntityCommands| {
-      $(e.insert($bundle);)*
-    })
-  };
-  ($($bundle:expr),* $(,)?) => {
-    $crate::entities::ObjectConst::new(&|e: &mut ::bevy::prelude::EntityCommands| {
-      $(e.insert($bundle);)*
-    })
-  };
-}
-
-/// Const-constructible entity blueprint with parent-chain inheritance.
-///
-/// Stores `&'static dyn Fn(&mut EntityCommands)` in const/static data.
-/// The trait-object ref is const because vtable pointers are compile-time data.
-/// The actual components
-/// are constructed at spawn time, so heap types like `Vec` are fine
-/// as long as the *parameters* to build them are const.
-///
-/// ```ignore
-/// // No macro required: closure object stores cloned bundle data.
-/// static TREE: ObjectConst = ObjectConst::new(&then(
-///   insert((Named { name: "Tree", flavor: "A sturdy tree." }, Collidable(true))),
-///   insert((Roots(4), Leaves(44))),
-/// ));
-///
-/// // Simple:
-/// static PHYSICAL: ObjectConst = object_const! {
-///   Collidable(true),
-/// };
-/// static BOULDER: ObjectConst = object_const! { &PHYSICAL;
-///   Named { name: "Boulder", flavor: "A massive rock." },
-///   Collidable(true),
-/// };
-///
-/// // Custom — stores const params, builds Vec at spawn time:
-/// struct LoadoutBlueprint(&'static [GearSlot]);
-/// impl LoadoutBlueprint {
-///     fn insert_into(&self, e: &mut EntityCommands) {
-///         e.insert(Loadout::new(self.0.to_vec()));
-///     }
-/// }
-/// static SOLDIER: ObjectConst = object_const! { &ENEMY;
-///   {
-///     LoadoutBlueprint(&[...]).insert_into(e);
-///   },
-/// };
-/// ```
-#[derive(Copy, Clone)]
-pub struct ObjectConst {
-  parent: Option<&'static ObjectConst>,
-  components: &'static ConstObjectFn
-}
-
-impl ObjectConst {
-  pub const fn new(components: &'static ConstObjectFn) -> Self {
-    Self { parent: None, components }
-  }
-
-  pub const fn with(&'static self, components: &'static ConstObjectFn) -> Self {
-    Self { parent: Some(self), components }
-  }
-
-  fn apply_to(&self, e: &mut EntityCommands) {
-    if let Some(parent) = self.parent {
-      parent.apply_to(e);
-    }
-    (self.components)(e);
-  }
-
-  pub fn spawn(&self, commands: &mut Commands) -> Entity {
-    let mut e = commands.spawn_empty();
-    self.apply_to(&mut e);
-    e.id()
-  }
-
-  pub fn spawn_at(&self, commands: &mut Commands, x: i32, y: i32, z: usize) -> Entity {
-    let mut e = commands.spawn_empty();
-    self.apply_to(&mut e);
-    e.insert(Location::xyz(x, y, z));
-    e.id()
-  }
-
-  pub fn to_object(&self) -> Object {
-    let s = *self;
-    Object(Arc::new(move |e: &mut EntityCommands| s.apply_to(e)))
-  }
-}
-
-impl From<&ObjectConst> for Object {
-  fn from(c: &ObjectConst) -> Self { c.to_object() }
-}
-
-/// Space Qud–style NPC silhouette mask (`person (2).png`).
-pub fn npc_person_glyph(ch: char, primary: Color, secondary: Color) -> Glyph {
-  Glyph::palette_sprite("textures/space_qud/person (2).png", ch, primary, secondary)
-}
-
-/// Space Qud–style robot silhouette mask (`robo (1).png`).
-pub fn npc_robo_glyph(ch: char, primary: Color, secondary: Color) -> Glyph {
-  Glyph::palette_sprite("textures/space_qud/robo (1).png", ch, primary, secondary)
-}
-
-impl Object {
-  fn new(bundle: impl Bundle + Clone + Send + Sync + 'static) -> Self {
-    Self(Arc::new(move |e: &mut EntityCommands| {
-      e.insert(bundle.clone());
-    }))
-  }
-
-  pub fn add(self, bundle: impl Bundle + Clone + Send + Sync + 'static) -> Self {
-    let prev = self.0.clone();
-    Self(Arc::new(move |e: &mut EntityCommands| {
-      prev(e);
-      e.insert(bundle.clone());
-    }))
-  }
-
-  pub fn spawn(self, commands: &mut Commands) -> Entity {
-    let mut e = commands.spawn_empty();
-    (self.0)(&mut e);
-    e.id()
-  }
-
-  /// NPC base: Neutral faction, non-blocking, wanders slowly.
-  pub fn npc() -> Self {
-    Self::new((
-      Collidable(false),
-      Character,
-      FactionComp(Faction::Neutral),
-      Gravity,
-      WalkAroundRandomly { timer: 0, interval: 8 }
-    ))
-  }
-
-  /// Mark this NPC as a recruitable follower. `init_follower_homes` sets the home position at startup.
-  pub fn as_follower(self) -> Self {
-    self
-      .add(FollowerState::Available)
-      .add(FollowerData { home: (0, 0, 0), move_timer: 0 })
-      .add(Path::default())
-  }
-
-  /// Fully-defined NPC: named, statted, equipped, visible, conversable.
-  pub fn defined_npc(
-    named: Named,
-    stats: Stats,
-    loadout: Loadout,
-    glyph: Glyph,
-    dialogue: &'static DialogueTree
-  ) -> Self {
-    Self::npc().add(named).add(stats).add(loadout).add(glyph).add(Dialogue(dialogue))
-  }
-
-  /// Spawn this entity at tile coordinates, inserting Location::Coords.
-  pub fn spawn_at(self, commands: &mut Commands, x: i32, y: i32, z: usize) -> Entity {
-    let mut e = commands.spawn_empty();
-    (self.0)(&mut e);
-    e.insert(Location::xyz(x, y, z));
-    e.id()
-  }
-
-  // ---- constructor hierarchy ----
-  //
-  //  physical ── character ─┬─ player
-  //     │                   └─ enemy
-  //     └─ structure ─┬─ wall
-  //                   ├─ tree
-  //                   └─ door
-
-  pub fn physical(blocks: bool) -> Self { Self::new(Collidable(blocks)) }
-  pub fn character(faction: Faction) -> Self {
-    Self::physical(true).add((Character, FactionComp(faction), Gravity))
-  }
-  pub fn player() -> Self { Self::character(Faction::Player).add(Player) }
-  pub fn enemy() -> Self {
-    Self::character(Faction::Hostile).add((
-      Enemy,
-      TimeSinceAction::default(),
-      Path::default()
-    ))
-  }
-  pub fn structure(blocks: bool) -> Self { Self::physical(blocks) }
-  pub fn wall(material: Material) -> Self {
-    Self::structure(true).add(WallComp { material })
-  }
-  pub fn tree() -> Self {
-    let sprite = if rand::random::<bool>() { "textures/space_qud/tree.png" } else { "textures/space_qud/tree2.png" };
-    Self::structure(false).add((
-      Tree,
-      BlocksSight,
-      Glyph::palette_sprite(
-        sprite,
-        'T',
-        Color::srgb(0.14, 0.42, 0.16),
-        Color::srgb(0.38, 0.62, 0.24)
-      ),
-      Named { name: "Tree", flavor: "A sturdy tree. Could be chopped for wood." }
-    ))
-  }
-  pub fn flight_console() -> Self {
-    Self::structure(true).add((
-      Glyph::palette_sprite(
-        "textures/space_qud/computer .png",
-        'C',
-        Color::srgb(0.18, 0.34, 0.52),
-        Color::srgb(0.32, 0.88, 0.45)
-      ),
-      Named {
-        name: "Flight Console",
-        flavor: "Navigation computer. Plot a course to a destination."
-      },
-      FlightConsole
-    ))
-  }
-  pub fn loadout_console() -> Self {
-    Self::structure(true).add((
-      Glyph::palette_sprite(
-        "textures/space_qud/locker (1).png",
-        'Q',
-        Color::srgb(0.25, 0.38, 0.52),
-        Color::srgb(0.55, 0.75, 0.88)
-      ),
-      Named {
-        name: "Loadout Console",
-        flavor: "Manage your equipped weapon and armor from your collected gear."
-      },
-      LoadoutConsole
-    ))
-  }
-
-  pub fn space_cat() -> Self {
-    Self::structure(false).add((
-      Glyph::palette_sprite(
-        "textures/space_qud/space cat.png",
-        'c',
-        Color::srgb(0.92, 0.82, 0.62),
-        Color::srgb(0.52, 0.36, 0.26)
-      ),
-      Named {
-        name: "Space cat",
-        flavor: "Judges your piloting from a warm bulkhead. Offers no corrections."
-      }
-    ))
-  }
-  pub fn elevator(current_z: usize, floors: Vec<(usize, i32, i32)>) -> Self {
-    Self::structure(true)
-      .add(Elevator { current_z, floors })
-      .add(Glyph::palette_sprite(
-        "textures/space_qud/elevator.png",
-        'E',
-        Color::srgb(0.42, 0.46, 0.50),
-        Color::srgb(1.0, 0.85, 0.10)
-      ))
-      .add(Named { name: "Elevator", flavor: "Vertical transport. Choose a deck." })
-  }
-
-  pub fn cave_entrance(surface_x: i32, surface_y: i32, cave_x: i32, cave_y: i32) -> Self {
-    Self::structure(false)
-      .add(Elevator {
-        current_z: 0,
-        floors: vec![(0, surface_x, surface_y), (1, cave_x, cave_y)]
-      })
-      .add(Glyph::palette_sprite(
-        "textures/space_qud/stairs.png",
-        '>',
-        Color::srgb(0.35, 0.32, 0.28),
-        Color::srgb(0.55, 0.50, 0.40)
-      ))
-      .add(Named { name: "Cave Entrance", flavor: "A dark opening leads underground." })
-  }
-
-  pub fn cave_exit(surface_x: i32, surface_y: i32, cave_x: i32, cave_y: i32) -> Self {
-    Self::structure(false)
-      .add(Elevator {
-        current_z: 1,
-        floors: vec![(0, surface_x, surface_y), (1, cave_x, cave_y)]
-      })
-      .add(Glyph::palette_sprite(
-        "textures/space_qud/stairs up.png",
-        '<',
-        Color::srgb(0.55, 0.50, 0.40),
-        Color::srgb(0.35, 0.32, 0.28)
-      ))
-      .add(Named { name: "Cave Exit", flavor: "Daylight filters in from above." })
-  }
-
-  pub fn loot_chest() -> Self {
-    Self::structure(true).add((
-      LootChest { opened: false },
-      Glyph::palette_sprite(
-        "textures/space_qud/crate.png",
-        '&',
-        Color::srgb(0.72, 0.52, 0.28),
-        Color::srgb(0.42, 0.32, 0.22)
-      ),
-      Named { name: "Chest", flavor: "Someone stashed supplies here." }
-    ))
-  }
-  pub fn door() -> Self {
-    Self::structure(true)
-      .add(Door { open: false, closed_color: DOOR_CLOSED_PRI })
-      .add(BlocksSight)
-      .add(Glyph::palette_sprite(
-        "textures/space_qud/door closed (1).png",
-        '+',
-        DOOR_CLOSED_PRI,
-        DOOR_CLOSED_SEC
-      ))
-      .add(Named { name: "Door", flavor: "Press Space to open." })
-  }
-
-  pub fn airlock_door() -> Self {
-    Self::door().add(AirlockDoor { opened_at_sim_time: None }).add(Glyph::palette_sprite(
-      "textures/space_qud/airlock closed.png",
-      '+',
-      crate::AIRLOCK_PRI,
-      crate::AIRLOCK_SEC
-    ))
-  }
-  pub fn thruster() -> Self {
-    Self::structure(true).add((
-      Glyph::palette_sprite(
-        "textures/space_qud/thruster.png",
-        '>',
-        Color::srgb(0.72, 0.38, 0.08),
-        Color::srgb(0.75, 0.75, 0.72)
-      ),
-      Named {
-        name: "Thruster",
-        flavor: "A directional thruster assembly. Keeps the ship moving."
-      }
-    ))
-  }
-  pub fn ground_item(item: crate::level::Item) -> Self {
-    let (primary, secondary) = item.loot_colors();
-    Self::new((
-      GroundItem(item),
-      Glyph::palette_sprite(item.loot_texture(), '*', primary, secondary)
-    ))
-  }
-  pub fn torch(radius: u32) -> Self { Self::new(LightSource { radius }) }
-
-  pub fn rat_soldier() -> Self {
-    Self::enemy()
-      .add((
-        Named {
-          name: "Rat Soldier",
-          flavor: "A wiry rat-person clutching a crude spear. Smells like wet fur and old iron.",
-        },
-        Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 2.1, attack_speed: 1.0 },
-        Loadout::new(vec![
-          GearSlot::passive(Gear::Weapon(crate::level::Item::CombatSpear)),
-          GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 2),
-        ]),
-        Glyph::palette_sprite(
-          "textures/space_qud/gunman .png",
-          'r',
-          Color::srgb(0.72, 0.48, 0.28),
-          Color::srgb(0.95, 0.78, 0.55),
-        ),
-      ))
-  }
-
-  pub fn armored_rat_soldier() -> Self {
-    Self::enemy()
-      .add((
-        Named {
-          name: "Armored Rat Soldier",
-          flavor: "A rat-person in battered leather armor, gripping a crude spear. The hide smells worse than the iron.",
-        },
-        Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 1.9, attack_speed: 1.0 },
-        Loadout::new(vec![
-          GearSlot::passive(Gear::Weapon(crate::level::Item::CombatSpear)),
-          GearSlot::passive(Gear::NaturalArmor { dr: 1 }),
-          GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 3),
-        ]),
-        Glyph::palette_sprite(
-          "textures/space_qud/mogussy.png",
-          'r',
-          Color::srgb(0.55, 0.42, 0.28),
-          Color::srgb(0.82, 0.68, 0.45),
-        ),
-      ))
-  }
-
-  pub fn boulder() -> Self {
-    Self::structure(true).add((
-      Glyph::palette_sprite(
-        "textures/space_qud/rock.png",
-        'o',
-        Color::srgb(0.32, 0.30, 0.28),
-        Color::srgb(0.58, 0.55, 0.50)
-      ),
-      Named { name: "Boulder", flavor: "A massive rock. Immovable." }
-    ))
-  }
-
-  pub fn bed() -> Self {
-    Self::structure(true).add((
-      Bed,
-      Glyph::palette_sprite(
-        "textures/space_qud/bed.png",
-        'b',
-        Color::srgb(0.52, 0.38, 0.22),
-        Color::srgb(0.88, 0.84, 0.72)
-      ),
-      Named {
-        name: "Bed",
-        flavor: "A place to sleep. Looks like it hasn't been used in a while."
-      }
-    ))
-  }
-
-  pub fn crafting_table() -> Self {
-    Self::structure(true).add((
-      CraftingTable,
-      Glyph::palette_sprite(
-        "textures/space_qud/crafting table.png",
-        'C',
-        Color::srgb(0.38, 0.42, 0.48),
-        Color::srgb(0.62, 0.62, 0.62)
-      ),
-      Named {
-        name: "Crafting Table",
-        flavor: "A workbench for assembling equipment from salvaged parts."
-      }
-    ))
-  }
-
-  pub fn table() -> Self {
-    Self::structure(true).add((
-      Glyph::palette_sprite(
-        "textures/space_qud/table.png",
-        't',
-        Color::srgb(0.48, 0.34, 0.18),
-        Color::srgb(0.72, 0.58, 0.36)
-      ),
-      Named { name: "Table", flavor: "A sturdy table." }
-    ))
-  }
-
-  pub fn chair() -> Self {
-    Self::structure(false).add((
-      Glyph::palette_sprite(
-        "textures/space_qud/chair (1).png",
-        'h',
-        Color::srgb(0.60, 0.62, 0.65),
-        Color::srgb(0.72, 0.18, 0.14)
-      ),
-      Named { name: "Chair", flavor: "A chair. Something to sit on." }
-    ))
-  }
-
-  pub fn locker() -> Self {
-    Self::structure(true).add((
-      Glyph::palette_sprite(
-        "textures/space_qud/locker (2).png",
-        'l',
-        Color::srgb(0.32, 0.38, 0.42),
-        Color::srgb(0.62, 0.68, 0.72)
-      ),
-      Named {
-        name: "Locker",
-        flavor: "A metal locker. Whatever was inside is long gone."
-      }
-    ))
-  }
-
-  pub fn crate_obj() -> Self {
-    Self::structure(true).add((
-      Glyph::palette_sprite(
-        "textures/space_qud/crate.png",
-        'c',
-        Color::srgb(0.42, 0.32, 0.18),
-        Color::srgb(0.72, 0.60, 0.38)
-      ),
-      Named { name: "Crate", flavor: "A battered storage crate. Probably empty." }
-    ))
-  }
-
-  /// A ship-side supply cache — loot chest with fixed starter gear.
-  pub fn supply_cache(contents: &'static [(crate::level::Item, u32)]) -> Self {
-    Self::new((
-      Collidable(true),
-      LootChest { opened: false },
-      FixedChestLoot(contents),
-      Glyph::palette_sprite(
-        "textures/space_qud/crate.png",
-        'S',
-        Color::srgb(0.28, 0.42, 0.52),
-        Color::srgb(0.52, 0.75, 0.88)
-      ),
-      Named {
-        name: "Supply Cache",
-        flavor: "A sealed cache. Whoever left this behind had plans they didn't finish."
-      }
-    ))
-  }
-
-  pub fn robot() -> Self {
-    Self::enemy().add((
-      Named {
-        name: "Robot",
-        flavor: "A damaged security robot. Its threat-response routines are still very much active."
-      },
-      Stats { hp: 15, max_hp: 15, attack: 4, move_speed: 2.0, attack_speed: 0.8 },
-      Loadout::new(vec![GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 4)]),
-      Glyph::palette_sprite(
-        "textures/space_qud/robo.png",
-        'R',
-        Color::srgb(0.28, 0.52, 0.58),
-        Color::srgb(0.55, 0.82, 0.88)
-      )
-    ))
-  }
-
-  pub fn wack_robot() -> Self {
-    Self::enemy().add((
-      Named {
-        name: "Salvage Bot",
-        flavor: "A repurposed salvage drone running corrupted directives. Approaches everything as scrap."
-      },
-      Stats { hp: 8, max_hp: 8, attack: 3, move_speed: 2.3, attack_speed: 1.2 },
-      Loadout::new(vec![GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 2)]),
-      Glyph::palette_sprite(
-        "textures/space_qud/wack robo.png",
-        'R',
-        Color::srgb(0.62, 0.38, 0.18),
-        Color::srgb(0.88, 0.68, 0.32)
-      )
-    ))
-  }
-
-  pub fn alien_runner() -> Self {
-    Self::enemy().add((
-      Named {
-        name: "Xel-Naran Hunter",
-        flavor: "A fast-moving predator native to Xel-Nara IV. Moves in bursts. Closes distance before you can react."
-      },
-      Stats { hp: 5, max_hp: 5, attack: 3, move_speed: 12.0, attack_speed: 1.5 },
-      DriftChance(0.3),
-      Loadout::new(vec![
-        GearSlot::stacked(Gear::Device(crate::level::Item::StealthDevice), 1),
-        GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 1),
-      ]),
-      Glyph::palette_sprite(
-        "textures/space_qud/alien1.png",
-        'x',
-        Color::srgb(0.18, 0.72, 0.22),
-        Color::srgb(0.92, 0.82, 0.18)
-      ),
-      WalkAnim {
-        idle: "textures/space_qud/alien1.png",
-        idle_frames: &["textures/space_qud/alien1 frame 2.png"],
-        walk_frames: &["textures/space_qud/alien1 frame 2.png"],
-        interval: 20,
-        idle_interval: 20,
-      },
-    ))
-  }
-
-  pub fn lava_crab() -> Self {
-    Self::enemy().add((
-      Named {
-        name: "Scorch Crawler",
-        flavor: "A heat-adapted crustacean from Pyros Maw. Its shell has fused with volcanic rock over generations. Barely slowed by flame."
-      },
-      Stats { hp: 14, max_hp: 14, attack: 5, move_speed: 4.0, attack_speed: 0.9 },
-      DriftChance(0.05),
-      Loadout::new(vec![
-        GearSlot::ability(Gear::InnateGrab, 8),
-        GearSlot::passive(Gear::NaturalArmor { dr: 3 }),
-        GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 3),
-      ]),
-      Glyph::palette_sprite(
-        "textures/space_qud/crab alien.png",
-        'c',
-        Color::srgb(0.85, 0.25, 0.05),
-        Color::srgb(1.0, 0.55, 0.0)
-      ),
-    ))
-  }
-
-  pub fn mantis_alien() -> Self {
-    Self::enemy().add((
-      Named {
-        name: "Crystal Mantis",
-        flavor: "A translucent predator that haunts crystal caves, nearly invisible until it strikes. Razor forelegs. Extremely fast."
-      },
-      Stats { hp: 6, max_hp: 6, attack: 5, move_speed: 10.0, attack_speed: 2.0 },
-      DriftChance(0.5),
-      Loadout::new(vec![
-        GearSlot::stacked(Gear::Device(crate::level::Item::StealthDevice), 1),
-        GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 2),
-      ]),
-      Glyph::palette_sprite(
-        "textures/space_qud/mantis alien.png",
-        'M',
-        Color::srgb(0.65, 0.90, 0.95),
-        Color::srgb(0.20, 0.55, 0.70)
-      ),
-      WalkAnim {
-        idle: "textures/space_qud/mantis alien.png",
-        idle_frames: &["textures/space_qud/mantis alien frame 2.png"],
-        walk_frames: &["textures/space_qud/mantis alien frame 2.png"],
-        interval: 20,
-        idle_interval: 20,
-      },
-    ))
-  }
-
-  pub fn crab_alien() -> Self {
-    Self::enemy().add((
-      Named {
-        name: "Xel-Naran Crawler",
-        flavor: "A broad-shelled crustacean that lurks in alien undergrowth. Its claws can crush bone. Slow but armored."
-      },
-      Stats { hp: 10, max_hp: 10, attack: 4, move_speed: 3.5, attack_speed: 0.8 },
-      DriftChance(0.1),
-      Loadout::new(vec![
-        GearSlot::ability(Gear::InnateGrab, 8),
-        GearSlot::passive(Gear::NaturalArmor { dr: 1 }),
-        GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 2),
-      ]),
-      Glyph::palette_sprite(
-        "textures/space_qud/crab alien.png",
-        'c',
-        Color::srgb(0.55, 0.18, 0.72),
-        Color::srgb(0.92, 0.72, 0.18)
-      ),
-    ))
-  }
-
-  pub fn mushroom_creature() -> Self {
-    Self::enemy().add((
-      Named {
-        name: "Mycelid",
-        flavor: "An ambulatory fungal mass. Moves with unsettling purpose. Its gills swell with spores."
-      },
-      Stats { hp: 6, max_hp: 6, attack: 2, move_speed: 2.0, attack_speed: 0.6 },
-      Loadout::new(vec![
-        GearSlot::ability(Gear::InnateSporeEmit, 40),
-        GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 1),
-      ]),
-      Glyph::palette_sprite(
-        "textures/space_qud/mushroom.png",
-        'm',
-        Color::srgb(0.42, 0.28, 0.18),
-        Color::srgb(0.82, 0.72, 0.55)
-      ),
-    ))
-  }
-
-  fn damage_cloud(
-    glyph: Glyph,
-    name: &'static str,
-    flavor: &'static str,
-    damage_per_tick: i32,
-    ticks_remaining: u32,
-    tick_interval: u32
-  ) -> Self {
-    Self::new((
-      Collidable(false),
-      DamageCloud { damage_per_tick, ticks_remaining, tick_interval, tick_timer: 0 },
-      glyph,
-      Named { name, flavor }
-    ))
-  }
-
-  pub fn spore_cloud() -> Self {
-    Self::damage_cloud(
-      Glyph::palette_sprite(
-        "textures/space_qud/checkerboard pattern.png",
-        '*',
-        Color::srgb(0.30, 0.72, 0.22),
-        Color::srgb(0.18, 0.48, 0.12)
-      ),
-      "Spore Cloud",
-      "A drifting cloud of toxic fungal spores.",
-      1,
-      4,
-      5
-    )
-  }
-
-  pub fn explosion_cloud() -> Self {
-    Self::damage_cloud(
-      Glyph::palette_sprite(
-        "textures/space_qud/checkerboard pattern.png",
-        '*',
-        Color::srgb(0.95, 0.55, 0.10),
-        Color::srgb(0.72, 0.22, 0.06)
-      ),
-      "Explosion",
-      "Roiling flame and shrapnel.",
-      3,
-      2,
-      2
-    )
-  }
-
-  pub fn grenade_thrower() -> Self {
-    Self::enemy().add((
-      Named {
-        name: "Grenadier",
-        flavor: "A wiry soldier bristling with grenades. Keeps its distance."
-      },
-      Stats { hp: 8, max_hp: 8, attack: 2, move_speed: 2.0, attack_speed: 0.8 },
-      Loadout::new(vec![
-        GearSlot::ability(Gear::InnateGrenadeThrow { min_range: 3 }, 25),
-        GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 3),
-      ]),
-      Glyph::palette_sprite(
-        "textures/space_qud/gunman .png",
-        'g',
-        Color::srgb(0.22, 0.48, 0.22),
-        Color::srgb(0.60, 0.78, 0.42)
-      )
-    ))
-  }
-
-  pub fn gunman() -> Self {
-    Self::enemy().add((
-      Named {
-        name: "Gunman",
-        flavor: "A sharp-eyed mercenary with a revolver. Shoots first."
-      },
-      Stats { hp: 8, max_hp: 8, attack: 3, move_speed: 2.0, attack_speed: 1.0 },
-      Loadout::new(vec![
-        GearSlot::ability(Gear::InnateGun { damage: 4 }, 15),
-        GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 4),
-      ]),
-      Glyph::palette_sprite(
-        "textures/space_qud/gunman .png",
-        'g',
-        Color::srgb(0.42, 0.52, 0.68),
-        Color::srgb(0.72, 0.82, 0.92)
-      )
-    ))
-  }
-
-  pub fn robot_dog() -> Self {
-    Self::enemy().add((
-      Named {
-        name: "Guard Dog",
-        flavor: "A battered patrol drone on four legs. Its mounted gun tracks movement."
-      },
-      Stats { hp: 10, max_hp: 10, attack: 2, move_speed: 3.0, attack_speed: 1.0 },
-      Loadout::new(vec![
-        GearSlot::ability(Gear::InnateGun { damage: 3 }, 12),
-        GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 3),
-      ]),
-      Glyph::palette_sprite(
-        "textures/space_qud/robot dog with gun.png",
-        'd',
-        Color::srgb(0.15, 0.15, 0.18),
-        Color::srgb(0.85, 0.75, 0.15)
-      )
-    ))
-  }
-
-  pub fn turret() -> Self {
-    Self::enemy().add((
-      Named {
-        name: "Turret",
-        flavor: "A ceiling-mounted autoturret. It can't move, but its tracking is relentless."
-      },
-      Stats { hp: 12, max_hp: 12, attack: 1, move_speed: 0.0, attack_speed: 1.0 },
-      Loadout::new(vec![
-        GearSlot::ability(Gear::InnateGun { damage: 5 }, 10),
-      ]),
-      Glyph::palette_sprite(
-        "textures/space_qud/turret1.png",
-        't',
-        Color::srgb(0.5, 0.5, 0.5),
-        Color::srgb(0.8, 0.2, 0.2)
-      )
-    ))
-  }
-
-  pub fn mushroom(primary: Color, secondary: Color, name: &'static str) -> Self {
-    Self::structure(false).add((
-      Glyph::palette_sprite("textures/space_qud/mushroom.png", 'm', primary, secondary),
-      Named { name, flavor: "A large fungal growth rooted in the alien soil." }
-    ))
-  }
-
-  pub fn laser_sword() -> Self {
-    Self::structure(false).add((
-      Glyph::palette_sprite(
-        "textures/space_qud/laser sword.png",
-        '/',
-        Color::srgb(0.18, 0.08, 0.52),
-        Color::srgb(0.42, 0.82, 0.98)
-      ),
-      Named {
-        name: "Laser Sword",
-        flavor: "An energy blade, dormant. Still hums faintly."
-      }
-    ))
-  }
-}
-
-// ============ OBJECT STRUCT (data-driven parallel to Object) ============
+// ============ OBJECT (data-driven entity blueprint) ============
 
 pub const trait FieldOf<S> {
   fn apply_to(self, obj: S) -> S;
@@ -1552,13 +661,13 @@ pub trait Has<T> {
   fn set(&mut self, val: T);
 }
 
-macro_rules! object_struct {
+macro_rules! object_data {
   (pub struct $name:ident ( $($ty:ty),* $(,)? )) => {
-    object_struct!(
+    object_data!(
       @pair $name;
       [];
-      @idx (0 1 2 3 4 5 6 7 8 9 10 11);
-      @var (a b c d e f g h i j k l);
+      @idx (0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19);
+      @var (a b c d e f g h i j k l m n o p q r s t);
       @ty [ $($ty),+ ] @end
     );
   };
@@ -1570,7 +679,7 @@ macro_rules! object_struct {
     @var ($var:ident $($rest_var:ident)*);
     @ty [ $ty:ty, $($rest:ty),+ ] @end
   ) => {
-    object_struct!(
+    object_data!(
       @pair $name;
       [$(($i, $t, $v))* ($idx, $ty, $var)];
       @idx ($($rest_idx)*);
@@ -1586,11 +695,11 @@ macro_rules! object_struct {
     @var ($var:ident $($rest_var:ident)*);
     @ty [ $ty:ty ] @end
   ) => {
-    object_struct!(@def $name; [ $(($i, $t, $v),)* ($idx, $ty, $var), ]);
+    object_data!(@def $name; [ $(($i, $t, $v),)* ($idx, $ty, $var), ]);
   };
 
   (@pair $name:ident; $pairs:tt; @idx (); @var (); @ty [ $ty:ty $(,)? ] @end) => {
-    compile_error!("object_struct! supports at most 12 component types");
+    compile_error!("object_data! supports at most 20 component types");
   };
 
   (@def $name:ident; [ $(($idx:tt, $ty:ty, $var:ident),)* ]) => {
@@ -1611,12 +720,6 @@ macro_rules! object_struct {
       pub fn insert_into(&self, e: &mut EntityCommands) {
         $(if let Some(val) = self.$idx.clone() { e.insert(val); })*
       }
-
-      pub fn spawn(&self, commands: &mut Commands) -> Entity {
-        let mut e = commands.spawn_empty();
-        self.insert_into(&mut e);
-        e.id()
-      }
     }
 
     $(
@@ -1627,10 +730,9 @@ macro_rules! object_struct {
       }
     )*
 
-    object_struct!(@field_impls $name; @before []; @rest [ $(($idx, $ty, $var),)* ]);
+    object_data!(@field_impls $name; @before []; @rest [ $(($idx, $ty, $var),)* ]);
   };
 
-  // Recursive FieldOf impl generation: emit impl for head of @rest, then recurse
   (@field_impls $name:ident;
     @before [ $(($bi:tt, $bt:ty, $bv:ident),)* ];
     @rest [ ($ci:tt, $ct:ty, $cv:ident), $(($ri:tt, $rt:ty, $rv:ident),)* ]
@@ -1642,7 +744,7 @@ macro_rules! object_struct {
         $name($($bv,)* Some(self), $($rv,)*)
       }
     }
-    object_struct!(@field_impls $name;
+    object_data!(@field_impls $name;
       @before [ $(($bi, $bt, $bv),)* ($ci, $ct, $cv), ];
       @rest [ $(($ri, $rt, $rv),)* ]
     );
@@ -1651,12 +753,297 @@ macro_rules! object_struct {
   (@field_impls $name:ident; @before $b:tt; @rest []) => {};
 }
 
-object_struct! {
-  pub struct ObjectStruct(Named, Stats, Glyph, Loadout)
+object_data! {
+  pub struct ObjectData(
+    Named, Stats, Glyph, Loadout, Collidable, Character, FactionComp, Gravity,
+    Enemy, Player, TimeSinceAction, DriftChance, WalkAnim, DamageCloud, Dialogue,
+    WalkAroundRandomly, BlocksSight
+  )
 }
 
-pub fn turret_def() -> ObjectStruct {
-  ObjectStruct::EMPTY
+#[derive(Clone)]
+pub struct Object {
+  pub data: ObjectData,
+  extras: Option<Arc<dyn Fn(&mut EntityCommands) + Send + Sync>>
+}
+
+impl Object {
+  pub const EMPTY: Self = Self { data: ObjectData::EMPTY, extras: None };
+
+  pub const fn with<T: ~const FieldOf<ObjectData>>(self, val: T) -> Self {
+    let Self { data, extras } = self;
+    Self { data: data.with(val), extras }
+  }
+
+  pub fn add(self, bundle: impl Bundle + Clone + Send + Sync + 'static) -> Self {
+    let prev = self.extras;
+    Self {
+      data: self.data,
+      extras: Some(Arc::new(move |e: &mut EntityCommands| {
+        if let Some(p) = &prev { p(e); }
+        e.insert(bundle.clone());
+      }))
+    }
+  }
+
+  pub fn delegate(self, other: &Self) -> Self {
+    let extras = self.extras.clone().or_else(|| other.extras.clone());
+    Self { data: self.data.delegate(&other.data), extras }
+  }
+
+  pub fn insert_into(&self, e: &mut EntityCommands) {
+    self.data.insert_into(e);
+    if let Some(extras) = &self.extras { extras(e); }
+    if Has::<Enemy>::get(&self.data).is_some() {
+      e.insert(Path::default());
+    }
+  }
+
+  pub fn spawn(&self, commands: &mut Commands) -> Entity {
+    let mut e = commands.spawn_empty();
+    self.insert_into(&mut e);
+    e.id()
+  }
+
+  pub fn spawn_at(&self, commands: &mut Commands, x: i32, y: i32, z: usize) -> Entity {
+    let mut e = commands.spawn_empty();
+    self.insert_into(&mut e);
+    e.insert(Location::xyz(x, y, z));
+    e.id()
+  }
+}
+
+impl<T> Has<T> for Object where ObjectData: Has<T> {
+  fn get(&self) -> Option<&T> { self.data.get() }
+  fn get_mut(&mut self) -> Option<&mut T> { self.data.get_mut() }
+  fn set(&mut self, val: T) { self.data.set(val); }
+}
+
+// ---- Object blueprints: associated constants and factory methods ----
+
+impl Object {
+  // ---- const bases ----
+
+  pub const ENEMY_BASE: Self = Self::EMPTY
+    .with(Collidable(true))
+    .with(Character)
+    .with(FactionComp(Faction::Hostile))
+    .with(Gravity)
+    .with(Enemy)
+    .with(TimeSinceAction { attack: 0, movement: 0 });
+
+  pub const NPC_BASE: Self = Self::EMPTY
+    .with(Collidable(false))
+    .with(Character)
+    .with(FactionComp(Faction::Neutral))
+    .with(Gravity)
+    .with(WalkAroundRandomly { timer: 0, interval: 8 });
+
+  pub const STRUCTURE: Self = Self::EMPTY.with(Collidable(true));
+  pub const STRUCTURE_PASSABLE: Self = Self::EMPTY.with(Collidable(false));
+
+  // ---- enemy definitions ----
+
+  pub const RAT_SOLDIER: Self = Self::ENEMY_BASE
+    .with(Named {
+      name: "Rat Soldier",
+      flavor: "A wiry rat-person clutching a crude spear. Smells like wet fur and old iron.",
+    })
+    .with(Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 2.1, attack_speed: 1.0 })
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/gunman .png", 'r',
+      Color::srgb(0.72, 0.48, 0.28), Color::srgb(0.95, 0.78, 0.55),
+    ))
+    .with(Loadout::from_gear(&[
+      GearSlot::passive(Gear::Weapon(crate::level::Item::CombatSpear)),
+      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 2),
+    ]));
+
+  pub const ARMORED_RAT_SOLDIER: Self = Self::ENEMY_BASE
+    .with(Named {
+      name: "Armored Rat Soldier",
+      flavor: "A rat-person in battered leather armor, gripping a crude spear. The hide smells worse than the iron.",
+    })
+    .with(Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 1.9, attack_speed: 1.0 })
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/mogussy.png", 'r',
+      Color::srgb(0.55, 0.42, 0.28), Color::srgb(0.82, 0.68, 0.45),
+    ))
+    .with(Loadout::from_gear(&[
+      GearSlot::passive(Gear::Weapon(crate::level::Item::CombatSpear)),
+      GearSlot::passive(Gear::NaturalArmor { dr: 1 }),
+      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 3),
+    ]));
+
+  pub const ROBOT: Self = Self::ENEMY_BASE
+    .with(Named {
+      name: "Robot",
+      flavor: "A damaged security robot. Its threat-response routines are still very much active.",
+    })
+    .with(Stats { hp: 15, max_hp: 15, attack: 4, move_speed: 2.0, attack_speed: 0.8 })
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/robo.png", 'R',
+      Color::srgb(0.28, 0.52, 0.58), Color::srgb(0.55, 0.82, 0.88),
+    ))
+    .with(Loadout::from_gear(&[
+      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 4),
+    ]));
+
+  pub const WACK_ROBOT: Self = Self::ENEMY_BASE
+    .with(Named {
+      name: "Salvage Bot",
+      flavor: "A repurposed salvage drone running corrupted directives. Approaches everything as scrap.",
+    })
+    .with(Stats { hp: 8, max_hp: 8, attack: 3, move_speed: 2.3, attack_speed: 1.2 })
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/wack robo.png", 'R',
+      Color::srgb(0.62, 0.38, 0.18), Color::srgb(0.88, 0.68, 0.32),
+    ))
+    .with(Loadout::from_gear(&[
+      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 2),
+    ]));
+
+  pub const ALIEN_RUNNER: Self = Self::ENEMY_BASE
+    .with(Named {
+      name: "Xel-Naran Hunter",
+      flavor: "A fast-moving predator native to Xel-Nara IV. Moves in bursts. Closes distance before you can react.",
+    })
+    .with(Stats { hp: 5, max_hp: 5, attack: 3, move_speed: 12.0, attack_speed: 1.5 })
+    .with(DriftChance(0.3))
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/alien1.png", 'x',
+      Color::srgb(0.18, 0.72, 0.22), Color::srgb(0.92, 0.82, 0.18),
+    ))
+    .with(Loadout::from_gear(&[
+      GearSlot::stacked(Gear::Device(crate::level::Item::StealthDevice), 1),
+      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 1),
+    ]))
+    .with(WalkAnim {
+      idle: "textures/space_qud/alien1.png",
+      idle_frames: &["textures/space_qud/alien1 frame 2.png"],
+      walk_frames: &["textures/space_qud/alien1 frame 2.png"],
+      interval: 20,
+      idle_interval: 20,
+    });
+
+  pub const LAVA_CRAB: Self = Self::ENEMY_BASE
+    .with(Named {
+      name: "Scorch Crawler",
+      flavor: "A heat-adapted crustacean from Pyros Maw. Its shell has fused with volcanic rock over generations. Barely slowed by flame.",
+    })
+    .with(Stats { hp: 14, max_hp: 14, attack: 5, move_speed: 4.0, attack_speed: 0.9 })
+    .with(DriftChance(0.05))
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/crab alien.png", 'c',
+      Color::srgb(0.85, 0.25, 0.05), Color::srgb(1.0, 0.55, 0.0),
+    ))
+    .with(Loadout::from_gear(&[
+      GearSlot::ability(Gear::InnateGrab, 8),
+      GearSlot::passive(Gear::NaturalArmor { dr: 3 }),
+      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 3),
+    ]));
+
+  pub const MANTIS_ALIEN: Self = Self::ENEMY_BASE
+    .with(Named {
+      name: "Crystal Mantis",
+      flavor: "A translucent predator that haunts crystal caves, nearly invisible until it strikes. Razor forelegs. Extremely fast.",
+    })
+    .with(Stats { hp: 6, max_hp: 6, attack: 5, move_speed: 10.0, attack_speed: 2.0 })
+    .with(DriftChance(0.5))
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/mantis alien.png", 'M',
+      Color::srgb(0.65, 0.90, 0.95), Color::srgb(0.20, 0.55, 0.70),
+    ))
+    .with(Loadout::from_gear(&[
+      GearSlot::stacked(Gear::Device(crate::level::Item::StealthDevice), 1),
+      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 2),
+    ]))
+    .with(WalkAnim {
+      idle: "textures/space_qud/mantis alien.png",
+      idle_frames: &["textures/space_qud/mantis alien frame 2.png"],
+      walk_frames: &["textures/space_qud/mantis alien frame 2.png"],
+      interval: 20,
+      idle_interval: 20,
+    });
+
+  pub const CRAB_ALIEN: Self = Self::ENEMY_BASE
+    .with(Named {
+      name: "Xel-Naran Crawler",
+      flavor: "A broad-shelled crustacean that lurks in alien undergrowth. Its claws can crush bone. Slow but armored.",
+    })
+    .with(Stats { hp: 10, max_hp: 10, attack: 4, move_speed: 3.5, attack_speed: 0.8 })
+    .with(DriftChance(0.1))
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/crab alien.png", 'c',
+      Color::srgb(0.55, 0.18, 0.72), Color::srgb(0.92, 0.72, 0.18),
+    ))
+    .with(Loadout::from_gear(&[
+      GearSlot::ability(Gear::InnateGrab, 8),
+      GearSlot::passive(Gear::NaturalArmor { dr: 1 }),
+      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 2),
+    ]));
+
+  pub const MUSHROOM_CREATURE: Self = Self::ENEMY_BASE
+    .with(Named {
+      name: "Mycelid",
+      flavor: "An ambulatory fungal mass. Moves with unsettling purpose. Its gills swell with spores.",
+    })
+    .with(Stats { hp: 6, max_hp: 6, attack: 2, move_speed: 2.0, attack_speed: 0.6 })
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/mushroom.png", 'm',
+      Color::srgb(0.42, 0.28, 0.18), Color::srgb(0.82, 0.72, 0.55),
+    ))
+    .with(Loadout::from_gear(&[
+      GearSlot::ability(Gear::InnateSporeEmit, 40),
+      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 1),
+    ]));
+
+  pub const GRENADE_THROWER: Self = Self::ENEMY_BASE
+    .with(Named {
+      name: "Grenadier",
+      flavor: "A wiry soldier bristling with grenades. Keeps its distance.",
+    })
+    .with(Stats { hp: 8, max_hp: 8, attack: 2, move_speed: 2.0, attack_speed: 0.8 })
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/gunman .png", 'g',
+      Color::srgb(0.22, 0.48, 0.22), Color::srgb(0.60, 0.78, 0.42),
+    ))
+    .with(Loadout::from_gear(&[
+      GearSlot::ability(Gear::InnateGrenadeThrow { min_range: 3 }, 25),
+      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 3),
+    ]));
+
+  pub const GUNMAN: Self = Self::ENEMY_BASE
+    .with(Named {
+      name: "Gunman",
+      flavor: "A sharp-eyed mercenary with a revolver. Shoots first.",
+    })
+    .with(Stats { hp: 8, max_hp: 8, attack: 3, move_speed: 2.0, attack_speed: 1.0 })
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/gunman .png", 'g',
+      Color::srgb(0.42, 0.52, 0.68), Color::srgb(0.72, 0.82, 0.92),
+    ))
+    .with(Loadout::from_gear(&[
+      GearSlot::ability(Gear::InnateGun { damage: 4 }, 15),
+      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 4),
+    ]));
+
+  pub const ROBOT_DOG: Self = Self::ENEMY_BASE
+    .with(Named {
+      name: "Guard Dog",
+      flavor: "A battered patrol drone on four legs. Its mounted gun tracks movement.",
+    })
+    .with(Stats { hp: 10, max_hp: 10, attack: 2, move_speed: 3.0, attack_speed: 1.0 })
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/robot dog with gun.png", 'd',
+      Color::srgb(0.15, 0.15, 0.18), Color::srgb(0.85, 0.75, 0.15),
+    ))
+    .with(Loadout::from_gear(&[
+      GearSlot::ability(Gear::InnateGun { damage: 3 }, 12),
+      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 3),
+    ]));
+
+  pub const TURRET: Self = Self::ENEMY_BASE
     .with(Named {
       name: "Turret",
       flavor: "A ceiling-mounted autoturret. It can't move, but its tracking is relentless.",
@@ -1666,24 +1053,274 @@ pub fn turret_def() -> ObjectStruct {
       "textures/space_qud/turret1.png", 't',
       Color::srgb(0.5, 0.5, 0.5), Color::srgb(0.8, 0.2, 0.2),
     ))
-    .with(Loadout::new(vec![
+    .with(Loadout::from_gear(&[
       GearSlot::ability(Gear::InnateGun { damage: 5 }, 10),
-    ]))
+    ]));
+
+  // ---- zero-arg .with()-only structures → associated constants ----
+
+  pub const PLAYER: Self = Self::EMPTY
+    .with(Collidable(true))
+    .with(Character)
+    .with(FactionComp(Faction::Player))
+    .with(Gravity)
+    .with(Player);
+
+  pub const SPACE_CAT: Self = Self::STRUCTURE_PASSABLE
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/space cat.png", 'c',
+      Color::srgb(0.92, 0.82, 0.62), Color::srgb(0.52, 0.36, 0.26),
+    ))
+    .with(Named { name: "Space cat", flavor: "Judges your piloting from a warm bulkhead. Offers no corrections." });
+
+  pub const BOULDER: Self = Self::STRUCTURE
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/rock.png", 'o',
+      Color::srgb(0.32, 0.30, 0.28), Color::srgb(0.58, 0.55, 0.50),
+    ))
+    .with(Named { name: "Boulder", flavor: "A massive rock. Immovable." });
+
+  pub const THRUSTER: Self = Self::STRUCTURE
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/thruster.png", '>',
+      Color::srgb(0.72, 0.38, 0.08), Color::srgb(0.75, 0.75, 0.72),
+    ))
+    .with(Named { name: "Thruster", flavor: "A directional thruster assembly. Keeps the ship moving." });
+
+  pub const SPORE_CLOUD: Self = Self::EMPTY
+    .with(Collidable(false))
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/checkerboard pattern.png", '*',
+      Color::srgb(0.30, 0.72, 0.22), Color::srgb(0.18, 0.48, 0.12),
+    ))
+    .with(Named { name: "Spore Cloud", flavor: "A drifting cloud of toxic fungal spores." })
+    .with(DamageCloud { damage_per_tick: 1, ticks_remaining: 4, tick_interval: 5, tick_timer: 0 });
+
+  pub const EXPLOSION_CLOUD: Self = Self::EMPTY
+    .with(Collidable(false))
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/checkerboard pattern.png", '*',
+      Color::srgb(0.95, 0.55, 0.10), Color::srgb(0.72, 0.22, 0.06),
+    ))
+    .with(Named { name: "Explosion", flavor: "Roiling flame and shrapnel." })
+    .with(DamageCloud { damage_per_tick: 3, ticks_remaining: 2, tick_interval: 2, tick_timer: 0 });
+
+  pub const LASER_SWORD: Self = Self::STRUCTURE_PASSABLE
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/laser sword.png", '/',
+      Color::srgb(0.18, 0.08, 0.52), Color::srgb(0.42, 0.82, 0.98),
+    ))
+    .with(Named { name: "Laser Sword", flavor: "An energy blade, dormant. Still hums faintly." });
+
+  pub const TABLE: Self = Self::STRUCTURE
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/table.png", 't',
+      Color::srgb(0.48, 0.34, 0.18), Color::srgb(0.72, 0.58, 0.36),
+    ))
+    .with(Named { name: "Table", flavor: "A sturdy table." });
+
+  pub const CHAIR: Self = Self::STRUCTURE_PASSABLE
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/chair (1).png", 'h',
+      Color::srgb(0.60, 0.62, 0.65), Color::srgb(0.72, 0.18, 0.14),
+    ))
+    .with(Named { name: "Chair", flavor: "A chair. Something to sit on." });
+
+  pub const LOCKER: Self = Self::STRUCTURE
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/locker (2).png", 'l',
+      Color::srgb(0.32, 0.38, 0.42), Color::srgb(0.62, 0.68, 0.72),
+    ))
+    .with(Named { name: "Locker", flavor: "A metal locker. Whatever was inside is long gone." });
+
+  pub const CRATE_OBJ: Self = Self::STRUCTURE
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/crate.png", 'c',
+      Color::srgb(0.42, 0.32, 0.18), Color::srgb(0.72, 0.60, 0.38),
+    ))
+    .with(Named { name: "Crate", flavor: "A battered storage crate. Probably empty." });
+
+  // ---- const fn factories (take args, only .with()) ----
+
+  pub const fn mushroom(primary: Color, secondary: Color, name: &'static str) -> Self {
+    Self::STRUCTURE_PASSABLE
+      .with(Glyph::palette_sprite("textures/space_qud/mushroom.png", 'm', primary, secondary))
+      .with(Named { name, flavor: "A large fungal growth rooted in the alien soil." })
+  }
+
+  // ---- fn factories (use .add(), rand, Vec, etc.) ----
+
+  pub fn tree() -> Self {
+    let sprite = if rand::random::<bool>() { "textures/space_qud/tree.png" } else { "textures/space_qud/tree2.png" };
+    Self::STRUCTURE_PASSABLE
+      .with(Glyph::palette_sprite(
+        sprite, 'T',
+        Color::srgb(0.14, 0.42, 0.16), Color::srgb(0.38, 0.62, 0.24),
+      ))
+      .with(Named { name: "Tree", flavor: "A sturdy tree. Could be chopped for wood." })
+      .with(BlocksSight)
+      .add(Tree)
+  }
+
+  pub fn door() -> Self {
+    Self::STRUCTURE
+      .with(Glyph::palette_sprite(
+        "textures/space_qud/door closed (1).png", '+',
+        DOOR_CLOSED_PRI, DOOR_CLOSED_SEC,
+      ))
+      .with(Named { name: "Door", flavor: "Press Space to open." })
+      .with(BlocksSight)
+      .add(Door { open: false, closed_color: DOOR_CLOSED_PRI })
+  }
+
+  pub fn airlock_door() -> Self {
+    Self::door()
+      .with(Glyph::palette_sprite(
+        "textures/space_qud/airlock closed.png", '+',
+        crate::AIRLOCK_PRI, crate::AIRLOCK_SEC,
+      ))
+      .add(AirlockDoor { opened_at_sim_time: None })
+  }
+
+  pub fn flight_console() -> Self {
+    Self::STRUCTURE
+      .with(Glyph::palette_sprite(
+        "textures/space_qud/computer .png", 'C',
+        Color::srgb(0.18, 0.34, 0.52), Color::srgb(0.32, 0.88, 0.45),
+      ))
+      .with(Named { name: "Flight Console", flavor: "Navigation computer. Plot a course to a destination." })
+      .add(FlightConsole)
+  }
+
+  pub fn loadout_console() -> Self {
+    Self::STRUCTURE
+      .with(Glyph::palette_sprite(
+        "textures/space_qud/locker (1).png", 'Q',
+        Color::srgb(0.25, 0.38, 0.52), Color::srgb(0.55, 0.75, 0.88),
+      ))
+      .with(Named { name: "Loadout Console", flavor: "Manage your equipped weapon and armor from your collected gear." })
+      .add(LoadoutConsole)
+  }
+
+  pub fn elevator(current_z: usize, floors: Vec<(usize, i32, i32)>) -> Self {
+    Self::STRUCTURE
+      .with(Glyph::palette_sprite(
+        "textures/space_qud/elevator.png", 'E',
+        Color::srgb(0.42, 0.46, 0.50), Color::srgb(1.0, 0.85, 0.10),
+      ))
+      .with(Named { name: "Elevator", flavor: "Vertical transport. Choose a deck." })
+      .add(Elevator { current_z, floors })
+  }
+
+  pub fn cave_entrance(surface_x: i32, surface_y: i32, cave_x: i32, cave_y: i32) -> Self {
+    Self::STRUCTURE_PASSABLE
+      .with(Glyph::palette_sprite(
+        "textures/space_qud/stairs.png", '>',
+        Color::srgb(0.35, 0.32, 0.28), Color::srgb(0.55, 0.50, 0.40),
+      ))
+      .with(Named { name: "Cave Entrance", flavor: "A dark opening leads underground." })
+      .add(Elevator {
+        current_z: 0,
+        floors: vec![(0, surface_x, surface_y), (1, cave_x, cave_y)]
+      })
+  }
+
+  pub fn cave_exit(surface_x: i32, surface_y: i32, cave_x: i32, cave_y: i32) -> Self {
+    Self::STRUCTURE_PASSABLE
+      .with(Glyph::palette_sprite(
+        "textures/space_qud/stairs up.png", '<',
+        Color::srgb(0.55, 0.50, 0.40), Color::srgb(0.35, 0.32, 0.28),
+      ))
+      .with(Named { name: "Cave Exit", flavor: "Daylight filters in from above." })
+      .add(Elevator {
+        current_z: 1,
+        floors: vec![(0, surface_x, surface_y), (1, cave_x, cave_y)]
+      })
+  }
+
+  pub fn loot_chest() -> Self {
+    Self::STRUCTURE
+      .with(Glyph::palette_sprite(
+        "textures/space_qud/crate.png", '&',
+        Color::srgb(0.72, 0.52, 0.28), Color::srgb(0.42, 0.32, 0.22),
+      ))
+      .with(Named { name: "Chest", flavor: "Someone stashed supplies here." })
+      .add(LootChest { opened: false })
+  }
+
+  pub fn bed() -> Self {
+    Self::STRUCTURE
+      .with(Glyph::palette_sprite(
+        "textures/space_qud/bed.png", 'b',
+        Color::srgb(0.52, 0.38, 0.22), Color::srgb(0.88, 0.84, 0.72),
+      ))
+      .with(Named { name: "Bed", flavor: "A place to sleep. Looks like it hasn't been used in a while." })
+      .add(Bed)
+  }
+
+  pub fn crafting_table() -> Self {
+    Self::STRUCTURE
+      .with(Glyph::palette_sprite(
+        "textures/space_qud/crafting table.png", 'C',
+        Color::srgb(0.38, 0.42, 0.48), Color::srgb(0.62, 0.62, 0.62),
+      ))
+      .with(Named { name: "Crafting Table", flavor: "A workbench for assembling equipment from salvaged parts." })
+      .add(CraftingTable)
+  }
+
+  pub fn supply_cache(contents: &'static [(crate::level::Item, u32)]) -> Self {
+    Self::EMPTY
+      .with(Collidable(true))
+      .with(Glyph::palette_sprite(
+        "textures/space_qud/crate.png", 'S',
+        Color::srgb(0.28, 0.42, 0.52), Color::srgb(0.52, 0.75, 0.88),
+      ))
+      .with(Named { name: "Supply Cache", flavor: "A sealed cache. Whoever left this behind had plans they didn't finish." })
+      .add((LootChest { opened: false }, FixedChestLoot(contents)))
+  }
+
+  pub fn ground_item(item: crate::level::Item) -> Self {
+    let (primary, secondary) = item.loot_colors();
+    Self::EMPTY
+      .with(Glyph::palette_sprite(item.loot_texture(), '*', primary, secondary))
+      .add(GroundItem(item))
+  }
+
+  pub fn torch(radius: u32) -> Self {
+    Self::EMPTY.add(LightSource { radius })
+  }
+
+  pub fn wall(material: Material) -> Self {
+    Self::STRUCTURE.add(WallComp { material })
+  }
+
+  pub fn defined_npc(
+    named: Named,
+    stats: Stats,
+    loadout: Loadout,
+    glyph: Glyph,
+    dialogue: &'static DialogueTree
+  ) -> Self {
+    Self::NPC_BASE
+      .with(named)
+      .with(stats)
+      .with(loadout)
+      .with(glyph)
+      .with(Dialogue(dialogue))
+  }
+
+  pub fn as_follower(obj: Self) -> Self {
+    obj
+      .add(FollowerState::Available)
+      .add(FollowerData { home: (0, 0, 0), move_timer: 0 })
+      .add(Path::default())
+  }
 }
 
-pub const GUNMAN: ObjectStruct = ObjectStruct::EMPTY
-  .with(Named {
-    name: "Gunman",
-    flavor: "A sharp-eyed mercenary with a revolver. Shoots first.",
-  })
-  .with(Stats { hp: 8, max_hp: 8, attack: 3, move_speed: 2.0, attack_speed: 1.0 })
-  .with(Glyph::palette_sprite(
-    "textures/space_qud/gunman .png",
-    'g',
-    Color::srgb(0.42, 0.52, 0.68),
-    Color::srgb(0.72, 0.82, 0.92),
-  ))
-  .with(Loadout::from_gear(&[
-    GearSlot::ability(Gear::InnateGun { damage: 4 }, 15),
-    GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 4),
-  ]));
+pub fn npc_person_glyph(ch: char, primary: Color, secondary: Color) -> Glyph {
+  Glyph::palette_sprite("textures/space_qud/person (2).png", ch, primary, secondary)
+}
+
+pub fn npc_robo_glyph(ch: char, primary: Color, secondary: Color) -> Glyph {
+  Glyph::palette_sprite("textures/space_qud/robo (1).png", ch, primary, secondary)
+}

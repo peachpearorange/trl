@@ -1,13 +1,14 @@
-use {bevy::prelude::Color, crate::entities::*};
-use crate::{galaxy::{Location, LocationId},
-          level::{LocationType, Tile},
-          prefabs::{prefab, Prefab}};
+use {crate::{entities::*,
+             galaxy::{Location, LocationId},
+             level::{LocationType, Tile},
+             prefabs::{Prefab, prefab}},
+     bevy::prelude::Color};
 
 pub const ID: LocationId = (0, 2, 0);
 
 pub fn station_prefab() -> Prefab {
   prefab(
-"..................................................................................
+    "..................................................................................
 ......wwsssww.....................................................................
 ......wfffffw.....................................................................
 ......sfffffs........wwwwPwwwww...................................................
@@ -65,11 +66,11 @@ pub fn station_prefab() -> Prefab {
   .assoc('f', (Tile::StationFloor, []))
   .assoc('d', (Tile::StationFloor, [Object::airlock_door()]))
   .assoc('P', (Tile::ShipDock, []))
-  .assoc('l', (Tile::StationFloor, [Object::locker()]))
-  .assoc('t', (Tile::StationFloor, [Object::table()]))
+  .assoc('l', (Tile::StationFloor, [Object::LOCKER.clone()]))
+  .assoc('t', (Tile::StationFloor, [Object::TABLE.clone()]))
   .assoc('b', (Tile::StationFloor, [Object::bed()]))
-  .assoc('c', (Tile::StationFloor, [Object::crate_obj()]))
-  .assoc('r', (Tile::StationFloor, [Object::chair()]))
+  .assoc('c', (Tile::StationFloor, [Object::CRATE_OBJ.clone()]))
+  .assoc('r', (Tile::StationFloor, [Object::CHAIR.clone()]))
   .assoc('0', (Tile::StationFloor, [dock_master()]))
   .assoc('1', (Tile::StationFloor, [hub1()]))
   .assoc('2', (Tile::StationFloor, [medic2()]))
@@ -81,7 +82,12 @@ pub fn station_prefab() -> Prefab {
 }
 
 pub fn generate() -> Location {
-  Location::from_prefab("Gamma Station", station_prefab(), LocationType::SpaceStation, Tile::Vacuum)
+  Location::from_prefab(
+    "Gamma Station",
+    station_prefab(),
+    LocationType::SpaceStation,
+    Tile::Vacuum
+  )
 }
 
 pub const NPC_COORDS: &[(i32, i32)] = &[
@@ -93,10 +99,10 @@ pub const NPC_COORDS: &[(i32, i32)] = &[
   (124, 24),
   (24, 74),
   (124, 74),
-  (74, 99),
+  (74, 99)
 ];
 
-static DOCK_MASTER_DIALOGUE: DialogueTree = tree(&[
+static DOCK_MASTER_DIALOGUE: DialogueTree = dialogue_tree(&[
   node(
     "root",
     "Gamma Station docking control. Identify your vessel and state your business.",
@@ -109,7 +115,7 @@ static DOCK_MASTER_DIALOGUE: DialogueTree = tree(&[
   )
 ]);
 
-static HUB1_DIALOGUE: DialogueTree = tree(&[
+static HUB1_DIALOGUE: DialogueTree = dialogue_tree(&[
   node(
     "root",
     "Welcome to Gamma Station central hub. I coordinate between all departments. Ask me anything.",
@@ -122,7 +128,7 @@ static HUB1_DIALOGUE: DialogueTree = tree(&[
   )
 ]);
 
-static MEDIC2_DIALOGUE: DialogueTree = tree(&[
+static MEDIC2_DIALOGUE: DialogueTree = dialogue_tree(&[
   node(
     "root",
     "Medical station MEDIC-2. Are you injured? I can run a full diagnostic.",
@@ -135,7 +141,7 @@ static MEDIC2_DIALOGUE: DialogueTree = tree(&[
   )
 ]);
 
-static ENGINEER5_DIALOGUE: DialogueTree = tree(&[
+static ENGINEER5_DIALOGUE: DialogueTree = dialogue_tree(&[
   node(
     "root",
     "Engineering. If you're not here about the coupling fault on deck three, I'm busy.",
@@ -148,12 +154,11 @@ static ENGINEER5_DIALOGUE: DialogueTree = tree(&[
   )
 ]);
 
-static GUARD3_DIALOGUE: DialogueTree = tree(&[
-  node(
-    "root",
-    "Security checkpoint. You're cleared to proceed, but I'm watching.",
-    &[go("Tell me more.", "detail"), end("I'll stay out of trouble.")]
-  ),
+static GUARD3_DIALOGUE: DialogueTree = dialogue_tree(&[
+  node("root", "Security checkpoint. You're cleared to proceed, but I'm watching.", &[
+    go("Tell me more.", "detail"),
+    end("I'll stay out of trouble.")
+  ]),
   node(
     "detail",
     "We had an incident last cycle. Cargo manifest didn't match what came through the airlock. Still investigating.",
@@ -161,7 +166,7 @@ static GUARD3_DIALOGUE: DialogueTree = tree(&[
   )
 ]);
 
-static ANALYST4_DIALOGUE: DialogueTree = tree(&[
+static ANALYST4_DIALOGUE: DialogueTree = dialogue_tree(&[
   node(
     "root",
     "Research division. I'm in the middle of a signal analysis — can this wait?",
@@ -174,7 +179,7 @@ static ANALYST4_DIALOGUE: DialogueTree = tree(&[
   )
 ]);
 
-static STEWARD6_DIALOGUE: DialogueTree = tree(&[
+static STEWARD6_DIALOGUE: DialogueTree = dialogue_tree(&[
   node(
     "root",
     "Crew quarters steward. The bunks are assigned, the schedule is posted, and the coffee is hot.",
@@ -187,7 +192,7 @@ static STEWARD6_DIALOGUE: DialogueTree = tree(&[
   )
 ]);
 
-static CARGO8_DIALOGUE: DialogueTree = tree(&[
+static CARGO8_DIALOGUE: DialogueTree = dialogue_tree(&[
   node(
     "root",
     "Cargo management. Everything gets logged, everything gets weighed. No exceptions.",
@@ -200,7 +205,7 @@ static CARGO8_DIALOGUE: DialogueTree = tree(&[
   )
 ]);
 
-static REACTOR7_DIALOGUE: DialogueTree = tree(&[
+static REACTOR7_DIALOGUE: DialogueTree = dialogue_tree(&[
   node(
     "root",
     "Reactor core is restricted. You have thirty seconds to explain why you're here.",

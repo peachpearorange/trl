@@ -24,6 +24,18 @@ pub enum TileRenderMode {
   ConnectedBorder(&'static str, [f32; 3], [f32; 3])
 }
 
+impl TileRenderMode {
+  pub fn colors(&self) -> ([f32; 3], [f32; 3]) {
+    match self {
+      Self::SolidColor => ([0.5; 3], [0.5; 3]),
+      Self::Sprite(_, p, s)
+      | Self::SpritePackRandom(_, p, s)
+      | Self::ConnectedSprite(_, p, s)
+      | Self::ConnectedBorder(_, p, s) => (*p, *s)
+    }
+  }
+}
+
 #[derive(Assoc, Clone, Copy, PartialEq, Eq, Debug, TryFromPrimitive)]
 #[repr(u16)]
 #[func(pub fn glyph(&self) -> &'static str)]
@@ -162,5 +174,9 @@ pub enum Tile {
 impl Tile {
   pub fn all() -> impl Iterator<Item = Tile> {
     (0u16..).map_while(|i| Tile::try_from(i).ok())
+  }
+
+  pub fn from_save(s: &str) -> Option<Self> {
+    Self::all().find(|t| format!("{t:?}") == s)
   }
 }

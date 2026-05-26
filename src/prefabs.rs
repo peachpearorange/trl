@@ -30,22 +30,18 @@ pub struct Prefab {
 }
 
 fn resident() -> Object {
-  Object::npc().add((
-    Named { name: "Resident", flavor: "Someone trying to keep a small place livable." },
-    Stats { hp: 8, max_hp: 8, attack: 1, move_speed: 3.0, attack_speed: 1.0 },
-    Glyph::ascii('@', Color::srgb(0.7, 0.9, 1.0))
-  ))
+  Object::NPC_BASE.with(Named { name: "Resident", flavor: "Someone trying to keep a small place livable." })
+    .with(Stats { hp: 8, max_hp: 8, attack: 1, move_speed: 3.0, attack_speed: 1.0 })
+    .with(Glyph::ascii('@', Color::srgb(0.7, 0.9, 1.0)))
 }
 
 fn ship_pilot() -> Object {
-  Object::npc().add((
-    Named {
+  Object::NPC_BASE.with(Named {
       name: "Pilot",
       flavor: "Ticks through a short pre-flight list. Coffee stains on the console manual."
-    },
-    Stats { hp: 10, max_hp: 10, attack: 1, move_speed: 3.0, attack_speed: 1.0 },
-    Glyph::ascii('@', Color::srgb(0.55, 0.82, 0.95))
-  ))
+    })
+    .with(Stats { hp: 10, max_hp: 10, attack: 1, move_speed: 3.0, attack_speed: 1.0 })
+    .with(Glyph::ascii('@', Color::srgb(0.55, 0.82, 0.95)))
 }
 
 pub fn prefab(layout: impl Into<String>) -> Prefab { Prefab::new(layout) }
@@ -119,9 +115,10 @@ impl Prefab {
       .unwrap_or(0);
     raw_lines.iter().enumerate().find_map(|(y, line)| {
       let stripped = line.get(indent..).unwrap_or(line);
-      stripped.chars().enumerate().find_map(|(x, c)| {
-        (c == ch).then_some((x as i32, y as i32))
-      })
+      stripped
+        .chars()
+        .enumerate()
+        .find_map(|(x, c)| (c == ch).then_some((x as i32, y as i32)))
     })
   }
 
@@ -139,7 +136,11 @@ impl Prefab {
 
   /// Spawn assoc objects, skipping any world position in `exclude`.
   pub fn stamp_entities_excluding(
-    &self, commands: &mut Commands, ox: i32, oy: i32, z: usize,
+    &self,
+    commands: &mut Commands,
+    ox: i32,
+    oy: i32,
+    z: usize,
     exclude: &std::collections::HashSet<(i32, i32)>
   ) {
     self.visit_cells(|lx, ly, _tile, templates| {
@@ -154,9 +155,15 @@ impl Prefab {
   }
 
   /// World positions `(ox+x, oy+y)` where this prefab has a non-whitespace tile.
-  pub fn occupied_positions(&self, ox: i32, oy: i32) -> std::collections::HashSet<(i32, i32)> {
+  pub fn occupied_positions(
+    &self,
+    ox: i32,
+    oy: i32
+  ) -> std::collections::HashSet<(i32, i32)> {
     let mut set = std::collections::HashSet::new();
-    self.visit_cells(|lx, ly, _tile, _| { set.insert((ox + lx, oy + ly)); });
+    self.visit_cells(|lx, ly, _tile, _| {
+      set.insert((ox + lx, oy + ly));
+    });
     set
   }
 
@@ -247,27 +254,36 @@ impl Prefab {
     .assoc('=', (Tile::Conduit, []))
     .assoc('C', (Tile::DeckPlate, [Object::flight_console()]))
     .assoc('Q', (Tile::DeckPlate, [Object::loadout_console()]))
-    .assoc('k', (Tile::DeckPlate, [Object::space_cat()]))
+    .assoc('k', (Tile::DeckPlate, [Object::SPACE_CAT.clone()]))
     .assoc('B', (Tile::WoodTile, [Object::bed()]))
-    .assoc('T', (Tile::DeckPlate, [Object::table()]))
-    .assoc('c', (Tile::DeckPlate, [Object::chair()]))
-    .assoc('L', (Tile::WoodTile, [Object::locker()]))
-    .assoc('X', (Tile::DeckPlate, [Object::supply_cache(&[
-      (Item::LaserRifle, 1),
-      (Item::PipeRevolver, 1),
-      (Item::PlasmaRifle, 1),
-      (Item::ScatterGun, 1),
-      (Item::PulseCannon, 1),
-      (Item::FragGrenade, 2),
-      (Item::StunGrenade, 1)
-    ])]))
+    .assoc('T', (Tile::DeckPlate, [Object::TABLE.clone()]))
+    .assoc('c', (Tile::DeckPlate, [Object::CHAIR.clone()]))
+    .assoc('L', (Tile::WoodTile, [Object::LOCKER.clone()]))
+    .assoc(
+      'X',
+      (Tile::DeckPlate, [Object::supply_cache(&[
+        (Item::LaserRifle, 1),
+        (Item::PipeRevolver, 1),
+        (Item::PlasmaRifle, 1),
+        (Item::ScatterGun, 1),
+        (Item::PulseCannon, 1),
+        (Item::FragGrenade, 2),
+        (Item::StunGrenade, 1)
+      ])])
+    )
     .assoc('m', (Tile::WoodTile, [npcs::mira::mira()]))
     .assoc('H', (Tile::DeckPlate, [npcs::chronos::chronos()]))
     .assoc('U', (Tile::DeckPlate, [npcs::unit7::unit7()]))
     .assoc('G', (Tile::DeckPlate, [npcs::kong::kong()]))
-    .assoc('s', (Tile::DeckPlate, [Object::ground_item(Item::StealthDevice), Object::ground_item(Item::StealthDevice)]))
+    .assoc(
+      's',
+      (Tile::DeckPlate, [
+        Object::ground_item(Item::StealthDevice),
+        Object::ground_item(Item::StealthDevice)
+      ])
+    )
     .assoc('d', (Tile::DeckPlate, [npcs::guard::guard()]))
-    .assoc('t', (Tile::Blank, [Object::thruster()]))
+    .assoc('t', (Tile::Blank, [Object::THRUSTER.clone()]))
   }
 }
 
@@ -278,7 +294,7 @@ mod tests {
 
   fn chest() -> Object { Object::loot_chest() }
 
-  fn enemy() -> Object { Object::rat_soldier() }
+  fn enemy() -> Object { Object::RAT_SOLDIER.clone() }
 
   #[test]
   fn builds_multiple_objects_at_same_cell() {
@@ -395,12 +411,12 @@ aa
     // airlock sits on deck plate
     assert_eq!(stamped.get(16, 15), Some(Tile::DeckPlate));
     // console
-    assert_eq!(stamped.get(29, 7),  Some(Tile::DeckPlate));
+    assert_eq!(stamped.get(29, 7), Some(Tile::DeckPlate));
     // conduit column (cols 5-8 of rows 6-8)
-    assert_eq!(stamped.get(5, 6),   Some(Tile::Conduit));
-    assert_eq!(stamped.get(5, 8),   Some(Tile::Conduit));
+    assert_eq!(stamped.get(5, 6), Some(Tile::Conduit));
+    assert_eq!(stamped.get(5, 8), Some(Tile::Conduit));
     // ship wall outer hull
-    assert_eq!(stamped.get(0, 6),   Some(Tile::ShipWall));
-    assert_eq!(stamped.get(0, 8),   Some(Tile::ShipWall));
+    assert_eq!(stamped.get(0, 6), Some(Tile::ShipWall));
+    assert_eq!(stamped.get(0, 8), Some(Tile::ShipWall));
   }
 }

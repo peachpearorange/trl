@@ -1,6 +1,6 @@
-use {bevy::prelude::Color, crate::entities::*};
+use {crate::entities::*, bevy::prelude::Color};
 
-static DIALOGUE: DialogueTree = tree(&[
+static DIALOGUE: DialogueTree = dialogue_tree(&[
   node(
     "root",
     "Ah — you're awake! Good morning. I am ORI-1, your orientation unit. \
@@ -66,20 +66,14 @@ static DIALOGUE: DialogueTree = tree(&[
      If you fall in battle, you'll wake up at the last bed \
      you slept in. There's one right here in this room, and \
      more on your ship.",
-    &[
-      go("What about equipment?", "equipment"),
-      end("Good to know.")
-    ]
+    &[go("What about equipment?", "equipment"), end("Good to know.")]
   ),
   node(
     "saving",
     "Interact with any bed to sleep and save. If you die, \
      you'll respawn there with your gear intact. \
      I'd recommend saving often — space is unforgiving.",
-    &[
-      go("How do I fight?", "combat"),
-      end("Will do.")
-    ]
+    &[go("How do I fight?", "combat"), end("Will do.")]
   ),
   node(
     "out_there",
@@ -103,7 +97,7 @@ static DIALOGUE: DialogueTree = tree(&[
       go("What should I do?", "what_do"),
       end("Peaceful place. See you around.")
     ]
-  ),
+  )
 ]);
 
 pub fn ori1() -> Object {

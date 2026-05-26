@@ -1,6 +1,8 @@
 //! Visual particle effects for gunshots and grenade explosions using bevy_hanabi.
 
-use {crate::TILE_SIZE, bevy::prelude::*, bevy_hanabi::prelude::*};
+use {crate::{TILE_SIZE, entities::Location, CurrentZone},
+     bevy::prelude::*,
+     bevy_hanabi::prelude::*};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -22,9 +24,7 @@ pub struct ParticleEffects {
   /// Small red-orange scatter pellet.
   pub scatter_pellet: Handle<EffectAsset>,
   /// Heavy purple pulse beam segment.
-  pub pulse_beam: Handle<EffectAsset>,
-  /// Splash when stepping into liquid.
-  pub liquid_splash: Handle<EffectAsset>
+  pub pulse_beam: Handle<EffectAsset>
 }
 
 /// Despawn this entity once the timer expires.
@@ -327,40 +327,6 @@ fn setup_particle_effects(
       .render(SizeOverLifetimeModifier { gradient: sg, screen_space_size: false })
   );
 
-  // --- Liquid splash ---
-  let writer = ExprWriter::new();
-  let age = writer.lit(0.0_f32).expr();
-  let lifetime = writer.lit(0.2_f32).uniform(writer.lit(0.5_f32)).expr();
-  let p_center = writer.lit(Vec3::ZERO).expr();
-  let p_radius = writer.lit(TILE_SIZE * 0.4).expr();
-  let v_center = writer.lit(Vec3::new(0.0, 30.0, 0.0)).expr();
-  let speed = writer.lit(40.0_f32).uniform(writer.lit(120.0_f32)).expr();
-
-  let mut cg: bevy_hanabi::Gradient<Vec4> = bevy_hanabi::Gradient::new();
-  cg.add_key(0.0, Vec4::new(0.7, 0.85, 1.0, 0.9));
-  cg.add_key(0.4, Vec4::new(0.4, 0.65, 0.9, 0.7));
-  cg.add_key(1.0, Vec4::new(0.2, 0.4, 0.7, 0.0));
-
-  let mut sg: bevy_hanabi::Gradient<Vec3> = bevy_hanabi::Gradient::new();
-  sg.add_key(0.0, Vec3::splat(10.0));
-  sg.add_key(0.5, Vec3::splat(6.0));
-  sg.add_key(1.0, Vec3::ZERO);
-
-  let liquid_splash = effects.add(
-    EffectAsset::new(64, SpawnerSettings::once(16.0_f32.into()), writer.finish())
-      .with_name("liquid_splash")
-      .init(SetAttributeModifier::new(Attribute::AGE, age))
-      .init(SetAttributeModifier::new(Attribute::LIFETIME, lifetime))
-      .init(SetPositionSphereModifier {
-        center: p_center,
-        radius: p_radius,
-        dimension: ShapeDimension::Surface
-      })
-      .init(SetVelocitySphereModifier { center: v_center, speed })
-      .render(ColorOverLifetimeModifier::new(cg))
-      .render(SizeOverLifetimeModifier { gradient: sg, screen_space_size: false })
-  );
-
   commands.insert_resource(ParticleEffects {
     bullet_tracer,
     bullet_spark,
@@ -368,8 +334,7 @@ fn setup_particle_effects(
     laser_beam,
     plasma_bolt,
     scatter_pellet,
-    pulse_beam,
-    liquid_splash
+    pulse_beam
   });
 }
 
@@ -514,21 +479,74 @@ pub fn spawn_explosion_burst(
   ));
 }
 
-/// Spawn a splash burst at `(x,y)`. `_color` reserved for future per-liquid tinting.
 pub fn spawn_liquid_splash(
   commands: &mut Commands,
-  effects: &ParticleEffects,
+  effects: &mut Assets<EffectAsset>,
   x: i32,
   y: i32,
   level_w: usize,
   level_h: usize,
-  _color: [f32; 3]
+  primary: [f32; 3],
+  secondary: [f32; 3]
 ) {
+  let writer = ExprWriter::new();
+  let age = writer.lit(0.0_f32).expr();
+  let lifetime = writer.lit(0.2_f32).uniform(writer.lit(0.5_f32)).expr();
+  let p_center = writer.lit(Vec3::ZERO).expr();
+  let p_radius = writer.lit(TILE_SIZE * 0.4).expr();
+  let v_center = writer.lit(Vec3::ZERO).expr();
+  let speed = writer.lit(40.0_f32).uniform(writer.lit(120.0_f32)).expr();
+
+  let [pr, pg, pb] = primary;
+  let [sr, sg_, sb] = secondary;
+  let mut cg: bevy_hanabi::Gradient<Vec4> = bevy_hanabi::Gradient::new();
+  cg.add_key(0.0, Vec4::new(sr, sg_, sb, 0.9));
+  cg.add_key(0.4, Vec4::new(pr, pg, pb, 0.7));
+  cg.add_key(1.0, Vec4::new(pr * 0.5, pg * 0.5, pb * 0.5, 0.0));
+
+  let mut sz: bevy_hanabi::Gradient<Vec3> = bevy_hanabi::Gradient::new();
+  sz.add_key(0.0, Vec3::splat(10.0));
+  sz.add_key(0.5, Vec3::splat(6.0));
+  sz.add_key(1.0, Vec3::ZERO);
+
+  let handle = effects.add(
+    EffectAsset::new(64, SpawnerSettings::once(16.0_f32.into()), writer.finish())
+      .with_name("liquid_splash")
+      .init(SetAttributeModifier::new(Attribute::AGE, age))
+      .init(SetAttributeModifier::new(Attribute::LIFETIME, lifetime))
+      .init(SetPositionSphereModifier {
+        center: p_center,
+        radius: p_radius,
+        dimension: ShapeDimension::Surface
+      })
+      .init(SetVelocitySphereModifier { center: v_center, speed })
+      .render(ColorOverLifetimeModifier::new(cg))
+      .render(SizeOverLifetimeModifier { gradient: sz, screen_space_size: false })
+  );
+
   commands.spawn((
-    ParticleEffect::new(effects.liquid_splash.clone()),
+    ParticleEffect::new(handle),
     Transform::from_translation(grid_world(x, y, level_w, level_h)),
     EffectLifetime(Timer::from_seconds(0.8, TimerMode::Once))
   ));
+}
+
+pub fn liquid_splash_on_move(
+  mut commands: Commands,
+  mut effects: ResMut<Assets<EffectAsset>>,
+  current: Res<CurrentZone>,
+  moved_q: Query<&Location, Changed<Location>>
+) {
+  for location in &moved_q {
+    if let &Location::Coords { x, y, z, .. } = location
+      && let level = current.0.level(z)
+      && let Some(tile) = level.get(x, y)
+      && tile.is_liquid()
+    {
+      let (primary, secondary) = tile.render_mode().colors();
+      spawn_liquid_splash(&mut commands, &mut effects, x, y, level.width, level.height, primary, secondary);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

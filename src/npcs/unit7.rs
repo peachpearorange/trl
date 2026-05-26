@@ -1,6 +1,6 @@
-use {bevy::prelude::Color, crate::entities::*};
+use {crate::entities::*, bevy::prelude::Color};
 
-static DIALOGUE: DialogueTree = tree(&[
+static DIALOGUE: DialogueTree = dialogue_tree(&[
   node(
     "root",
     "GREETINGS VALUED CUSTOM— *bzzt* — INTRUDER DETECTED — \
@@ -119,7 +119,7 @@ static DIALOGUE: DialogueTree = tree(&[
 ]);
 
 pub fn unit7() -> Object {
-  Object::defined_npc(
+  Object::as_follower(Object::defined_npc(
     Named {
       name: "Unit-7",
       flavor: "A dented robot sparking intermittently. One eye glows brighter than the other."
@@ -128,6 +128,5 @@ pub fn unit7() -> Object {
     Loadout::default(),
     npc_robo_glyph('R', Color::srgb(0.22, 0.78, 0.88), Color::srgb(0.55, 0.95, 0.98)),
     &DIALOGUE
-  )
-  .as_follower()
+  ))
 }
