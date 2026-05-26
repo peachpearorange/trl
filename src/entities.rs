@@ -2,7 +2,7 @@
 
 use {crate::faction::Faction,
      bevy::prelude::*,
-     std::{collections::VecDeque, sync::Arc}};
+     std::{borrow::Cow, collections::VecDeque, sync::Arc}};
 
 // ============ DIALOGUE ============
 
@@ -136,24 +136,26 @@ pub struct GearSlot {
 }
 
 impl GearSlot {
-  pub fn passive(gear: Gear) -> Self { Self { gear, count: 1, cooldown: 0, timer: 0 } }
+  pub const fn passive(gear: Gear) -> Self { Self { gear, count: 1, cooldown: 0, timer: 0 } }
 
-  pub fn ability(gear: Gear, cooldown: u32) -> Self {
+  pub const fn ability(gear: Gear, cooldown: u32) -> Self {
     Self { gear, count: 1, cooldown, timer: 0 }
   }
 
-  pub fn stacked(gear: Gear, count: u32) -> Self {
+  pub const fn stacked(gear: Gear, count: u32) -> Self {
     Self { gear, count, cooldown: 0, timer: 0 }
   }
 }
 
 #[derive(Component, Clone, Debug, Default)]
 pub struct Loadout {
-  pub gear: Vec<GearSlot>
+  pub gear: Cow<'static, [GearSlot]>
 }
 
 impl Loadout {
-  pub fn new(gear: Vec<GearSlot>) -> Self { Self { gear } }
+  pub fn new(gear: impl Into<Cow<'static, [GearSlot]>>) -> Self { Self { gear: gear.into() } }
+
+  pub const fn from_gear(gear: &'static [GearSlot]) -> Self { Self { gear: Cow::Borrowed(gear) } }
 
   pub fn weapon(&self) -> Option<crate::level::Item> {
     self.gear.iter().find_map(|s| match s.gear {
@@ -214,19 +216,23 @@ impl Loadout {
   }
 
   pub fn gun_mut(&mut self) -> Option<&mut GearSlot> {
-    self.gear.iter_mut().find(|s| matches!(s.gear, Gear::InnateGun { .. }))
+    self.gear.to_mut().iter_mut().find(|s| matches!(s.gear, Gear::InnateGun { .. }))
   }
 
   pub fn grenade_throw_mut(&mut self) -> Option<&mut GearSlot> {
-    self.gear.iter_mut().find(|s| matches!(s.gear, Gear::InnateGrenadeThrow { .. }))
+    self
+      .gear
+      .to_mut()
+      .iter_mut()
+      .find(|s| matches!(s.gear, Gear::InnateGrenadeThrow { .. }))
   }
 
   pub fn spore_mut(&mut self) -> Option<&mut GearSlot> {
-    self.gear.iter_mut().find(|s| matches!(s.gear, Gear::InnateSporeEmit))
+    self.gear.to_mut().iter_mut().find(|s| matches!(s.gear, Gear::InnateSporeEmit))
   }
 
   pub fn grab_mut(&mut self) -> Option<&mut GearSlot> {
-    self.gear.iter_mut().find(|s| matches!(s.gear, Gear::InnateGrab))
+    self.gear.to_mut().iter_mut().find(|s| matches!(s.gear, Gear::InnateGrab))
   }
 
   pub fn weapon_count(&self) -> u32 {
@@ -268,27 +274,27 @@ impl Loadout {
   }
 
   pub fn equip_weapon(&mut self, item: crate::level::Item) {
-    self.gear.push(GearSlot::passive(Gear::Weapon(item)));
+    self.gear.to_mut().push(GearSlot::passive(Gear::Weapon(item)));
   }
 
   pub fn unequip_weapon(&mut self) -> Option<crate::level::Item> {
     let w = self.weapon();
-    self.gear.retain(|s| !s.gear.is_weapon());
+    self.gear.to_mut().retain(|s| !s.gear.is_weapon());
     w
   }
 
   pub fn equip_armor(&mut self, item: crate::level::Item) {
-    self.gear.push(GearSlot::passive(Gear::Armor(item)));
+    self.gear.to_mut().push(GearSlot::passive(Gear::Armor(item)));
   }
 
   pub fn unequip_armor(&mut self) -> Option<crate::level::Item> {
     let a = self.armor_item();
-    self.gear.retain(|s| !matches!(s.gear, Gear::Armor(_)));
+    self.gear.to_mut().retain(|s| !matches!(s.gear, Gear::Armor(_)));
     a
   }
 
   pub fn equip_grenade(&mut self, item: crate::level::Item) {
-    self.gear.push(GearSlot::passive(Gear::Grenade(item)));
+    self.gear.to_mut().push(GearSlot::passive(Gear::Grenade(item)));
   }
 
   pub fn unequip_grenade_at(&mut self, slot_idx: usize) -> Option<crate::level::Item> {
@@ -300,17 +306,18 @@ impl Loadout {
       .map(|(i, _)| i)
       .collect();
     slots.get(slot_idx).map(|&real_idx| {
-      let item = match self.gear[real_idx].gear {
+      let gear = self.gear.to_mut();
+      let item = match gear[real_idx].gear {
         Gear::Grenade(item) => item,
         _ => unreachable!()
       };
-      self.gear.remove(real_idx);
+      gear.remove(real_idx);
       item
     })
   }
 
   pub fn equip_device(&mut self, item: crate::level::Item) {
-    self.gear.push(GearSlot::stacked(Gear::Device(item), 1));
+    self.gear.to_mut().push(GearSlot::stacked(Gear::Device(item), 1));
   }
 
   pub fn unequip_device_at(&mut self, slot_idx: usize) -> Option<crate::level::Item> {
@@ -322,25 +329,30 @@ impl Loadout {
       .map(|(i, _)| i)
       .collect();
     slots.get(slot_idx).map(|&real_idx| {
-      let item = match self.gear[real_idx].gear {
+      let gear = self.gear.to_mut();
+      let item = match gear[real_idx].gear {
         Gear::Device(item) => item,
         _ => unreachable!()
       };
-      self.gear.remove(real_idx);
+      gear.remove(real_idx);
       item
     })
   }
 
   pub fn remove_grenade_by_item(&mut self, item: crate::level::Item) {
     if let Some(idx) = self.gear.iter().position(|s| s.gear == Gear::Grenade(item)) {
-      self.gear.remove(idx);
+      self.gear.to_mut().remove(idx);
     }
   }
 
   pub fn remove_device_by_item(&mut self, item: crate::level::Item) {
     if let Some(idx) = self.gear.iter().position(|s| s.gear == Gear::Device(item)) {
-      self.gear.remove(idx);
+      self.gear.to_mut().remove(idx);
     }
+  }
+
+  pub fn retain_gear(&mut self, keep: impl FnMut(&GearSlot) -> bool) {
+    self.gear.to_mut().retain(keep);
   }
 
   pub fn lootable_items(&self) -> Vec<(crate::level::Item, u32)> {
@@ -489,7 +501,7 @@ impl Glyph {
   }
 
   /// Mask PNG (black / white / alpha); instance colors set how it draws.
-  pub fn palette_sprite(
+  pub const fn palette_sprite(
     path: &'static str,
     ch: char,
     primary: Color,
@@ -1530,30 +1542,74 @@ impl Object {
 
 // ============ OBJECT STRUCT (data-driven parallel to Object) ============
 
+pub const trait FieldOf<S> {
+  fn apply_to(self, obj: S) -> S;
+}
+
 pub trait Has<T> {
   fn get(&self) -> Option<&T>;
   fn get_mut(&mut self) -> Option<&mut T>;
   fn set(&mut self, val: T);
-  fn with(self, val: T) -> Self;
 }
 
 macro_rules! object_struct {
-  (pub struct $name:ident { $($field:ident : $ty:ty),* $(,)? }) => {
+  (pub struct $name:ident ( $($ty:ty),* $(,)? )) => {
+    object_struct!(
+      @pair $name;
+      [];
+      @idx (0 1 2 3 4 5 6 7 8 9 10 11);
+      @var (a b c d e f g h i j k l);
+      @ty [ $($ty),+ ] @end
+    );
+  };
+
+  (
+    @pair $name:ident;
+    [$(($i:tt, $t:ty, $v:ident))*];
+    @idx ($idx:tt $($rest_idx:tt)*);
+    @var ($var:ident $($rest_var:ident)*);
+    @ty [ $ty:ty, $($rest:ty),+ ] @end
+  ) => {
+    object_struct!(
+      @pair $name;
+      [$(($i, $t, $v))* ($idx, $ty, $var)];
+      @idx ($($rest_idx)*);
+      @var ($($rest_var)*);
+      @ty [ $($rest),+ ] @end
+    );
+  };
+
+  (
+    @pair $name:ident;
+    [$(($i:tt, $t:ty, $v:ident))*];
+    @idx ($idx:tt $($rest_idx:tt)*);
+    @var ($var:ident $($rest_var:ident)*);
+    @ty [ $ty:ty ] @end
+  ) => {
+    object_struct!(@def $name; [ $(($i, $t, $v),)* ($idx, $ty, $var), ]);
+  };
+
+  (@pair $name:ident; $pairs:tt; @idx (); @var (); @ty [ $ty:ty $(,)? ] @end) => {
+    compile_error!("object_struct! supports at most 12 component types");
+  };
+
+  (@def $name:ident; [ $(($idx:tt, $ty:ty, $var:ident),)* ]) => {
     #[derive(Clone)]
-    pub struct $name {
-      $(pub $field: Option<$ty>),*
-    }
+    pub struct $name($(pub Option<$ty>),*);
 
     impl $name {
-      pub const EMPTY: Self = Self { $($field: None),* };
+      pub const EMPTY: Self = Self($(None::<$ty>,)*);
 
-      pub fn delegate(mut self, other: &Self) -> Self {
-        $(if self.$field.is_none() { self.$field = other.$field.clone(); })*
-        self
+      pub const fn with<T: ~const FieldOf<Self>>(self, val: T) -> Self { val.apply_to(self) }
+
+      pub fn delegate(self, other: &Self) -> Self {
+        Self {
+          $( $idx: self.$idx.or_else(|| other.$idx.clone()), )*
+        }
       }
 
       pub fn insert_into(&self, e: &mut EntityCommands) {
-        $(if let Some(val) = self.$field.clone() { e.insert(val); })*
+        $(if let Some(val) = self.$idx.clone() { e.insert(val); })*
       }
 
       pub fn spawn(&self, commands: &mut Commands) -> Entity {
@@ -1565,22 +1621,38 @@ macro_rules! object_struct {
 
     $(
       impl Has<$ty> for $name {
-        fn get(&self) -> Option<&$ty> { self.$field.as_ref() }
-        fn get_mut(&mut self) -> Option<&mut $ty> { self.$field.as_mut() }
-        fn set(&mut self, val: $ty) { self.$field = Some(val); }
-        fn with(mut self, val: $ty) -> Self { self.$field = Some(val); self }
+        fn get(&self) -> Option<&$ty> { self.$idx.as_ref() }
+        fn get_mut(&mut self) -> Option<&mut $ty> { self.$idx.as_mut() }
+        fn set(&mut self, val: $ty) { self.$idx = Some(val); }
       }
     )*
-  }
+
+    object_struct!(@field_impls $name; @before []; @rest [ $(($idx, $ty, $var),)* ]);
+  };
+
+  // Recursive FieldOf impl generation: emit impl for head of @rest, then recurse
+  (@field_impls $name:ident;
+    @before [ $(($bi:tt, $bt:ty, $bv:ident),)* ];
+    @rest [ ($ci:tt, $ct:ty, $cv:ident), $(($ri:tt, $rt:ty, $rv:ident),)* ]
+  ) => {
+    #[allow(forgetting_copy_types)]
+    impl const FieldOf<$name> for $ct {
+      fn apply_to(self, $name($($bv,)* _old, $($rv,)*): $name) -> $name {
+        std::mem::forget(_old);
+        $name($($bv,)* Some(self), $($rv,)*)
+      }
+    }
+    object_struct!(@field_impls $name;
+      @before [ $(($bi, $bt, $bv),)* ($ci, $ct, $cv), ];
+      @rest [ $(($ri, $rt, $rv),)* ]
+    );
+  };
+
+  (@field_impls $name:ident; @before $b:tt; @rest []) => {};
 }
 
 object_struct! {
-  pub struct ObjectStruct {
-    named: Named,
-    stats: Stats,
-    glyph: Glyph,
-    loadout: Loadout,
-  }
+  pub struct ObjectStruct(Named, Stats, Glyph, Loadout)
 }
 
 pub fn turret_def() -> ObjectStruct {
@@ -1599,19 +1671,19 @@ pub fn turret_def() -> ObjectStruct {
     ]))
 }
 
-pub fn gunman_def() -> ObjectStruct {
-  ObjectStruct::EMPTY
-    .with(Named {
-      name: "Gunman",
-      flavor: "A sharp-eyed mercenary with a revolver. Shoots first.",
-    })
-    .with(Stats { hp: 8, max_hp: 8, attack: 3, move_speed: 2.0, attack_speed: 1.0 })
-    .with(Glyph::palette_sprite(
-      "textures/space_qud/gunman .png", 'g',
-      Color::srgb(0.42, 0.52, 0.68), Color::srgb(0.72, 0.82, 0.92),
-    ))
-    .with(Loadout::new(vec![
-      GearSlot::ability(Gear::InnateGun { damage: 4 }, 15),
-      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 4),
-    ]))
-}
+pub const GUNMAN: ObjectStruct = ObjectStruct::EMPTY
+  .with(Named {
+    name: "Gunman",
+    flavor: "A sharp-eyed mercenary with a revolver. Shoots first.",
+  })
+  .with(Stats { hp: 8, max_hp: 8, attack: 3, move_speed: 2.0, attack_speed: 1.0 })
+  .with(Glyph::palette_sprite(
+    "textures/space_qud/gunman .png",
+    'g',
+    Color::srgb(0.42, 0.52, 0.68),
+    Color::srgb(0.72, 0.82, 0.92),
+  ))
+  .with(Loadout::from_gear(&[
+    GearSlot::ability(Gear::InnateGun { damage: 4 }, 15),
+    GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 4),
+  ]));

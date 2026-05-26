@@ -161,7 +161,7 @@ pub fn handle_ability_keys(
           *entry = entry.saturating_sub(1);
           if *entry == 0 {
             inventory.0.remove(&item);
-            loadout.gear.retain(|s| s.gear != crate::entities::Gear::Device(item));
+            loadout.retain_gear(|s| s.gear != crate::entities::Gear::Device(item));
           }
           if item == Item::StealthDevice {
             commands.entity(player_entity).insert(crate::entities::Invisible(20));
@@ -253,7 +253,7 @@ pub fn handle_ability_click(
     *entry = entry.saturating_sub(1);
     if *entry == 0 {
       inventory.0.remove(&item);
-      loadout.gear.retain(|s| s.gear != crate::entities::Gear::Device(item));
+      loadout.retain_gear(|s| s.gear != crate::entities::Gear::Device(item));
     }
     if item == Item::StealthDevice {
       commands.entity(player_entity).insert(crate::entities::Invisible(20));

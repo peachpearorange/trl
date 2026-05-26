@@ -698,9 +698,10 @@ pub fn enemy_stealth_ai(
       && fov.0.is_visible(ex as usize, ey as usize)
     {
       if let Some(idx) = loadout.gear.iter().position(|s| matches!(s.gear, Gear::Device(crate::level::Item::StealthDevice))) {
-        loadout.gear[idx].count -= 1;
-        if loadout.gear[idx].count == 0 {
-          loadout.gear.remove(idx);
+        let gear = loadout.gear.to_mut();
+        gear[idx].count -= 1;
+        if gear[idx].count == 0 {
+          gear.remove(idx);
         }
       }
       commands.entity(entity).insert(Invisible(20));
