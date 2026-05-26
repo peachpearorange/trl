@@ -11,7 +11,10 @@ pub const SPRITE_TEXELS: f32 = 20.0;
 use {bevy::{input::{keyboard::{Key, KeyboardInput}, mouse::AccumulatedMouseScroll},
             prelude::*,
             sprite_render::{AlphaMode2d, TileData, TilemapChunk, TilemapChunkTileData}},
+     enum_assoc::Assoc,
      grid_2d::Grid,
+     haalka::prelude::*,
+     num_enum::TryFromPrimitive,
      std::{collections::{HashMap, VecDeque},
            num::NonZeroU32,
            path::{Path, PathBuf},
@@ -35,35 +38,80 @@ const RESIZE_HOLD_INITIAL_DELAY: f32 = 0.25;
 const RESIZE_HOLD_REPEAT: f32 = 0.05;
 const DEFAULT_PATTERN_SIZE: u32 = 5;
 
-const OBJECT_TEMPLATES: &[&str] = &[
-  "tree",
-  "boulder",
-  "door",
-  "airlock_door",
-  "bed",
-  "table",
-  "chair",
-  "crafting_table",
-  "locker",
-  "crate",
-  "loot_chest",
-  "flight_console",
-  "loadout_console",
-  "space_cat",
-  "thruster",
-  "rat_soldier",
-  "armored_rat_soldier",
-  "robot",
-  "wack_robot",
-  "alien_runner",
-  "lava_crab",
-  "mantis_alien",
-  "crab_alien",
-  "mushroom_creature",
-  "grenade_thrower",
-  "gunman",
-  "laser_sword"
-];
+#[derive(Assoc, Clone, Copy, PartialEq, Eq, Debug, TryFromPrimitive)]
+#[repr(u8)]
+#[func(pub fn label(&self) -> &'static str)]
+#[func(pub fn sprite_spec(&self) -> (&'static str, [f32; 3], [f32; 3]))]
+pub enum ObjectTemplate {
+  #[assoc(label = "tree", sprite_spec = ("textures/space_qud/tree2.png", [0.14, 0.42, 0.16], [0.38, 0.62, 0.24]))]
+  Tree,
+  #[assoc(label = "boulder", sprite_spec = ("textures/space_qud/rock.png", [0.32, 0.30, 0.28], [0.58, 0.55, 0.50]))]
+  Boulder,
+  #[assoc(label = "door", sprite_spec = ("textures/space_qud/door closed (1).png", [0.55, 0.32, 0.18], [0.80, 0.65, 0.35]))]
+  Door,
+  #[assoc(label = "airlock_door", sprite_spec = ("textures/space_qud/airlock closed.png", [0.72, 0.78, 0.88], [0.35, 0.45, 0.60]))]
+  AirlockDoor,
+  #[assoc(label = "bed", sprite_spec = ("textures/space_qud/bed.png", [0.52, 0.38, 0.22], [0.88, 0.84, 0.72]))]
+  Bed,
+  #[assoc(label = "table", sprite_spec = ("textures/space_qud/table.png", [0.48, 0.34, 0.18], [0.72, 0.58, 0.36]))]
+  Table,
+  #[assoc(label = "chair", sprite_spec = ("textures/space_qud/chair (1).png", [0.60, 0.62, 0.65], [0.72, 0.18, 0.14]))]
+  Chair,
+  #[assoc(label = "crafting_table", sprite_spec = ("textures/space_qud/crafting table.png", [0.38, 0.42, 0.48], [0.62, 0.62, 0.62]))]
+  CraftingTable,
+  #[assoc(label = "locker", sprite_spec = ("textures/space_qud/locker (2).png", [0.32, 0.38, 0.42], [0.62, 0.68, 0.72]))]
+  Locker,
+  #[assoc(label = "crate", sprite_spec = ("textures/space_qud/crate.png", [0.42, 0.32, 0.18], [0.72, 0.60, 0.38]))]
+  Crate,
+  #[assoc(label = "loot_chest", sprite_spec = ("textures/space_qud/crate.png", [0.72, 0.52, 0.28], [0.42, 0.32, 0.22]))]
+  LootChest,
+  #[assoc(label = "flight_console", sprite_spec = ("textures/space_qud/computer .png", [0.18, 0.34, 0.52], [0.32, 0.88, 0.45]))]
+  FlightConsole,
+  #[assoc(label = "loadout_console", sprite_spec = ("textures/space_qud/locker (1).png", [0.25, 0.38, 0.52], [0.55, 0.75, 0.88]))]
+  LoadoutConsole,
+  #[assoc(label = "space_cat", sprite_spec = ("textures/space_qud/space cat.png", [0.92, 0.82, 0.62], [0.52, 0.36, 0.26]))]
+  SpaceCat,
+  #[assoc(label = "thruster", sprite_spec = ("textures/space_qud/thruster.png", [0.72, 0.38, 0.08], [0.75, 0.75, 0.72]))]
+  Thruster,
+  #[assoc(label = "rat_soldier", sprite_spec = ("textures/space_qud/gunman .png", [0.72, 0.48, 0.28], [0.95, 0.78, 0.55]))]
+  RatSoldier,
+  #[assoc(label = "armored_rat_soldier", sprite_spec = ("textures/space_qud/mogussy.png", [0.55, 0.42, 0.28], [0.82, 0.68, 0.45]))]
+  ArmoredRatSoldier,
+  #[assoc(label = "robot", sprite_spec = ("textures/space_qud/robo.png", [0.28, 0.52, 0.58], [0.55, 0.82, 0.88]))]
+  Robot,
+  #[assoc(label = "wack_robot", sprite_spec = ("textures/space_qud/wack robo.png", [0.62, 0.38, 0.18], [0.88, 0.68, 0.32]))]
+  WackRobot,
+  #[assoc(label = "alien_runner", sprite_spec = ("textures/space_qud/alien1.png", [0.18, 0.72, 0.22], [0.92, 0.82, 0.18]))]
+  AlienRunner,
+  #[assoc(label = "lava_crab", sprite_spec = ("textures/space_qud/crab alien.png", [0.85, 0.25, 0.05], [1.0, 0.55, 0.0]))]
+  LavaCrab,
+  #[assoc(label = "mantis_alien", sprite_spec = ("textures/space_qud/mantis alien.png", [0.65, 0.90, 0.95], [0.20, 0.55, 0.70]))]
+  MantisAlien,
+  #[assoc(label = "crab_alien", sprite_spec = ("textures/space_qud/crab alien.png", [0.55, 0.18, 0.72], [0.92, 0.72, 0.18]))]
+  CrabAlien,
+  #[assoc(label = "mushroom_creature", sprite_spec = ("textures/space_qud/mushroom.png", [0.42, 0.28, 0.18], [0.82, 0.72, 0.55]))]
+  MushroomCreature,
+  #[assoc(label = "grenade_thrower", sprite_spec = ("textures/space_qud/gunman .png", [0.22, 0.48, 0.22], [0.60, 0.78, 0.42]))]
+  GrenadeThrower,
+  #[assoc(label = "gunman", sprite_spec = ("textures/space_qud/gunman .png", [0.42, 0.52, 0.68], [0.72, 0.82, 0.92]))]
+  Gunman,
+  #[assoc(label = "laser_sword", sprite_spec = ("textures/space_qud/laser sword.png", [0.18, 0.08, 0.52], [0.42, 0.82, 0.98]))]
+  LaserSword,
+  #[assoc(label = "robot_dog", sprite_spec = ("textures/space_qud/robot dog with gun.png", [0.15, 0.15, 0.18], [0.85, 0.75, 0.15]))]
+  RobotDog,
+  #[assoc(label = "turret", sprite_spec = ("textures/space_qud/turret1.png", [0.5, 0.5, 0.5], [0.8, 0.2, 0.2]))]
+  Turret,
+}
+
+impl ObjectTemplate {
+  pub fn all() -> impl Iterator<Item = ObjectTemplate> {
+    (0u8..).map_while(|i| ObjectTemplate::try_from(i).ok())
+  }
+
+  fn from_save(s: &str) -> Option<Self> {
+    Self::all().find(|t| format!("{t:?}") == s)
+  }
+}
 
 fn to_color(c: [f32; 3]) -> Color { Color::srgb(c[0], c[1], c[2]) }
 
@@ -142,7 +190,7 @@ impl ToolMode {
 #[derive(Clone)]
 struct Clipboard {
   tiles: Vec<Vec<Tile>>,
-  objects: Vec<Vec<Option<u8>>>,
+  objects: Vec<Vec<Option<ObjectTemplate>>>,
   markers: Vec<Vec<Option<String>>>,
   source: ClipboardSource,
   mode: ClipboardMode
@@ -161,7 +209,7 @@ impl Clipboard {
 #[derive(Resource)]
 struct EditorCanvas {
   tiles: Vec<Vec<Tile>>,
-  objects: Vec<Vec<Option<u8>>>,
+  objects: Vec<Vec<Option<ObjectTemplate>>>,
   markers: Vec<Vec<Option<String>>>
 }
 
@@ -169,7 +217,7 @@ struct EditorCanvas {
 struct EditorState {
   tool: ToolMode,
   selected_tile: Tile,
-  selected_object: Option<u8>,
+  selected_object: Option<ObjectTemplate>,
   drag_start: Option<(i32, i32)>,
   paste_drag_offset: Option<(i32, i32)>,
   clipboard: Option<Clipboard>,
@@ -187,7 +235,7 @@ struct PanState {
   camera_origin: Vec3
 }
 
-#[derive(Resource)]
+#[derive(Resource, Clone)]
 struct TileImageCache(Vec<(Handle<Image>, Color)>);
 
 #[derive(Clone)]
@@ -204,7 +252,7 @@ struct ObjectVisualCache(Vec<ObjectVisualInfo>);
 struct EditorTileset(sprites::TilesetInfo);
 
 #[derive(Resource)]
-struct UndoStack(Vec<(Vec<Vec<Tile>>, Vec<Vec<Option<u8>>>, Vec<Vec<Option<String>>>, CanvasGridOrigin)>);
+struct UndoStack(Vec<(Vec<Vec<Tile>>, Vec<Vec<Option<ObjectTemplate>>>, Vec<Vec<Option<String>>>, CanvasGridOrigin)>);
 
 #[derive(Resource, Clone, Copy, PartialEq, Eq)]
 struct CanvasGridOrigin {
@@ -243,7 +291,7 @@ struct DragPreview;
 struct TilePaletteBtn(Tile);
 
 #[derive(Component)]
-struct ObjectPaletteBtn(Option<u8>);
+struct ObjectPaletteBtn(Option<ObjectTemplate>);
 
 #[derive(Component)]
 struct ControlsLabel;
@@ -344,6 +392,28 @@ struct MarkerListState {
 // ---------------------------------------------------------------------------
 
 fn canvas_origin() -> (f32, f32) { (CANVAS_ORIGIN_X, CANVAS_ORIGIN_Y) }
+
+fn abbreviate_marker(name: &str) -> String {
+  name.chars().filter(|c| !matches!(c, 'a' | 'e' | 'i' | 'o' | 'u' | 'A' | 'E' | 'I' | 'O' | 'U')).collect()
+}
+
+fn marker_color(name: &str) -> Color {
+  let h = name.bytes().fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
+  let hue = (h % 360) as f32;
+  let (s, l): (f32, f32) = (0.75, 0.65);
+  let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+  let x = c * (1.0 - ((hue / 60.0) % 2.0 - 1.0).abs());
+  let m = l - c / 2.0;
+  let (r, g, b) = match hue as u32 / 60 {
+    0 => (c, x, 0.0),
+    1 => (x, c, 0.0),
+    2 => (0.0, c, x),
+    3 => (0.0, x, c),
+    4 => (x, 0.0, c),
+    _ => (c, 0.0, x),
+  };
+  Color::srgb(r + m, g + m, b + m)
+}
 
 impl EditorCanvas {
   fn width(&self) -> usize { self.tiles.first().map(Vec::len).unwrap_or(0) }
@@ -574,7 +644,7 @@ fn flood_fill_same_tile_type(
   sy: usize,
   target: Tile,
   paint_tile: Tile,
-  paint_obj: Option<u8>,
+  paint_obj: Option<ObjectTemplate>,
   paint_marker: Option<String>
 ) {
   if target != paint_tile {
@@ -646,119 +716,27 @@ fn build_tile_cache(
   TileImageCache(entries)
 }
 
-fn object_sprite_spec(name: &str) -> Option<(&'static str, [f32; 3], [f32; 3])> {
-  match name {
-    "tree" => {
-      Some(("textures/space_qud/tree2.png", [0.14, 0.42, 0.16], [0.38, 0.62, 0.24]))
-    }
-    "boulder" => {
-      Some(("textures/space_qud/rock.png", [0.32, 0.30, 0.28], [0.58, 0.55, 0.50]))
-    }
-    "door" => Some(("textures/space_qud/door closed (1).png", [0.55, 0.32, 0.18], [
-      0.80, 0.65, 0.35
-    ])),
-    "airlock_door" => {
-      Some(("textures/space_qud/airlock closed.png", [0.72, 0.78, 0.88], [
-        0.35, 0.45, 0.60
-      ]))
-    }
-    "bed" => Some(("textures/space_qud/bed.png", [0.52, 0.38, 0.22], [0.88, 0.84, 0.72])),
-    "table" => {
-      Some(("textures/space_qud/table.png", [0.48, 0.34, 0.18], [0.72, 0.58, 0.36]))
-    }
-    "chair" => {
-      Some(("textures/space_qud/chair (1).png", [0.60, 0.62, 0.65], [0.72, 0.18, 0.14]))
-    }
-    "crafting_table" => {
-      Some(("textures/space_qud/crafting table.png", [0.38, 0.42, 0.48], [
-        0.62, 0.62, 0.62
-      ]))
-    }
-    "locker" => {
-      Some(("textures/space_qud/locker (2).png", [0.32, 0.38, 0.42], [0.62, 0.68, 0.72]))
-    }
-    "crate" => {
-      Some(("textures/space_qud/crate.png", [0.42, 0.32, 0.18], [0.72, 0.60, 0.38]))
-    }
-    "loot_chest" => {
-      Some(("textures/space_qud/crate.png", [0.72, 0.52, 0.28], [0.42, 0.32, 0.22]))
-    }
-    "flight_console" => {
-      Some(("textures/space_qud/computer .png", [0.18, 0.34, 0.52], [0.32, 0.88, 0.45]))
-    }
-    "loadout_console" => {
-      Some(("textures/space_qud/locker (1).png", [0.25, 0.38, 0.52], [0.55, 0.75, 0.88]))
-    }
-    "space_cat" => {
-      Some(("textures/space_qud/space cat.png", [0.92, 0.82, 0.62], [0.52, 0.36, 0.26]))
-    }
-    "thruster" => {
-      Some(("textures/space_qud/thruster.png", [0.72, 0.38, 0.08], [0.75, 0.75, 0.72]))
-    }
-    "rat_soldier" => {
-      Some(("textures/space_qud/gunman .png", [0.72, 0.48, 0.28], [0.95, 0.78, 0.55]))
-    }
-    "armored_rat_soldier" => {
-      Some(("textures/space_qud/mogussy.png", [0.55, 0.42, 0.28], [0.82, 0.68, 0.45]))
-    }
-    "robot" => {
-      Some(("textures/space_qud/robo.png", [0.28, 0.52, 0.58], [0.55, 0.82, 0.88]))
-    }
-    "wack_robot" => {
-      Some(("textures/space_qud/wack robo.png", [0.62, 0.38, 0.18], [0.88, 0.68, 0.32]))
-    }
-    "alien_runner" => {
-      Some(("textures/space_qud/alien1.png", [0.18, 0.72, 0.22], [0.92, 0.82, 0.18]))
-    }
-    "lava_crab" => {
-      Some(("textures/space_qud/crab alien.png", [0.85, 0.25, 0.05], [1.0, 0.55, 0.0]))
-    }
-    "mantis_alien" => {
-      Some(("textures/space_qud/mantis alien.png", [0.65, 0.90, 0.95], [
-        0.20, 0.55, 0.70
-      ]))
-    }
-    "crab_alien" => {
-      Some(("textures/space_qud/crab alien.png", [0.55, 0.18, 0.72], [0.92, 0.72, 0.18]))
-    }
-    "mushroom_creature" => {
-      Some(("textures/space_qud/mushroom.png", [0.42, 0.28, 0.18], [0.82, 0.72, 0.55]))
-    }
-    "grenade_thrower" => {
-      Some(("textures/space_qud/gunman .png", [0.22, 0.48, 0.22], [0.60, 0.78, 0.42]))
-    }
-    "gunman" => {
-      Some(("textures/space_qud/gunman .png", [0.42, 0.52, 0.68], [0.72, 0.82, 0.92]))
-    }
-    "laser_sword" => {
-      Some(("textures/space_qud/laser sword.png", [0.18, 0.08, 0.52], [0.42, 0.82, 0.98]))
-    }
-    _ => None
-  }
-}
-
 fn build_object_visual_cache(
   palette_cache: &mut sprites::PaletteImageCache,
   images: &mut Assets<Image>
 ) -> ObjectVisualCache {
   let entries = utils::mapv(
-    |name| {
-      let image = object_sprite_spec(name).map(|(path, primary, secondary)| {
-        sprites::palette_sprite_handle(
-          path,
-          to_color(primary),
-          to_color(secondary),
-          palette_cache,
-          images
-        )
-      });
+    |tmpl| {
+      let (path, primary, secondary) = tmpl.sprite_spec();
+      let image = Some(sprites::palette_sprite_handle(
+        path,
+        to_color(primary),
+        to_color(secondary),
+        palette_cache,
+        images
+      ));
       ObjectVisualInfo {
         image,
-        text: name.chars().take(3).collect(),
+        text: tmpl.label().chars().take(3).collect(),
         text_color: Color::srgb(1.0, 0.8, 0.2)
       }
     },
-    OBJECT_TEMPLATES.iter().copied()
+    ObjectTemplate::all()
   );
   ObjectVisualCache(entries)
 }
@@ -796,7 +774,7 @@ fn spawn_canvas_cells(
         .and_then(|row| row.get(x))
         .copied()
         .flatten()
-        .and_then(|index| object_visuals.0.get(index as usize));
+        .and_then(|tmpl| object_visuals.0.get(tmpl as u8 as usize));
       let (ref img, color) = tile_cache.0[tile as u16 as usize];
       let object_image = object_visual
         .and_then(|visual| visual.image.clone())
@@ -812,13 +790,14 @@ fn spawn_canvas_cells(
         .map(|visual| visual.text_color)
         .unwrap_or(default_text_color);
       let object_text_visible = !object_text.is_empty();
-      let marker_text = canvas
+      let marker_name = canvas
         .markers
         .get(y)
         .and_then(|row| row.get(x))
-        .and_then(|m| m.as_deref())
-        .unwrap_or("");
-      let has_marker = !marker_text.is_empty();
+        .and_then(|m| m.as_deref());
+      let marker_abbrev = marker_name.map(abbreviate_marker).unwrap_or_default();
+      let marker_col = marker_name.map(marker_color).unwrap_or(Color::srgb(0.3, 0.9, 1.0));
+      let has_marker = marker_name.is_some();
       commands
         .spawn((
           Sprite {
@@ -851,9 +830,9 @@ fn spawn_canvas_cells(
             CanvasObjectText(x, y)
           ));
           parent.spawn((
-            Text2d::new(marker_text),
+            Text2d::new(marker_abbrev),
             TextFont { font_size: 8.0, ..default() },
-            TextColor(Color::srgb(0.3, 0.9, 1.0)),
+            TextColor(marker_col),
             Transform::from_xyz(0.0, -4.0, 1.0),
             if has_marker { Visibility::Visible } else { Visibility::Hidden },
             CanvasMarkerText(x, y)
@@ -863,210 +842,333 @@ fn spawn_canvas_cells(
   }
 }
 
-fn spawn_edge_resize_buttons(commands: &mut Commands) {
-  let rows = [
-    ("L", EdgeSide::Left),
-    ("R", EdgeSide::Right),
-    ("T", EdgeSide::Top),
-    ("B", EdgeSide::Bottom)
-  ];
-  commands
-    .spawn((
-      Node {
-        position_type: PositionType::Absolute,
-        right: Val::Px(12.0),
-        top: Val::Px(12.0),
-        flex_direction: FlexDirection::Column,
-        row_gap: Val::Px(4.0),
-        padding: UiRect::all(Val::Px(6.0)),
-        ..default()
-      },
-      BackgroundColor(Color::srgba(0.08, 0.08, 0.1, 0.92))
-    ))
-    .with_children(|panel| {
-      panel
-        .spawn(Node {
-          flex_direction: FlexDirection::Column,
-          row_gap: Val::Px(2.0),
-          margin: UiRect::bottom(Val::Px(4.0)),
-          ..default()
+fn static_text(t: impl Into<String>, size: f32, color: Color) -> El<Text> {
+  El::<Text>::new()
+    .text(Text::new(t))
+    .text_font(TextFont { font_size: size, ..default() })
+    .text_color(TextColor(color))
+}
+
+fn edge_btn(side: EdgeSide, action: EdgeAction) -> El<Node> {
+  let color = if action == EdgeAction::Expand {
+    Color::srgba(0.15, 0.22, 0.16, 0.95)
+  } else {
+    Color::srgba(0.22, 0.15, 0.15, 0.95)
+  };
+  El::<Node>::new()
+    .with_node(|mut n| {
+      n.width = Val::Px(EDGE_BUTTON_SIZE);
+      n.height = Val::Px(EDGE_BUTTON_SIZE);
+      n.justify_content = JustifyContent::Center;
+      n.align_items = AlignItems::Center;
+    })
+    .background_color(BackgroundColor(color))
+    .insert(Button)
+    .insert(EdgeResizeButton { side, action })
+    .child(static_text(edge_button_label(side, action), 12.0, Color::srgb(0.95, 0.95, 0.95)))
+}
+
+fn edge_row(label: &str, side: EdgeSide) -> Row<Node> {
+  Row::<Node>::new()
+    .with_node(|mut n| {
+      n.align_items = AlignItems::Center;
+      n.column_gap = Val::Px(4.0);
+    })
+    .item(static_text(label.to_string(), 11.0, Color::srgb(0.8, 0.8, 0.8)))
+    .item(edge_btn(side, EdgeAction::Expand))
+    .item(edge_btn(side, EdgeAction::Contract))
+}
+
+fn save_load_section() -> Column<Node> {
+  Column::<Node>::new()
+    .with_node(|mut n| {
+      n.row_gap = Val::Px(2.0);
+      n.margin = UiRect::bottom(Val::Px(4.0));
+    })
+    .item(
+      El::<Node>::new()
+        .with_node(|mut n| {
+          n.width = Val::Px(92.0);
+          n.height = Val::Px(18.0);
+          n.padding = UiRect::horizontal(Val::Px(4.0));
+          n.align_items = AlignItems::Center;
         })
-        .with_children(|col| {
-          col
-            .spawn((
-              Button,
-              Node {
-                width: Val::Px(92.0),
-                height: Val::Px(18.0),
-                padding: UiRect::horizontal(Val::Px(4.0)),
-                align_items: AlignItems::Center,
-                ..default()
-              },
-              BackgroundColor(Color::srgba(0.1, 0.1, 0.12, 0.95)),
-              SaveNameInputField
-            ))
-            .with_child((
-              Text::new(""),
-              TextFont { font_size: 10.0, ..default() },
-              TextColor(Color::srgb(0.9, 0.9, 0.8))
-            ));
-          col
-            .spawn(Node {
-              flex_direction: FlexDirection::Row,
-              column_gap: Val::Px(4.0),
-              ..default()
+        .background_color(BackgroundColor(Color::srgba(0.1, 0.1, 0.12, 0.95)))
+        .insert(Button)
+        .insert(SaveNameInputField)
+        .child(static_text("", 10.0, Color::srgb(0.9, 0.9, 0.8)))
+    )
+    .item(
+      Row::<Node>::new()
+        .with_node(|mut n| { n.column_gap = Val::Px(4.0); })
+        .item(
+          El::<Node>::new()
+            .with_node(|mut n| {
+              n.width = Val::Px(44.0);
+              n.height = Val::Px(20.0);
+              n.justify_content = JustifyContent::Center;
+              n.align_items = AlignItems::Center;
             })
-            .with_children(|row| {
-              row
-                .spawn((
-                  Button,
-                  Node {
-                    width: Val::Px(44.0),
-                    height: Val::Px(20.0),
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    ..default()
-                  },
-                  BackgroundColor(Color::srgba(0.14, 0.2, 0.26, 0.95)),
-                  SaveUiButton(SaveUiAction::SaveNow)
-                ))
-                .with_child((
-                  Text::new("Save"),
-                  TextFont { font_size: 10.0, ..default() },
-                  TextColor(Color::srgb(0.95, 0.95, 0.95))
-                ));
-              row
-                .spawn((
-                  Button,
-                  Node {
-                    width: Val::Px(44.0),
-                    height: Val::Px(20.0),
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    ..default()
-                  },
-                  BackgroundColor(Color::srgba(0.2, 0.18, 0.12, 0.95)),
-                  SaveUiButton(SaveUiAction::ToggleLoadPicker)
-                ))
-                .with_child((
-                  Text::new("Load"),
-                  TextFont { font_size: 10.0, ..default() },
-                  TextColor(Color::srgb(0.95, 0.95, 0.95))
-                ));
-            });
-        });
+            .background_color(BackgroundColor(Color::srgba(0.14, 0.2, 0.26, 0.95)))
+            .insert(Button)
+            .insert(SaveUiButton(SaveUiAction::SaveNow))
+            .child(static_text("Save", 10.0, Color::srgb(0.95, 0.95, 0.95)))
+        )
+        .item(
+          El::<Node>::new()
+            .with_node(|mut n| {
+              n.width = Val::Px(44.0);
+              n.height = Val::Px(20.0);
+              n.justify_content = JustifyContent::Center;
+              n.align_items = AlignItems::Center;
+            })
+            .background_color(BackgroundColor(Color::srgba(0.2, 0.18, 0.12, 0.95)))
+            .insert(Button)
+            .insert(SaveUiButton(SaveUiAction::ToggleLoadPicker))
+            .child(static_text("Load", 10.0, Color::srgb(0.95, 0.95, 0.95)))
+        )
+    )
+}
 
-      for (label, side) in rows {
-        panel
-          .spawn(Node {
-            flex_direction: FlexDirection::Row,
-            align_items: AlignItems::Center,
-            column_gap: Val::Px(4.0),
-            ..default()
-          })
-          .with_children(|row| {
-            row.spawn((
-              Text::new(label),
-              TextFont { font_size: 11.0, ..default() },
-              TextColor(Color::srgb(0.8, 0.8, 0.8))
-            ));
-            for action in [EdgeAction::Expand, EdgeAction::Contract] {
-              let color = if action == EdgeAction::Expand {
-                Color::srgba(0.15, 0.22, 0.16, 0.95)
-              } else {
-                Color::srgba(0.22, 0.15, 0.15, 0.95)
-              };
-              row
-                .spawn((
-                  Button,
-                  Node {
-                    width: Val::Px(EDGE_BUTTON_SIZE),
-                    height: Val::Px(EDGE_BUTTON_SIZE),
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    ..default()
-                  },
-                  BackgroundColor(color),
-                  EdgeResizeButton { side, action }
-                ))
-                .with_child((
-                  Text::new(edge_button_label(side, action)),
-                  TextFont { font_size: 12.0, ..default() },
-                  TextColor(Color::srgb(0.95, 0.95, 0.95))
-                ));
-            }
-          });
-      }
-    });
+fn edge_resize_panel() -> Column<Node> {
+  Column::<Node>::new()
+    .with_node(|mut n| {
+      n.position_type = PositionType::Absolute;
+      n.right = Val::Px(12.0);
+      n.top = Val::Px(12.0);
+      n.row_gap = Val::Px(4.0);
+      n.padding = UiRect::all(Val::Px(6.0));
+    })
+    .background_color(BackgroundColor(Color::srgba(0.08, 0.08, 0.1, 0.92)))
+    .item(save_load_section())
+    .item(edge_row("L", EdgeSide::Left))
+    .item(edge_row("R", EdgeSide::Right))
+    .item(edge_row("T", EdgeSide::Top))
+    .item(edge_row("B", EdgeSide::Bottom))
+}
 
-  commands
-    .spawn((
-      Node {
-        position_type: PositionType::Absolute,
-        right: Val::Px(12.0),
-        top: Val::Px(150.0),
-        width: Val::Px(260.0),
-        max_height: Val::Px(300.0),
-        flex_direction: FlexDirection::Column,
-        row_gap: Val::Px(4.0),
-        padding: UiRect::all(Val::Px(6.0)),
-        display: Display::None,
-        ..default()
-      },
-      BackgroundColor(Color::srgba(0.06, 0.06, 0.08, 0.95)),
-      LoadPickerPanel
-    ))
-    .with_children(|panel| {
-      panel.spawn((
-        Text::new("editor_saves"),
-        TextFont { font_size: 11.0, ..default() },
-        TextColor(Color::srgb(0.85, 0.85, 0.7))
-      ));
-      panel.spawn((
-        Node {
-          flex_direction: FlexDirection::Column,
-          row_gap: Val::Px(2.0),
-          overflow: Overflow::scroll_y(),
-          ..default()
-        },
-        LoadPickerList
-      ));
-    });
+fn load_picker_panel() -> Column<Node> {
+  Column::<Node>::new()
+    .with_node(|mut n| {
+      n.position_type = PositionType::Absolute;
+      n.right = Val::Px(12.0);
+      n.top = Val::Px(150.0);
+      n.width = Val::Px(260.0);
+      n.max_height = Val::Px(300.0);
+      n.row_gap = Val::Px(4.0);
+      n.padding = UiRect::all(Val::Px(6.0));
+      n.display = Display::None;
+    })
+    .background_color(BackgroundColor(Color::srgba(0.06, 0.06, 0.08, 0.95)))
+    .insert(LoadPickerPanel)
+    .item(static_text("editor_saves", 11.0, Color::srgb(0.85, 0.85, 0.7)))
+    .item(
+      Column::<Node>::new()
+        .with_node(|mut n| {
+          n.row_gap = Val::Px(2.0);
+          n.overflow = Overflow::scroll_y();
+        })
+        .insert(LoadPickerList)
+    )
+}
 
-  // --- Marker list panel (toggle with K) ---
-  commands
-    .spawn((
-      Node {
-        position_type: PositionType::Absolute,
-        right: Val::Px(12.0),
-        bottom: Val::Px(40.0),
-        width: Val::Px(220.0),
-        max_height: Val::Px(300.0),
-        flex_direction: FlexDirection::Column,
-        row_gap: Val::Px(4.0),
-        padding: UiRect::all(Val::Px(6.0)),
-        display: Display::None,
-        overflow: Overflow::scroll_y(),
-        ..default()
-      },
-      BackgroundColor(Color::srgba(0.06, 0.08, 0.12, 0.95)),
-      MarkerListPanel
-    ))
-    .with_children(|panel| {
-      panel.spawn((
-        Text::new("Markers [K]"),
-        TextFont { font_size: 11.0, ..default() },
-        TextColor(Color::srgb(0.3, 0.9, 1.0))
-      ));
-      panel.spawn((
-        Node {
-          flex_direction: FlexDirection::Column,
-          row_gap: Val::Px(2.0),
-          ..default()
-        },
-        MarkerListContent
-      ));
-    });
+fn marker_list_panel_el() -> Column<Node> {
+  Column::<Node>::new()
+    .with_node(|mut n| {
+      n.position_type = PositionType::Absolute;
+      n.right = Val::Px(12.0);
+      n.bottom = Val::Px(40.0);
+      n.width = Val::Px(220.0);
+      n.max_height = Val::Px(300.0);
+      n.row_gap = Val::Px(4.0);
+      n.padding = UiRect::all(Val::Px(6.0));
+      n.display = Display::None;
+      n.overflow = Overflow::scroll_y();
+    })
+    .background_color(BackgroundColor(Color::srgba(0.06, 0.08, 0.12, 0.95)))
+    .insert(MarkerListPanel)
+    .item(static_text("Markers [K]", 11.0, Color::srgb(0.3, 0.9, 1.0)))
+    .item(
+      Column::<Node>::new()
+        .with_node(|mut n| { n.row_gap = Val::Px(2.0); })
+        .insert(MarkerListContent)
+    )
+}
+
+fn tile_palette_btn(tile: Tile, tile_cache: &TileImageCache) -> El<Node> {
+  let (ref img_h, color) = tile_cache.0[tile as u16 as usize];
+  let has_texture = *img_h != Handle::default();
+  let el = El::<Node>::new()
+    .with_node(|mut n| {
+      n.width = Val::Px(PAL_CELL);
+      n.height = Val::Px(PAL_CELL);
+      n.border = UiRect::all(Val::Px(1.0));
+    })
+    .border_color(BorderColor::all(Color::srgba(0.3, 0.3, 0.3, 1.0)))
+    .background_color(BackgroundColor(if has_texture { Color::BLACK } else { color }))
+    .insert(Button)
+    .insert(TilePaletteBtn(tile));
+  if has_texture {
+    el.child(
+      El::<Node>::new()
+        .with_node(|mut n| {
+          n.width = Val::Percent(100.0);
+          n.height = Val::Percent(100.0);
+        })
+        .insert(ImageNode::new(img_h.clone()))
+    )
+  } else {
+    el
+  }
+}
+
+fn object_palette_btn(obj: Option<ObjectTemplate>) -> El<Node> {
+  let label = obj.map(|t| t.label()).unwrap_or("none");
+  El::<Node>::new()
+    .with_node(|mut n| {
+      n.padding = UiRect::axes(Val::Px(4.0), Val::Px(1.0));
+      n.border = UiRect::all(Val::Px(1.0));
+    })
+    .border_color(BorderColor::all(Color::srgba(0.3, 0.3, 0.3, 1.0)))
+    .background_color(BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 1.0)))
+    .insert(Button)
+    .insert(ObjectPaletteBtn(obj))
+    .child(static_text(label, 11.0, Color::srgb(0.8, 0.8, 0.8)))
+}
+
+fn mode_bar_btn(mode: ToolMode, label: &str) -> El<Node> {
+  El::<Node>::new()
+    .with_node(|mut n| { n.padding = UiRect::axes(Val::Px(10.0), Val::Px(4.0)); })
+    .background_color(BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 0.9)))
+    .insert(ModeBarBtn(mode))
+    .child(
+      static_text(label.to_string(), 14.0, Color::srgb(0.5, 0.5, 0.5))
+        .insert(ModeBarLabel)
+    )
+}
+
+fn sidebar_el(tile_cache: &TileImageCache) -> Column<Node> {
+  let tile_btns: Vec<_> = Tile::all().map(|t| tile_palette_btn(t, tile_cache)).collect();
+  let obj_entries: Vec<_> = std::iter::once(None)
+    .chain(ObjectTemplate::all().map(Some))
+    .collect();
+
+  Column::<Node>::new()
+    .with_node(|mut n| {
+      n.width = Val::Px(PAL_CELL * PALETTE_COLS as f32 + 16.0);
+      n.height = Val::Percent(100.0);
+      n.padding = UiRect::all(Val::Px(4.0));
+      n.overflow = Overflow::scroll_y();
+    })
+    .item(
+      static_text("Tiles", 12.0, Color::srgb(0.9, 0.9, 0.5))
+        .with_node(|mut n| { n.margin = UiRect::bottom(Val::Px(4.0)); })
+    )
+    .item(
+      Row::<Node>::new()
+        .with_node(|mut n| { n.flex_wrap = FlexWrap::Wrap; })
+        .items(tile_btns)
+    )
+    .item(
+      static_text("Objects", 12.0, Color::srgb(0.5, 0.9, 0.5))
+        .with_node(|mut n| { n.margin = UiRect::vertical(Val::Px(6.0)); })
+    )
+    .item(
+      Column::<Node>::new()
+        .items(obj_entries.into_iter().map(object_palette_btn))
+    )
+    .item(
+      static_text("Markers", 12.0, Color::srgb(0.3, 0.9, 1.0))
+        .with_node(|mut n| { n.margin = UiRect::vertical(Val::Px(6.0)); })
+    )
+    .item(
+      El::<Node>::new()
+        .with_node(|mut n| {
+          n.padding = UiRect::axes(Val::Px(4.0), Val::Px(2.0));
+          n.border = UiRect::all(Val::Px(1.0));
+          n.min_height = Val::Px(18.0);
+        })
+        .border_color(BorderColor::all(Color::srgba(0.3, 0.3, 0.3, 1.0)))
+        .background_color(BackgroundColor(Color::srgba(0.1, 0.1, 0.12, 0.95)))
+        .insert(Button)
+        .insert(MarkerInputField)
+        .child(static_text("(type name)", 10.0, Color::srgb(0.5, 0.5, 0.5)))
+    )
+}
+
+fn tile_preview_popup_el() -> Column<Node> {
+  Column::<Node>::new()
+    .with_node(|mut n| {
+      n.position_type = PositionType::Absolute;
+      n.left = Val::Px(PAL_CELL * PALETTE_COLS as f32 + 24.0);
+      n.top = Val::Px(8.0);
+      n.align_items = AlignItems::Center;
+      n.padding = UiRect::all(Val::Px(6.0));
+      n.display = Display::None;
+    })
+    .background_color(BackgroundColor(Color::srgba(0.1, 0.1, 0.12, 0.95)))
+    .insert(TilePreviewPopup)
+    .item(
+      El::<Node>::new()
+        .with_node(|mut n| {
+          n.width = Val::Px(160.0);
+          n.height = Val::Px(160.0);
+        })
+        .background_color(BackgroundColor(Color::BLACK))
+        .insert(ImageNode::new(Handle::default()))
+        .insert(TilePreviewImage)
+    )
+    .item(
+      static_text("", 18.0, Color::srgb(0.9, 0.9, 0.9))
+        .with_node(|mut n| { n.margin = UiRect::top(Val::Px(6.0)); })
+        .insert(TilePreviewText)
+    )
+}
+
+fn mode_bar_el() -> Row<Node> {
+  let modes = [
+    (ToolMode::Draw, "[D]raw"),
+    (ToolMode::Bucket, "[B]ucket"),
+    (ToolMode::RectOutline, "[R]ect"),
+    (ToolMode::RectFill, "[F]ill"),
+    (ToolMode::Copy, "[C]opy"),
+    (ToolMode::Move, "[M]ove"),
+    (ToolMode::Paste, "[Paste]"),
+  ];
+  Row::<Node>::new()
+    .with_node(|mut n| {
+      n.position_type = PositionType::Absolute;
+      n.bottom = Val::Px(0.0);
+      n.left = Val::Px(0.0);
+      n.width = Val::Percent(100.0);
+      n.justify_content = JustifyContent::Center;
+      n.align_items = AlignItems::Center;
+      n.padding = UiRect::all(Val::Px(6.0));
+      n.column_gap = Val::Px(4.0);
+    })
+    .items(modes.map(|(mode, label)| mode_bar_btn(mode, label)))
+    .item(El::<Node>::new().with_node(|mut n| { n.width = Val::Px(20.0); }))
+    .item(
+      static_text("", 13.0, Color::srgb(0.6, 0.6, 0.5))
+        .insert(ControlsLabel)
+    )
+}
+
+fn build_editor_ui(tile_cache: &TileImageCache) -> impl Element {
+  Stack::<Node>::new()
+    .with_node(|mut n| {
+      n.width = Val::Vw(100.0);
+      n.height = Val::Vh(100.0);
+      n.position_type = PositionType::Absolute;
+      n.left = Val::Px(0.0);
+      n.top = Val::Px(0.0);
+    })
+    .layer(sidebar_el(tile_cache))
+    .layer(tile_preview_popup_el())
+    .layer(mode_bar_el())
+    .layer(edge_resize_panel())
+    .layer(load_picker_panel())
+    .layer(marker_list_panel_el())
 }
 
 fn setup(
@@ -1080,203 +1182,6 @@ fn setup(
   let tile_cache = build_tile_cache(&mut palette_cache, &mut images);
   let object_visuals = build_object_visual_cache(&mut palette_cache, &mut images);
 
-  // --- UI sidebar ---
-  commands
-    .spawn(Node {
-      width: Val::Px(PAL_CELL * PALETTE_COLS as f32 + 16.0),
-      height: Val::Percent(100.0),
-      flex_direction: FlexDirection::Column,
-      padding: UiRect::all(Val::Px(4.0)),
-      overflow: Overflow::scroll_y(),
-      ..default()
-    })
-    .with_child((
-      Text::new("Tiles"),
-      TextFont { font_size: 12.0, ..default() },
-      TextColor(Color::srgb(0.9, 0.9, 0.5)),
-      Node { margin: UiRect::bottom(Val::Px(4.0)), ..default() }
-    ))
-    .with_children(|sidebar| {
-      let all_tiles: Vec<Tile> = Tile::all().collect();
-
-      // Tile palette grid
-      let mut tile_grid = sidebar.spawn(Node { flex_wrap: FlexWrap::Wrap, ..default() });
-      tile_grid.with_children(|grid| {
-        for &tile in &all_tiles {
-          let (ref img_h, color) = tile_cache.0[tile as u16 as usize];
-          let has_texture = *img_h != Handle::default();
-          let mut btn = grid.spawn((
-            Button,
-            Node {
-              width: Val::Px(PAL_CELL),
-              height: Val::Px(PAL_CELL),
-              border: UiRect::all(Val::Px(1.0)),
-              ..default()
-            },
-            BorderColor::all(Color::srgba(0.3, 0.3, 0.3, 1.0)),
-            if has_texture {
-              BackgroundColor(Color::BLACK)
-            } else {
-              BackgroundColor(color)
-            },
-            TilePaletteBtn(tile)
-          ));
-          if has_texture {
-            btn.with_child((ImageNode::new(img_h.clone()), Node {
-              width: Val::Percent(100.0),
-              height: Val::Percent(100.0),
-              ..default()
-            }));
-          }
-        }
-      });
-
-      // Separator
-      sidebar.spawn((
-        Text::new("Objects"),
-        TextFont { font_size: 12.0, ..default() },
-        TextColor(Color::srgb(0.5, 0.9, 0.5)),
-        Node { margin: UiRect::vertical(Val::Px(6.0)), ..default() }
-      ));
-
-      // Object palette
-      let mut obj_grid =
-        sidebar.spawn(Node { flex_direction: FlexDirection::Column, ..default() });
-      obj_grid.with_children(|col| {
-        let entries: Vec<Option<u8>> = std::iter::once(None)
-          .chain((0..OBJECT_TEMPLATES.len()).map(|i| Some(i as u8)))
-          .collect();
-        for &obj in &entries {
-          let label = obj.map(|i| OBJECT_TEMPLATES[i as usize]).unwrap_or("none");
-          col
-            .spawn((
-              Button,
-              Node {
-                padding: UiRect::axes(Val::Px(4.0), Val::Px(1.0)),
-                border: UiRect::all(Val::Px(1.0)),
-                ..default()
-              },
-              BorderColor::all(Color::srgba(0.3, 0.3, 0.3, 1.0)),
-              BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 1.0)),
-              ObjectPaletteBtn(obj)
-            ))
-            .with_child((
-              Text::new(label),
-              TextFont { font_size: 11.0, ..default() },
-              TextColor(Color::srgb(0.8, 0.8, 0.8))
-            ));
-        }
-      });
-
-      // Marker name input
-      sidebar.spawn((
-        Text::new("Markers"),
-        TextFont { font_size: 12.0, ..default() },
-        TextColor(Color::srgb(0.3, 0.9, 1.0)),
-        Node { margin: UiRect::vertical(Val::Px(6.0)), ..default() }
-      ));
-      sidebar
-        .spawn((
-          Button,
-          Node {
-            padding: UiRect::axes(Val::Px(4.0), Val::Px(2.0)),
-            border: UiRect::all(Val::Px(1.0)),
-            min_height: Val::Px(18.0),
-            ..default()
-          },
-          BorderColor::all(Color::srgba(0.3, 0.3, 0.3, 1.0)),
-          BackgroundColor(Color::srgba(0.1, 0.1, 0.12, 0.95)),
-          MarkerInputField
-        ))
-        .with_child((
-          Text::new("(type name)"),
-          TextFont { font_size: 10.0, ..default() },
-          TextColor(Color::srgb(0.5, 0.5, 0.5))
-        ));
-    });
-
-  // --- Tile hover preview popup (floating, outside sidebar) ---
-  commands
-    .spawn((
-      Node {
-        position_type: PositionType::Absolute,
-        left: Val::Px(PAL_CELL * PALETTE_COLS as f32 + 24.0),
-        top: Val::Px(8.0),
-        flex_direction: FlexDirection::Column,
-        align_items: AlignItems::Center,
-        padding: UiRect::all(Val::Px(6.0)),
-        display: Display::None,
-        ..default()
-      },
-      BackgroundColor(Color::srgba(0.1, 0.1, 0.12, 0.95)),
-      TilePreviewPopup
-    ))
-    .with_children(|popup| {
-      popup.spawn((
-        ImageNode::new(Handle::default()),
-        Node { width: Val::Px(160.0), height: Val::Px(160.0), ..default() },
-        BackgroundColor(Color::BLACK),
-        TilePreviewImage
-      ));
-      popup.spawn((
-        Text::new(""),
-        TextFont { font_size: 18.0, ..default() },
-        TextColor(Color::srgb(0.9, 0.9, 0.9)),
-        Node { margin: UiRect::top(Val::Px(6.0)), ..default() },
-        TilePreviewText
-      ));
-    });
-
-  // --- Bottom mode bar ---
-  commands
-    .spawn(Node {
-      position_type: PositionType::Absolute,
-      bottom: Val::Px(0.0),
-      left: Val::Px(0.0),
-      width: Val::Percent(100.0),
-      flex_direction: FlexDirection::Row,
-      justify_content: JustifyContent::Center,
-      align_items: AlignItems::Center,
-      padding: UiRect::all(Val::Px(6.0)),
-      column_gap: Val::Px(4.0),
-      ..default()
-    })
-    .with_children(|bar| {
-      let modes = [
-        (ToolMode::Draw, "[D]raw"),
-        (ToolMode::Bucket, "[B]ucket"),
-        (ToolMode::RectOutline, "[R]ect"),
-        (ToolMode::RectFill, "[F]ill"),
-        (ToolMode::Copy, "[C]opy"),
-        (ToolMode::Move, "[M]ove"),
-        (ToolMode::Paste, "[Paste]")
-      ];
-      for (mode, label) in modes {
-        bar
-          .spawn((
-            Node { padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)), ..default() },
-            BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 0.9)),
-            ModeBarBtn(mode)
-          ))
-          .with_child((
-            Text::new(label),
-            TextFont { font_size: 14.0, ..default() },
-            TextColor(Color::srgb(0.5, 0.5, 0.5)),
-            ModeBarLabel
-          ));
-      }
-
-      bar.spawn(Node { width: Val::Px(20.0), ..default() });
-
-      bar.spawn((
-        Text::new(""),
-        TextFont { font_size: 13.0, ..default() },
-        TextColor(Color::srgb(0.6, 0.6, 0.5)),
-        ControlsLabel
-      ));
-    });
-
-  // --- Canvas cells (world-space) ---
   spawn_canvas_cells(
     &mut commands,
     &canvas,
@@ -1288,12 +1193,16 @@ fn setup(
     0,
     INITIAL_CANVAS_H
   );
-  spawn_edge_resize_buttons(&mut commands);
 
   let tileset_info = sprites::build_tileset(&mut images);
   commands.insert_resource(EditorTileset(tileset_info));
   commands.insert_resource(tile_cache);
   commands.insert_resource(object_visuals);
+}
+
+fn spawn_editor_ui(world: &mut World) {
+  let tile_cache = world.resource::<TileImageCache>().clone();
+  build_editor_ui(&tile_cache).spawn(world);
 }
 
 // ---------------------------------------------------------------------------
@@ -1302,27 +1211,23 @@ fn setup(
 
 fn camera_pan(
   mouse: Res<ButtonInput<MouseButton>>,
-  windows: Query<&Window>,
-  mut camera_q: Query<(&Camera, &GlobalTransform, &mut Transform), With<Camera2d>>,
+  window: Single<&Window>,
+  mut camera_tf: Single<&mut Transform, With<Camera2d>>,
   mut pan: ResMut<PanState>
 ) {
-  if let Some(cursor_pos) = windows.single().ok().and_then(|w| w.cursor_position()) {
+  if let Some(cursor_pos) = window.cursor_position() {
     if mouse.just_pressed(MouseButton::Right) {
-      if let Ok((_, _, tf)) = camera_q.single() {
-        pan.active = true;
-        pan.cursor_origin = cursor_pos;
-        pan.camera_origin = tf.translation;
-      }
+      pan.active = true;
+      pan.cursor_origin = cursor_pos;
+      pan.camera_origin = camera_tf.translation;
     }
     if mouse.just_released(MouseButton::Right) {
       pan.active = false;
     }
     if pan.active {
-      if let Ok((_, _, mut tf)) = camera_q.single_mut() {
-        let delta = cursor_pos - pan.cursor_origin;
-        tf.translation.x = pan.camera_origin.x - delta.x * tf.scale.x;
-        tf.translation.y = pan.camera_origin.y + delta.y * tf.scale.y;
-      }
+      let delta = cursor_pos - pan.cursor_origin;
+      camera_tf.translation.x = pan.camera_origin.x - delta.x * camera_tf.scale.x;
+      camera_tf.translation.y = pan.camera_origin.y + delta.y * camera_tf.scale.y;
     }
   }
 }
@@ -1333,17 +1238,14 @@ fn camera_pan(
 
 fn camera_zoom(
   scroll: Res<AccumulatedMouseScroll>,
-  windows: Query<&Window>,
-  mut camera_q: Query<(&Camera, &GlobalTransform, &mut Transform), With<Camera2d>>,
+  window: Single<&Window>,
+  mut camera_q: Single<(&Camera, &GlobalTransform, &mut Transform), With<Camera2d>>,
   mut zoom: ResMut<CameraZoom>
 ) {
-  if scroll.delta.y != 0.0
-    && let Ok((cam, cam_gt, mut tf)) = camera_q.single_mut()
-  {
-    let cursor_world = windows
-      .single()
-      .ok()
-      .and_then(|w| w.cursor_position())
+  if scroll.delta.y != 0.0 {
+    let (cam, cam_gt, ref mut tf) = *camera_q;
+    let cursor_world = window
+      .cursor_position()
       .and_then(|p| cam.viewport_to_world_2d(cam_gt, p).ok());
 
     let old_zoom = zoom.0;
@@ -1418,33 +1320,28 @@ fn ui_object_highlight(
 fn update_tile_preview(
   palette_q: Query<(&Interaction, &TilePaletteBtn)>,
   tile_cache: Res<TileImageCache>,
-  mut img_q: Query<(&mut ImageNode, &mut BackgroundColor), With<TilePreviewImage>>,
-  mut text_q: Query<&mut Text, With<TilePreviewText>>,
-  mut popup_q: Query<&mut Node, With<TilePreviewPopup>>
+  mut preview_img: Single<(&mut ImageNode, &mut BackgroundColor), With<TilePreviewImage>>,
+  mut preview_text: Single<&mut Text, With<TilePreviewText>>,
+  mut popup_node: Single<&mut Node, With<TilePreviewPopup>>
 ) {
   let hovered = palette_q
     .iter()
     .find(|(i, _)| **i == Interaction::Hovered || **i == Interaction::Pressed);
   if let Some((_, btn)) = hovered {
     let (ref img_h, color) = tile_cache.0[btn.0 as u16 as usize];
+    let (ref mut img_node, ref mut img_bg) = *preview_img;
     let has_texture = *img_h != Handle::default();
-    if let Ok((mut img_node, mut bg)) = img_q.single_mut() {
-      if has_texture {
-        img_node.image = img_h.clone();
-        bg.0 = Color::BLACK;
-      } else {
-        img_node.image = Handle::default();
-        bg.0 = color;
-      }
+    if has_texture {
+      img_node.image = img_h.clone();
+      img_bg.0 = Color::BLACK;
+    } else {
+      img_node.image = Handle::default();
+      img_bg.0 = color;
     }
-    if let Ok(mut text) = text_q.single_mut() {
-      text.0 = btn.0.name().to_string();
-    }
-    if let Ok(mut node) = popup_q.single_mut() {
-      node.display = Display::Flex;
-    }
-  } else if let Ok(mut node) = popup_q.single_mut() {
-    node.display = Display::None;
+    preview_text.0 = btn.0.name().to_string();
+    popup_node.display = Display::Flex;
+  } else {
+    popup_node.display = Display::None;
   }
 }
 
@@ -1453,7 +1350,7 @@ fn update_mode_bar(
   marker_input: Res<MarkerInput>,
   btn_q: Query<(&ModeBarBtn, &Children)>,
   mut label_q: Query<&mut TextColor, With<ModeBarLabel>>,
-  mut status_q: Query<&mut Text, With<ControlsLabel>>
+  mut status_text: Single<&mut Text, With<ControlsLabel>>
 ) {
   if state.is_changed() || marker_input.is_changed() {
     for (btn, children) in &btn_q {
@@ -1468,17 +1365,15 @@ fn update_mode_bar(
       }
     }
     let obj_name =
-      state.selected_object.map(|i| OBJECT_TEMPLATES[i as usize]).unwrap_or("none");
+      state.selected_object.map(|t| t.label()).unwrap_or("none");
     let marker_str = if marker_input.text.is_empty() { "none" } else { &marker_input.text };
-    if let Ok(mut text) = status_q.single_mut() {
-      text.0 = format!(
-        "tile:{}  obj:{}  marker:{}  pat:{}  |  U:undo G:gen K:markers [,./]:pat Ctrl+S/O:save/load",
-        state.selected_tile.name(),
-        obj_name,
-        marker_str,
-        state.pattern_size,
-      );
-    }
+    status_text.0 = format!(
+      "tile:{}  obj:{}  marker:{}  pat:{}  |  U:undo G:gen K:markers [,./]:pat Ctrl+S/O:save/load",
+      state.selected_tile.name(),
+      obj_name,
+      marker_str,
+      state.pattern_size,
+    );
   }
 }
 
@@ -1981,17 +1876,18 @@ fn sync_object_visuals(
 
 fn sync_marker_visuals(
   canvas: Res<EditorCanvas>,
-  mut query: Query<(&CanvasMarkerText, &mut Text2d, &mut Visibility)>
+  mut query: Query<(&CanvasMarkerText, &mut Text2d, &mut TextColor, &mut Visibility)>
 ) {
   if canvas.is_changed() {
-    for (label, mut text, mut visibility) in &mut query {
+    for (label, mut text, mut color, mut visibility) in &mut query {
       if let Some(name) = canvas
         .markers
         .get(label.1)
         .and_then(|row| row.get(label.0))
         .and_then(|m| m.as_deref())
       {
-        text.0 = name.to_string();
+        text.0 = abbreviate_marker(name);
+        color.0 = marker_color(name);
         *visibility = Visibility::Visible;
       } else {
         text.0.clear();
@@ -2084,15 +1980,15 @@ fn update_overlays(
 // WFC generation
 // ---------------------------------------------------------------------------
 
-fn encode_cell(tile: Tile, obj: Option<u8>) -> u16 {
+fn encode_cell(tile: Tile, obj: Option<ObjectTemplate>) -> u16 {
   (tile as u16) | ((obj.map(|o| o as u16 + 1).unwrap_or(0)) << 8)
 }
 
-fn decode_cell(val: u16) -> (Option<Tile>, Option<u8>) {
+fn decode_cell(val: u16) -> (Option<Tile>, Option<ObjectTemplate>) {
   let tile = Tile::try_from(val & 0xFF).ok();
   let obj = match val >> 8 {
     0 => None,
-    n => Some((n - 1) as u8)
+    n => ObjectTemplate::try_from((n - 1) as u8).ok()
   };
   (tile, obj)
 }
@@ -2110,9 +2006,7 @@ fn generate_wfc(
   mut commands: Commands,
   (existing, save_name, marker_input): (Query<Entity, Or<(With<OutputChunk>, With<OutputLabel>)>>, Res<SaveNameInput>, Res<MarkerInput>)
 ) {
-  if !keys.just_pressed(KeyCode::KeyG) || save_name.focused || marker_input.focused {
-    return;
-  }
+  if keys.just_pressed(KeyCode::KeyG) && !save_name.focused && !marker_input.focused {
 
   clear_wfc_preview(&mut commands, &existing);
 
@@ -2193,8 +2087,8 @@ fn generate_wfc(
             tile_data[chunk_idx] =
               Some(TileData { tileset_index, color: Color::WHITE, visible: true });
           }
-          if let Some(idx) = obj
-            && let Some(visual) = object_visuals.0.get(idx as usize)
+          if let Some(tmpl) = obj
+            && let Some(visual) = object_visuals.0.get(tmpl as u8 as usize)
           {
             let ux = coord_x as f32;
             let uy = (oh - 1 - coord_y) as f32;
@@ -2243,6 +2137,7 @@ fn generate_wfc(
       eprintln!("WFC generation failed after retries");
     }
   }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2279,9 +2174,9 @@ fn save_canvas(canvas: &EditorCanvas, origin: CanvasGridOrigin, name: &str) -> O
   let mut out = format!("{width} {height} {} {}\n", origin.x, origin.y);
   for y in 0..height {
     for x in 0..width {
-      let t = canvas.tiles[y][x] as u16;
-      let o = canvas.objects[y][x].map(|v| v as i16).unwrap_or(-1);
-      out.push_str(&format!("{t} {o} "));
+      let t = canvas.tiles[y][x];
+      let o = canvas.objects[y][x].map(|v| format!("{v:?}")).unwrap_or_else(|| "-".into());
+      out.push_str(&format!("{t:?} {o} "));
     }
     out.push('\n');
   }
@@ -2315,10 +2210,13 @@ fn load_canvas_from_file(
       let remaining: Vec<&str> = nums.collect();
       let cell_tokens = w.saturating_mul(h).saturating_mul(2);
       let (saved_origin_x, saved_origin_y, data_start) =
-        if remaining.len() >= cell_tokens + 2 {
+        if remaining.len() >= cell_tokens + 2
+          && remaining[0].parse::<i32>().is_ok()
+          && remaining[1].parse::<i32>().is_ok()
+        {
           (
-            remaining.first().and_then(|s| s.parse().ok()).unwrap_or(0),
-            remaining.get(1).and_then(|s| s.parse().ok()).unwrap_or(0),
+            remaining[0].parse().unwrap_or(0),
+            remaining[1].parse().unwrap_or(0),
             2
           )
         } else {
@@ -2340,12 +2238,12 @@ fn load_canvas_from_file(
       }
       for y in 0..h.min(height) {
         for x in 0..w.min(width) {
-          let t: u16 = remaining.get(data_idx).and_then(|s| s.parse().ok()).unwrap_or(0);
+          let tile_tok = remaining.get(data_idx).copied().unwrap_or("Grass");
           data_idx += 1;
-          let o: i16 = remaining.get(data_idx).and_then(|s| s.parse().ok()).unwrap_or(-1);
+          let obj_tok = remaining.get(data_idx).copied().unwrap_or("-");
           data_idx += 1;
-          canvas.tiles[y][x] = Tile::try_from(t).unwrap_or(Tile::Grass);
-          canvas.objects[y][x] = (o >= 0).then_some(o as u8);
+          canvas.tiles[y][x] = Tile::from_save(tile_tok).unwrap_or(Tile::Grass);
+          canvas.objects[y][x] = ObjectTemplate::from_save(obj_tok);
         }
       }
       if let Some(markers_text) = marker_section {
@@ -2399,19 +2297,18 @@ fn save_name_input_typing(
     events.clear();
   } else {
     for event in events.read() {
-      if !event.state.is_pressed() {
-        continue;
-      }
-      match (&event.logical_key, &event.text) {
-        (Key::Backspace, _) => { save_name.text.pop(); }
-        (Key::Escape | Key::Enter, _) => { save_name.focused = false; }
-        _ if keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight) => {}
-        (_, Some(ch)) => {
-          if ch.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
-            save_name.text.push_str(ch);
+      if event.state.is_pressed() {
+        match (&event.logical_key, &event.text) {
+          (Key::Backspace, _) => { save_name.text.pop(); }
+          (Key::Escape | Key::Enter, _) => { save_name.focused = false; }
+          _ if keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight) => {}
+          (_, Some(ch)) => {
+            if ch.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+              save_name.text.push_str(ch);
+            }
           }
+          _ => {}
         }
-        _ => {}
       }
     }
   }
@@ -2495,11 +2392,9 @@ fn save_load_ui_actions(
 
 fn load_picker_visibility(
   picker: Res<LoadPickerState>,
-  mut panel_q: Query<&mut Node, With<LoadPickerPanel>>
+  mut node: Single<&mut Node, With<LoadPickerPanel>>
 ) {
-  if picker.is_changed()
-    && let Ok(mut node) = panel_q.single_mut()
-  {
+  if picker.is_changed() {
     node.display = if picker.open { Display::Flex } else { Display::None };
   }
 }
@@ -2507,18 +2402,15 @@ fn load_picker_visibility(
 fn refresh_load_picker_list(
   mut commands: Commands,
   mut picker: ResMut<LoadPickerState>,
-  list_q: Query<Entity, With<LoadPickerList>>,
+  list_entity: Single<Entity, With<LoadPickerList>>,
   existing_q: Query<Entity, With<LoadPickerListItem>>
 ) {
-  if !picker.refresh_requested || !picker.open {
-    return;
-  }
-  picker.refresh_requested = false;
-  for entity in &existing_q {
-    commands.entity(entity).despawn();
-  }
-  if let Ok(list_entity) = list_q.single() {
-    commands.entity(list_entity).with_children(|parent| {
+  if picker.refresh_requested && picker.open {
+    picker.refresh_requested = false;
+    for entity in &existing_q {
+      commands.entity(entity).despawn();
+    }
+    commands.entity(*list_entity).with_children(|parent| {
       for path in save_files() {
         let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("unknown");
         parent
@@ -2548,12 +2440,17 @@ fn load_picker_file_clicks(
   mut canvas: ResMut<EditorCanvas>,
   mut origin: ResMut<CanvasGridOrigin>,
   mut undo: ResMut<UndoStack>,
-  mut picker: ResMut<LoadPickerState>
+  mut picker: ResMut<LoadPickerState>,
+  mut save_name: ResMut<SaveNameInput>
 ) {
   for (interaction, file_btn) in &interaction_q {
     if *interaction == Interaction::Pressed {
       let path = PathBuf::from(&file_btn.0);
       if load_canvas_from_file(&path, &mut canvas, &mut origin, &mut undo) {
+        save_name.text = path.file_stem()
+          .and_then(|s| s.to_str())
+          .unwrap_or("")
+          .to_string();
         eprintln!("Loaded from {}", path.display());
         picker.open = false;
         picker.refresh_requested = false;
@@ -2727,12 +2624,10 @@ fn marker_list_toggle(
 
 fn marker_list_visibility(
   state: Res<MarkerListState>,
-  mut panel_q: Query<&mut Node, With<MarkerListPanel>>
+  mut node: Single<&mut Node, With<MarkerListPanel>>
 ) {
   if state.is_changed() {
-    for mut node in &mut panel_q {
-      node.display = if state.open { Display::Flex } else { Display::None };
-    }
+    node.display = if state.open { Display::Flex } else { Display::None };
   }
 }
 
@@ -2741,14 +2636,13 @@ fn refresh_marker_list(
   canvas: Res<EditorCanvas>,
   mut state: ResMut<MarkerListState>,
   origin: Res<CanvasGridOrigin>,
-  content_q: Query<Entity, With<MarkerListContent>>,
+  content_entity: Single<Entity, With<MarkerListContent>>,
   existing_items: Query<Entity, With<MarkerListButton>>
 ) {
   if !state.open {
     state.needs_refresh = false;
   }
-  if !(state.needs_refresh || (state.open && canvas.is_changed())) {
-  } else {
+  if state.needs_refresh || (state.open && canvas.is_changed()) {
     state.needs_refresh = false;
     for e in &existing_items {
       commands.entity(e).despawn();
@@ -2764,44 +2658,40 @@ fn refresh_marker_list(
     }
     entries.sort_by(|a, b| a.2.cmp(&b.2).then(a.1.cmp(&b.1)).then(a.0.cmp(&b.0)));
 
-    if let Ok(content_entity) = content_q.single() {
-      commands.entity(content_entity).with_children(|parent| {
-        for (x, y, name) in &entries {
-          let gx = origin.x + *x as i32;
-          let gy = origin.y + *y as i32;
-          parent
-            .spawn((
-              Button,
-              Node {
-                padding: UiRect::axes(Val::Px(4.0), Val::Px(1.0)),
-                ..default()
-              },
-              BackgroundColor(Color::srgba(0.1, 0.14, 0.18, 0.95)),
-              MarkerListButton(*x, *y)
-            ))
-            .with_child((
-              Text::new(format!("{name} ({gx},{gy})")),
-              TextFont { font_size: 10.0, ..default() },
-              TextColor(Color::srgb(0.3, 0.9, 1.0))
-            ));
-        }
-      });
-    }
+    commands.entity(*content_entity).with_children(|parent| {
+      for (x, y, name) in &entries {
+        let gx = origin.x + *x as i32;
+        let gy = origin.y + *y as i32;
+        parent
+          .spawn((
+            Button,
+            Node {
+              padding: UiRect::axes(Val::Px(4.0), Val::Px(1.0)),
+              ..default()
+            },
+            BackgroundColor(Color::srgba(0.1, 0.14, 0.18, 0.95)),
+            MarkerListButton(*x, *y)
+          ))
+          .with_child((
+            Text::new(format!("{name} ({gx},{gy})")),
+            TextFont { font_size: 10.0, ..default() },
+            TextColor(Color::srgb(0.3, 0.9, 1.0))
+          ));
+      }
+    });
   }
 }
 
 fn marker_list_clicks(
   interaction_q: Query<(&Interaction, &MarkerListButton), Changed<Interaction>>,
   origin: Res<CanvasGridOrigin>,
-  mut camera_q: Query<&mut Transform, With<Camera2d>>
+  mut camera_tf: Single<&mut Transform, With<Camera2d>>
 ) {
   for (interaction, btn) in &interaction_q {
     if *interaction == Interaction::Pressed {
       let world = grid_to_world(btn.0, btn.1, *origin);
-      if let Ok(mut tf) = camera_q.single_mut() {
-        tf.translation.x = world.x;
-        tf.translation.y = world.y;
-      }
+      camera_tf.translation.x = world.x;
+      camera_tf.translation.y = world.y;
     }
   }
 }
@@ -2810,11 +2700,9 @@ fn marker_list_clicks(
 // Window title (shows mode/tool/tile/object info)
 // ---------------------------------------------------------------------------
 
-fn update_title(state: Res<EditorState>, mut windows: Query<&mut Window>) {
+fn update_title(state: Res<EditorState>, mut win: Single<&mut Window>) {
   if state.is_changed() {
-    if let Ok(mut win) = windows.single_mut() {
-      win.title = format!("Level Editor | {}", state.tool.name());
-    }
+    win.title = format!("Level Editor | {}", state.tool.name());
   }
 }
 
@@ -2868,7 +2756,8 @@ fn main() {
     .insert_resource(MarkerListState { open: false, needs_refresh: false })
     .insert_resource(UndoStack(Vec::new()))
     .init_resource::<sprites::PaletteImageCache>()
-    .add_systems(Startup, setup)
+    .add_plugins(haalka::HaalkaPlugin::default())
+    .add_systems(Startup, (setup, spawn_editor_ui).chain())
     .add_systems(Update, (camera_pan, camera_zoom, tool_keys, ui_tile_palette))
     .add_systems(Update, (ui_tile_highlight, ui_object_palette, ui_object_highlight))
     .add_systems(

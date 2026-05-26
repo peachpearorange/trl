@@ -35,6 +35,7 @@ fn object_from_idx(idx: u8) -> Option<Object> {
     24 => Some(Object::grenade_thrower()),
     25 => Some(Object::gunman()),
     26 => Some(Object::laser_sword()),
+    27 => Some(Object::turret()),
     _ => None
   }
 }

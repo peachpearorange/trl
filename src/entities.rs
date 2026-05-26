@@ -469,7 +469,7 @@ pub struct WalkAnim {
 }
 
 /// Visual for a grid entity: optional PNG (tile-sized sprite) or [`Text2d`] from `ch` + `color`.
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Copy, Debug)]
 pub struct Glyph {
   pub ch: char,
   pub color: Color,
@@ -505,14 +505,14 @@ impl Glyph {
 }
 
 /// Identity and SS13-style flavor text shown on hover.
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Copy, Debug)]
 pub struct Named {
   pub name: &'static str,
   pub flavor: &'static str
 }
 
 /// Flat combat stats.
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Copy, Debug)]
 pub struct Stats {
   pub hp: i32,
   pub max_hp: i32,
@@ -1466,6 +1466,45 @@ impl Object {
     ))
   }
 
+  pub fn robot_dog() -> Self {
+    Self::enemy().add((
+      Named {
+        name: "Guard Dog",
+        flavor: "A battered patrol drone on four legs. Its mounted gun tracks movement."
+      },
+      Stats { hp: 10, max_hp: 10, attack: 2, move_speed: 3.0, attack_speed: 1.0 },
+      Loadout::new(vec![
+        GearSlot::ability(Gear::InnateGun { damage: 3 }, 12),
+        GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 3),
+      ]),
+      Glyph::palette_sprite(
+        "textures/space_qud/robot dog with gun.png",
+        'd',
+        Color::srgb(0.15, 0.15, 0.18),
+        Color::srgb(0.85, 0.75, 0.15)
+      )
+    ))
+  }
+
+  pub fn turret() -> Self {
+    Self::enemy().add((
+      Named {
+        name: "Turret",
+        flavor: "A ceiling-mounted autoturret. It can't move, but its tracking is relentless."
+      },
+      Stats { hp: 12, max_hp: 12, attack: 1, move_speed: 0.0, attack_speed: 1.0 },
+      Loadout::new(vec![
+        GearSlot::ability(Gear::InnateGun { damage: 5 }, 10),
+      ]),
+      Glyph::palette_sprite(
+        "textures/space_qud/turret1.png",
+        't',
+        Color::srgb(0.5, 0.5, 0.5),
+        Color::srgb(0.8, 0.2, 0.2)
+      )
+    ))
+  }
+
   pub fn mushroom(primary: Color, secondary: Color, name: &'static str) -> Self {
     Self::structure(false).add((
       Glyph::palette_sprite("textures/space_qud/mushroom.png", 'm', primary, secondary),
@@ -1487,4 +1526,92 @@ impl Object {
       }
     ))
   }
+}
+
+// ============ OBJECT STRUCT (data-driven parallel to Object) ============
+
+pub trait Has<T> {
+  fn get(&self) -> Option<&T>;
+  fn get_mut(&mut self) -> Option<&mut T>;
+  fn set(&mut self, val: T);
+  fn with(self, val: T) -> Self;
+}
+
+macro_rules! object_struct {
+  (pub struct $name:ident { $($field:ident : $ty:ty),* $(,)? }) => {
+    #[derive(Clone)]
+    pub struct $name {
+      $(pub $field: Option<$ty>),*
+    }
+
+    impl $name {
+      pub const EMPTY: Self = Self { $($field: None),* };
+
+      pub fn delegate(mut self, other: &Self) -> Self {
+        $(if self.$field.is_none() { self.$field = other.$field.clone(); })*
+        self
+      }
+
+      pub fn insert_into(&self, e: &mut EntityCommands) {
+        $(if let Some(val) = self.$field.clone() { e.insert(val); })*
+      }
+
+      pub fn spawn(&self, commands: &mut Commands) -> Entity {
+        let mut e = commands.spawn_empty();
+        self.insert_into(&mut e);
+        e.id()
+      }
+    }
+
+    $(
+      impl Has<$ty> for $name {
+        fn get(&self) -> Option<&$ty> { self.$field.as_ref() }
+        fn get_mut(&mut self) -> Option<&mut $ty> { self.$field.as_mut() }
+        fn set(&mut self, val: $ty) { self.$field = Some(val); }
+        fn with(mut self, val: $ty) -> Self { self.$field = Some(val); self }
+      }
+    )*
+  }
+}
+
+object_struct! {
+  pub struct ObjectStruct {
+    named: Named,
+    stats: Stats,
+    glyph: Glyph,
+    loadout: Loadout,
+  }
+}
+
+pub fn turret_def() -> ObjectStruct {
+  ObjectStruct::EMPTY
+    .with(Named {
+      name: "Turret",
+      flavor: "A ceiling-mounted autoturret. It can't move, but its tracking is relentless.",
+    })
+    .with(Stats { hp: 12, max_hp: 12, attack: 1, move_speed: 0.0, attack_speed: 1.0 })
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/turret1.png", 't',
+      Color::srgb(0.5, 0.5, 0.5), Color::srgb(0.8, 0.2, 0.2),
+    ))
+    .with(Loadout::new(vec![
+      GearSlot::ability(Gear::InnateGun { damage: 5 }, 10),
+    ]))
+}
+
+pub fn gunman_def() -> ObjectStruct {
+  ObjectStruct::EMPTY
+    .with(Named {
+      name: "Gunman",
+      flavor: "A sharp-eyed mercenary with a revolver. Shoots first.",
+    })
+    .with(Stats { hp: 8, max_hp: 8, attack: 3, move_speed: 2.0, attack_speed: 1.0 })
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/gunman .png", 'g',
+      Color::srgb(0.42, 0.52, 0.68), Color::srgb(0.72, 0.82, 0.92),
+    ))
+    .with(Loadout::new(vec![
+      GearSlot::ability(Gear::InnateGun { damage: 4 }, 15),
+      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 4),
+    ]))
 }
