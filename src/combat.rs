@@ -457,7 +457,7 @@ pub fn mushroom_spore_attack(
       slot.timer = 0;
       let name = named.map(|n| n.name).unwrap_or("Something");
       log_message(&mut log, format!("{name} releases a cloud of spores!"));
-      spawn_cloud_area(&mut commands, ex, ey, ez, Object::SPORE_CLOUD.clone(), &SPORE_CLOUD_OFFSETS);
+      spawn_cloud_area(&mut commands, ex, ey, ez, Object::SPORE_CLOUD, &SPORE_CLOUD_OFFSETS);
     }
   }
   }
@@ -555,7 +555,7 @@ fn detonate_grenade(
   for &(dx, dy) in &EXPLOSION_OFFSETS {
     let (ex, ey) = (cx + dx, cy + dy);
     if level.walkable(ex, ey) {
-      Object::EXPLOSION_CLOUD.clone().spawn_at(commands, ex, ey, z);
+      Object::EXPLOSION_CLOUD.spawn_at(commands, ex, ey, z);
     }
   }
   spawn_explosion_burst(commands, effects, (cx, cy), level.width, level.height);

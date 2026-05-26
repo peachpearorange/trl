@@ -202,7 +202,7 @@ impl Prefab {
     )
     .assoc('w', (Tile::StationWall, []))
     .assoc('f', (Tile::StationFloor, []))
-    .assoc('d', (Tile::StationFloor, [Object::DOOR.clone()]))
+    .assoc('d', (Tile::StationFloor, [Object::DOOR]))
     .assoc('n', (Tile::StationFloor, [resident()]))
   }
 
@@ -221,8 +221,8 @@ impl Prefab {
     .assoc('b', (Tile::Bulkhead, []))
     .assoc('w', (Tile::Window, []))
     .assoc('.', (Tile::DeckPlate, []))
-    .assoc('c', (Tile::DeckPlate, [Object::FLIGHT_CONSOLE.clone()]))
-    .assoc('a', (Tile::DeckPlate, [Object::AIRLOCK_DOOR.clone()]))
+    .assoc('c', (Tile::DeckPlate, [Object::FLIGHT_CONSOLE]))
+    .assoc('a', (Tile::DeckPlate, [Object::AIRLOCK_DOOR]))
     .assoc('p', (Tile::DeckPlate, [ship_pilot()]))
   }
 
@@ -249,16 +249,16 @@ impl Prefab {
     .assoc('.', (Tile::DeckPlate, []))
     .assoc(',', (Tile::WoodTile, []))
     .assoc('W', (Tile::Window, []))
-    .assoc('a', (Tile::DeckPlate, [Object::AIRLOCK_DOOR.clone()]))
-    .assoc('l', (Tile::WoodTile, [Object::AIRLOCK_DOOR.clone()]))
+    .assoc('a', (Tile::DeckPlate, [Object::AIRLOCK_DOOR]))
+    .assoc('l', (Tile::WoodTile, [Object::AIRLOCK_DOOR]))
     .assoc('=', (Tile::Conduit, []))
-    .assoc('C', (Tile::DeckPlate, [Object::FLIGHT_CONSOLE.clone()]))
-    .assoc('Q', (Tile::DeckPlate, [Object::LOADOUT_CONSOLE.clone()]))
-    .assoc('k', (Tile::DeckPlate, [Object::SPACE_CAT.clone()]))
-    .assoc('B', (Tile::WoodTile, [Object::BED.clone()]))
-    .assoc('T', (Tile::DeckPlate, [Object::TABLE.clone()]))
-    .assoc('c', (Tile::DeckPlate, [Object::CHAIR.clone()]))
-    .assoc('L', (Tile::WoodTile, [Object::LOCKER.clone()]))
+    .assoc('C', (Tile::DeckPlate, [Object::FLIGHT_CONSOLE]))
+    .assoc('Q', (Tile::DeckPlate, [Object::LOADOUT_CONSOLE]))
+    .assoc('k', (Tile::DeckPlate, [Object::SPACE_CAT]))
+    .assoc('B', (Tile::WoodTile, [Object::BED]))
+    .assoc('T', (Tile::DeckPlate, [Object::TABLE]))
+    .assoc('c', (Tile::DeckPlate, [Object::CHAIR]))
+    .assoc('L', (Tile::WoodTile, [Object::LOCKER]))
     .assoc(
       'X',
       (Tile::DeckPlate, [Object::supply_cache(&[
@@ -283,7 +283,7 @@ impl Prefab {
       ])
     )
     .assoc('d', (Tile::DeckPlate, [npcs::guard::guard()]))
-    .assoc('t', (Tile::Blank, [Object::THRUSTER.clone()]))
+    .assoc('t', (Tile::Blank, [Object::THRUSTER]))
   }
 }
 
@@ -292,9 +292,9 @@ mod tests {
   use {super::*,
        crate::level::{Level, Tile}};
 
-  fn chest() -> Object { Object::LOOT_CHEST.clone() }
+  fn chest() -> Object { Object::LOOT_CHEST }
 
-  fn enemy() -> Object { Object::RAT_SOLDIER.clone() }
+  fn enemy() -> Object { Object::RAT_SOLDIER }
 
   #[test]
   fn builds_multiple_objects_at_same_cell() {
@@ -368,7 +368,7 @@ aa
 
   #[test]
   fn accepts_object_templates() {
-    let p = prefab("c").assoc('c', (Tile::DeckPlate, [Object::LOOT_CHEST.clone()]));
+    let p = prefab("c").assoc('c', (Tile::DeckPlate, [Object::LOOT_CHEST]));
     let mut n = 0usize;
     p.for_each_assoc_object(|_, _, _| {
       n += 1;

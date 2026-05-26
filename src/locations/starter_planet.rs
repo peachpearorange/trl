@@ -60,12 +60,12 @@ gggggggggggggggggggggggggggggggggggggggggggggggg
   .assoc('r', (Tile::Road, []))
   .assoc('c', (Tile::CrystalGrowth, []))
   .assoc('~', (Tile::AlienFluid, []))
-  .assoc('t', (Tile::AlienGrass, [Object::tree()]))
+  .assoc('t', (Tile::AlienGrass, [Object::random_tree()]))
   .assoc('P', (Tile::ShipDock, []))
-  .assoc('@', (Tile::WoodTile, [Object::BED.clone()]))
+  .assoc('@', (Tile::WoodTile, [Object::BED]))
   .assoc('R', (Tile::StationFloor, [npcs::tutorial::ori1()]))
-  .assoc('K', (Tile::StationFloor, [Object::CRAFTING_TABLE.clone()]))
-  .assoc('D', (Tile::StationFloor, [Object::DOOR.clone()]))
+  .assoc('K', (Tile::StationFloor, [Object::CRAFTING_TABLE]))
+  .assoc('D', (Tile::StationFloor, [Object::DOOR]))
   .assoc('.', (Tile::StationFloor, []))
 }
 

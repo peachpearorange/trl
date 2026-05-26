@@ -119,8 +119,8 @@ ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss
     (Tile::AlienSoil, [shroom(0.95, 0.78, 0.04, 0.98, 0.97, 0.84, "Pale Lantern")])
   )
   .assoc('n', (Tile::AlienSoil, [spore_tender()]))
-  .assoc('m', (Tile::AlienSoil, [Object::MUSHROOM_CREATURE.clone()]))
-  .assoc('e', (Tile::AlienSoil, [Object::GRENADE_THROWER.clone()]))
+  .assoc('m', (Tile::AlienSoil, [Object::MUSHROOM_CREATURE]))
+  .assoc('e', (Tile::AlienSoil, [Object::GRENADE_THROWER]))
 }
 
 static SPORE_TENDER_DIALOGUE: DialogueTree = dialogue_tree(&[

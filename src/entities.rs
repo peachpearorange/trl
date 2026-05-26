@@ -1251,16 +1251,26 @@ impl Object {
 
   // ---- fn factories (need rand, runtime Vec, etc.) ----
 
-  pub fn tree() -> Self {
-    let sprite = if rand::random::<bool>() { "textures/space_qud/tree.png" } else { "textures/space_qud/tree2.png" };
-    Self::STRUCTURE_PASSABLE
-      .with(Glyph::palette_sprite(
-        sprite, 'T',
-        Color::srgb(0.14, 0.42, 0.16), Color::srgb(0.38, 0.62, 0.24),
-      ))
-      .with(Named { name: "Tree", flavor: "A sturdy tree. Could be chopped for wood." })
-      .with(BlocksSight)
-      .with(Tree)
+  pub const TREE: Self = Self::STRUCTURE_PASSABLE
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/tree.png", 'T',
+      Color::srgb(0.14, 0.42, 0.16), Color::srgb(0.38, 0.62, 0.24),
+    ))
+    .with(Named { name: "Tree", flavor: "A sturdy tree. Could be chopped for wood." })
+    .with(BlocksSight)
+    .with(Tree);
+
+  pub const TREE2: Self = Self::STRUCTURE_PASSABLE
+    .with(Glyph::palette_sprite(
+      "textures/space_qud/tree2.png", 'T',
+      Color::srgb(0.14, 0.42, 0.16), Color::srgb(0.38, 0.62, 0.24),
+    ))
+    .with(Named { name: "Tree", flavor: "A sturdy tree. Could be chopped for wood." })
+    .with(BlocksSight)
+    .with(Tree);
+
+  pub fn random_tree() -> Self {
+    if rand::random::<bool>() { Self::TREE } else { Self::TREE2 }
   }
 
   pub fn elevator(current_z: usize, floors: Vec<(usize, i32, i32)>) -> Self {

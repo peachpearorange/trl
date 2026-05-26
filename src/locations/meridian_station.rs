@@ -36,7 +36,7 @@ vvvvvvvvvvvv########################vvvvvvvvvvvv
   .assoc('#', (Tile::StationWall, []))
   .assoc('.', (Tile::StationFloor, []))
   .assoc('W', (Tile::Window, []))
-  .assoc('D', (Tile::StationFloor, [Object::DOOR.clone()]))
+  .assoc('D', (Tile::StationFloor, [Object::DOOR]))
   .assoc('P', (Tile::ShipDock, []))
 }
 

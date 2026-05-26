@@ -197,7 +197,7 @@ fn scaled(param: f32, scale: f32) -> f32 { (param * scale).max(0.05) }
 
 fn editor_object(index: u16) -> Option<fn() -> Object> {
   match index {
-    0 => Some(Object::tree as fn() -> Object),
+    0 => Some(Object::random_tree as fn() -> Object),
     _ => None
   }
 }
@@ -301,7 +301,7 @@ fn generate(params: &PlanetParams, grid_indices: &[u8]) -> Location {
       tile_map.push((Tile::BioluminescentPool, None));
       tile_map.push((Tile::AcidPool, None));
       tile_map
-        .push((Tile::CrystalFormation, Some((|| Object::MANTIS_ALIEN.clone()) as fn() -> Object)));
+        .push((Tile::CrystalFormation, Some((|| Object::MANTIS_ALIEN) as fn() -> Object)));
     }
     PlanetBiome::Alien => {
       tile_map.push((Tile::AlienSoil, None));
@@ -309,8 +309,8 @@ fn generate(params: &PlanetParams, grid_indices: &[u8]) -> Location {
       tile_map.push((Tile::AlienFluid, None));
       tile_map.push((Tile::BioluminescentPool, None));
       tile_map.push((Tile::CaveWall, None));
-      tile_map.push((Tile::AlienSoil, Some((|| Object::ALIEN_RUNNER.clone()) as fn() -> Object)));
-      tile_map.push((Tile::AlienSoil, Some((|| Object::CRAB_ALIEN.clone()) as fn() -> Object)));
+      tile_map.push((Tile::AlienSoil, Some((|| Object::ALIEN_RUNNER) as fn() -> Object)));
+      tile_map.push((Tile::AlienSoil, Some((|| Object::CRAB_ALIEN) as fn() -> Object)));
     }
     PlanetBiome::Arctic => {
       tile_map.push((Tile::IceFloor, None));
@@ -324,9 +324,9 @@ fn generate(params: &PlanetParams, grid_indices: &[u8]) -> Location {
       tile_map.push((Tile::BrightCobbleWall, None));
       tile_map.push((Tile::ShallowWater, None));
       tile_map.push((Tile::DeepWater, None));
-      tile_map.push((Tile::BrightGround, Some((|| Object::GUNMAN.clone()) as fn() -> Object)));
+      tile_map.push((Tile::BrightGround, Some((|| Object::GUNMAN) as fn() -> Object)));
       tile_map
-        .push((Tile::BrightGround, Some((|| Object::GRENADE_THROWER.clone()) as fn() -> Object)));
+        .push((Tile::BrightGround, Some((|| Object::GRENADE_THROWER) as fn() -> Object)));
     }
   }
 
@@ -475,7 +475,7 @@ fn generate_cave_sublevel(loc: &mut Location) {
   let chest_step = chest_candidates.len().max(1) / chest_count.max(1);
   for i in 0..chest_count.min(chest_candidates.len()) {
     let (cx, cy) = chest_candidates[i * chest_step];
-    loc.spawn_objects.push((cx, cy, 1, Object::LOOT_CHEST.clone()));
+    loc.spawn_objects.push((cx, cy, 1, Object::LOOT_CHEST));
   }
 }
 
@@ -644,7 +644,7 @@ fn generate_lava(params: &PlanetParams, grid_indices: &[u8]) -> Location {
       } else {
         let _: f64 = rng.r#gen();
         if rng.gen_bool(0.01) {
-          loc.spawn_objects.push((x, y, 0, Object::LAVA_CRAB.clone()));
+          loc.spawn_objects.push((x, y, 0, Object::LAVA_CRAB));
         }
       }
     }
