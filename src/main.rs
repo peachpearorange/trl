@@ -22,6 +22,7 @@ mod particles;
 mod path_overlay;
 mod post_process;
 pub mod prefabs;
+pub mod quest;
 pub mod ship;
 pub mod sprites;
 pub mod tiles;
@@ -717,6 +718,7 @@ fn main() {
     .init_resource::<FlowField>()
     .init_resource::<abilities::AbilityBarData>()
     .init_resource::<abilities::TargetingState>()
+    .init_resource::<quest::QuestLog>()
     .init_resource::<path_overlay::RangedPathOverlay>()
     .add_plugins(ui::UiPlugin)
     .add_plugins(particles::ParticlesPlugin)
