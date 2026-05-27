@@ -77,6 +77,7 @@ const DOOR_OPEN_SEC: Color = Color::srgb(0.72, 0.78, 0.82);
 /// Palette-mask airlocks (now in entities::AIRLOCK_PRI / AIRLOCK_SEC).
 /// Primary color used for the player sprite and "You:" log labels.
 pub const PLAYER_PRIMARY: Color = Color::srgb(0.72, 0.72, 0.72);
+const QUEST_LOG_COLOR: Color = Color::srgb(0.95, 0.88, 0.25);
 /// Simulated 60Hz display: one grid step / one input gate spans this many render updates.
 pub const RENDER_FRAMES_PER_SIM_STEP: u32 = 8;
 /// How many sim steps run per real-time second (= assumed display Hz / render frames per step).
@@ -935,9 +936,9 @@ fn enemy_death_check(
         quests.set_flag(quest::ALIEN_HUNT.id, quest::ALIEN_HUNT_KILL_FLAG, kills);
         if kills >= 10 {
           quests.set_stage(quest::ALIEN_HUNT.id, 100);
-          log_message(&mut *log, "[Quest completed: Alien Extermination]".into());
+          log_spans(&mut *log, vec![LogSpan::colored("[Quest completed: Alien Extermination]", QUEST_LOG_COLOR)]);
         } else {
-          log_message(&mut *log, format!("Alien killed ({}/10)", kills));
+          log_spans(&mut *log, vec![LogSpan::colored(format!("Alien killed ({kills}/10)"), QUEST_LOG_COLOR)]);
         }
       }
       let loot = loadout.lootable_items();
@@ -1950,7 +1951,7 @@ fn handle_dialogue(
         match *action {
           entities::QuestAction::Start(id) => {
             quests.start(id);
-            log_message(&mut *log, format!("[Quest started: {}]", quests.quest_name(id).unwrap_or(id)));
+            log_spans(&mut *log, vec![LogSpan::colored(format!("[Quest started: {}]", quests.quest_name(id).unwrap_or(id)), QUEST_LOG_COLOR)]);
           }
           entities::QuestAction::SetStage(id, stage) => {
             quests.set_stage(id, stage);
