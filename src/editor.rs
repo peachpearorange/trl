@@ -1,3 +1,5 @@
+#![feature(const_trait_impl)]
+#![feature(const_precise_live_drops)]
 #[path = "sprites.rs"]
 #[allow(dead_code)]
 mod sprites;
@@ -5,6 +7,12 @@ mod sprites;
 pub mod tiles;
 #[path = "utils.rs"]
 mod utils;
+#[path = "faction.rs"]
+mod faction;
+#[path = "level.rs"]
+mod level;
+#[path = "entities.rs"]
+mod entities;
 
 pub const SPRITE_TEXELS: f32 = 20.0;
 
@@ -41,65 +49,65 @@ const DEFAULT_PATTERN_SIZE: u32 = 5;
 #[derive(Assoc, Clone, Copy, PartialEq, Eq, Debug, TryFromPrimitive)]
 #[repr(u8)]
 #[func(pub fn label(&self) -> &'static str)]
-#[func(pub fn sprite_spec(&self) -> (&'static str, [f32; 3], [f32; 3]))]
+#[func(pub fn object(&self) -> entities::Object)]
 pub enum ObjectTemplate {
-  #[assoc(label = "tree", sprite_spec = ("textures/space_qud/tree2.png", [0.14, 0.42, 0.16], [0.38, 0.62, 0.24]))]
+  #[assoc(label = "tree", object = entities::Object::TREE)]
   Tree,
-  #[assoc(label = "boulder", sprite_spec = ("textures/space_qud/rock.png", [0.32, 0.30, 0.28], [0.58, 0.55, 0.50]))]
+  #[assoc(label = "boulder", object = entities::Object::BOULDER)]
   Boulder,
-  #[assoc(label = "door", sprite_spec = ("textures/space_qud/door closed (1).png", [0.55, 0.32, 0.18], [0.80, 0.65, 0.35]))]
+  #[assoc(label = "door", object = entities::Object::DOOR)]
   Door,
-  #[assoc(label = "airlock_door", sprite_spec = ("textures/space_qud/airlock closed.png", [0.72, 0.78, 0.88], [0.35, 0.45, 0.60]))]
+  #[assoc(label = "airlock_door", object = entities::Object::AIRLOCK_DOOR)]
   AirlockDoor,
-  #[assoc(label = "bed", sprite_spec = ("textures/space_qud/bed.png", [0.52, 0.38, 0.22], [0.88, 0.84, 0.72]))]
+  #[assoc(label = "bed", object = entities::Object::BED)]
   Bed,
-  #[assoc(label = "table", sprite_spec = ("textures/space_qud/table.png", [0.48, 0.34, 0.18], [0.72, 0.58, 0.36]))]
+  #[assoc(label = "table", object = entities::Object::TABLE)]
   Table,
-  #[assoc(label = "chair", sprite_spec = ("textures/space_qud/chair (1).png", [0.60, 0.62, 0.65], [0.72, 0.18, 0.14]))]
+  #[assoc(label = "chair", object = entities::Object::CHAIR)]
   Chair,
-  #[assoc(label = "crafting_table", sprite_spec = ("textures/space_qud/crafting table.png", [0.38, 0.42, 0.48], [0.62, 0.62, 0.62]))]
+  #[assoc(label = "crafting_table", object = entities::Object::CRAFTING_TABLE)]
   CraftingTable,
-  #[assoc(label = "locker", sprite_spec = ("textures/space_qud/locker (2).png", [0.32, 0.38, 0.42], [0.62, 0.68, 0.72]))]
+  #[assoc(label = "locker", object = entities::Object::LOCKER)]
   Locker,
-  #[assoc(label = "crate", sprite_spec = ("textures/space_qud/crate.png", [0.42, 0.32, 0.18], [0.72, 0.60, 0.38]))]
+  #[assoc(label = "crate", object = entities::Object::CRATE_OBJ)]
   Crate,
-  #[assoc(label = "loot_chest", sprite_spec = ("textures/space_qud/crate.png", [0.72, 0.52, 0.28], [0.42, 0.32, 0.22]))]
+  #[assoc(label = "loot_chest", object = entities::Object::LOOT_CHEST)]
   LootChest,
-  #[assoc(label = "flight_console", sprite_spec = ("textures/space_qud/computer .png", [0.18, 0.34, 0.52], [0.32, 0.88, 0.45]))]
+  #[assoc(label = "flight_console", object = entities::Object::FLIGHT_CONSOLE)]
   FlightConsole,
-  #[assoc(label = "loadout_console", sprite_spec = ("textures/space_qud/locker (1).png", [0.25, 0.38, 0.52], [0.55, 0.75, 0.88]))]
+  #[assoc(label = "loadout_console", object = entities::Object::LOADOUT_CONSOLE)]
   LoadoutConsole,
-  #[assoc(label = "space_cat", sprite_spec = ("textures/space_qud/space cat.png", [0.92, 0.82, 0.62], [0.52, 0.36, 0.26]))]
+  #[assoc(label = "space_cat", object = entities::Object::SPACE_CAT)]
   SpaceCat,
-  #[assoc(label = "thruster", sprite_spec = ("textures/space_qud/thruster.png", [0.72, 0.38, 0.08], [0.75, 0.75, 0.72]))]
+  #[assoc(label = "thruster", object = entities::Object::THRUSTER)]
   Thruster,
-  #[assoc(label = "rat_soldier", sprite_spec = ("textures/space_qud/gunman .png", [0.72, 0.48, 0.28], [0.95, 0.78, 0.55]))]
+  #[assoc(label = "rat_soldier", object = entities::Object::RAT_SOLDIER)]
   RatSoldier,
-  #[assoc(label = "armored_rat_soldier", sprite_spec = ("textures/space_qud/mogussy.png", [0.55, 0.42, 0.28], [0.82, 0.68, 0.45]))]
+  #[assoc(label = "armored_rat_soldier", object = entities::Object::ARMORED_RAT_SOLDIER)]
   ArmoredRatSoldier,
-  #[assoc(label = "robot", sprite_spec = ("textures/space_qud/robo.png", [0.28, 0.52, 0.58], [0.55, 0.82, 0.88]))]
+  #[assoc(label = "robot", object = entities::Object::ROBOT)]
   Robot,
-  #[assoc(label = "wack_robot", sprite_spec = ("textures/space_qud/wack robo.png", [0.62, 0.38, 0.18], [0.88, 0.68, 0.32]))]
+  #[assoc(label = "wack_robot", object = entities::Object::WACK_ROBOT)]
   WackRobot,
-  #[assoc(label = "alien_runner", sprite_spec = ("textures/space_qud/alien1.png", [0.18, 0.72, 0.22], [0.92, 0.82, 0.18]))]
+  #[assoc(label = "alien_runner", object = entities::Object::ALIEN_RUNNER)]
   AlienRunner,
-  #[assoc(label = "lava_crab", sprite_spec = ("textures/space_qud/crab alien.png", [0.85, 0.25, 0.05], [1.0, 0.55, 0.0]))]
+  #[assoc(label = "lava_crab", object = entities::Object::LAVA_CRAB)]
   LavaCrab,
-  #[assoc(label = "mantis_alien", sprite_spec = ("textures/space_qud/mantis alien.png", [0.65, 0.90, 0.95], [0.20, 0.55, 0.70]))]
+  #[assoc(label = "mantis_alien", object = entities::Object::MANTIS_ALIEN)]
   MantisAlien,
-  #[assoc(label = "crab_alien", sprite_spec = ("textures/space_qud/crab alien.png", [0.55, 0.18, 0.72], [0.92, 0.72, 0.18]))]
+  #[assoc(label = "crab_alien", object = entities::Object::CRAB_ALIEN)]
   CrabAlien,
-  #[assoc(label = "mushroom_creature", sprite_spec = ("textures/space_qud/mushroom.png", [0.42, 0.28, 0.18], [0.82, 0.72, 0.55]))]
+  #[assoc(label = "mushroom_creature", object = entities::Object::MUSHROOM_CREATURE)]
   MushroomCreature,
-  #[assoc(label = "grenade_thrower", sprite_spec = ("textures/space_qud/gunman .png", [0.22, 0.48, 0.22], [0.60, 0.78, 0.42]))]
+  #[assoc(label = "grenade_thrower", object = entities::Object::GRENADE_THROWER)]
   GrenadeThrower,
-  #[assoc(label = "gunman", sprite_spec = ("textures/space_qud/gunman .png", [0.42, 0.52, 0.68], [0.72, 0.82, 0.92]))]
+  #[assoc(label = "gunman", object = entities::Object::GUNMAN)]
   Gunman,
-  #[assoc(label = "laser_sword", sprite_spec = ("textures/space_qud/laser sword.png", [0.18, 0.08, 0.52], [0.42, 0.82, 0.98]))]
+  #[assoc(label = "laser_sword", object = entities::Object::LASER_SWORD)]
   LaserSword,
-  #[assoc(label = "robot_dog", sprite_spec = ("textures/space_qud/robot dog with gun.png", [0.15, 0.15, 0.18], [0.85, 0.75, 0.15]))]
+  #[assoc(label = "robot_dog", object = entities::Object::ROBOT_DOG)]
   RobotDog,
-  #[assoc(label = "turret", sprite_spec = ("textures/space_qud/turret1.png", [0.5, 0.5, 0.5], [0.8, 0.2, 0.2]))]
+  #[assoc(label = "turret", object = entities::Object::TURRET)]
   Turret,
 }
 
@@ -110,6 +118,15 @@ impl ObjectTemplate {
 
   fn from_save(s: &str) -> Option<Self> {
     Self::all().find(|t| format!("{t:?}") == s)
+  }
+
+  pub fn sprite_spec(self) -> (&'static str, [f32; 3], [f32; 3]) {
+    let obj = self.object();
+    let glyph = entities::Has::<entities::Glyph>::get(&obj).expect("ObjectTemplate missing Glyph");
+    let path = glyph.texture.expect("ObjectTemplate missing texture");
+    let (pri, sec) = glyph.sprite_palette.expect("ObjectTemplate missing palette");
+    let to_arr = |c: Color| { let s = c.to_srgba(); [s.red, s.green, s.blue] };
+    (path, to_arr(pri), to_arr(sec))
   }
 }
 

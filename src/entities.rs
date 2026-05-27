@@ -647,6 +647,9 @@ pub struct Visuals {
 const DOOR_CLOSED_PRI: Color = Color::srgb(0.34, 0.37, 0.41);
 const DOOR_CLOSED_SEC: Color = Color::srgb(0.52, 0.55, 0.58);
 
+pub const AIRLOCK_PRI: Color = Color::srgb(0.58, 0.61, 0.64);
+pub const AIRLOCK_SEC: Color = Color::srgb(0.52, 0.55, 0.58);
+
 // (old Object, ObjectConst, const_blueprint!, object_const! removed — replaced by Object above)
 
 // ============ OBJECT (data-driven entity blueprint) ============
@@ -1155,7 +1158,7 @@ impl Object {
   pub const AIRLOCK_DOOR: Self = Self::DOOR
     .with(Glyph::palette_sprite(
       "textures/space_qud/airlock closed.png", '+',
-      crate::AIRLOCK_PRI, crate::AIRLOCK_SEC,
+      AIRLOCK_PRI, AIRLOCK_SEC,
     ))
     .with(AirlockDoor { opened_at_sim_time: None });
 

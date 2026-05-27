@@ -73,9 +73,7 @@ const DOOR_CLOSED_PRI: Color = Color::srgb(0.34, 0.37, 0.41);
 const DOOR_CLOSED_SEC: Color = Color::srgb(0.52, 0.55, 0.58);
 const DOOR_OPEN_PRI: Color = Color::srgb(0.48, 0.55, 0.58);
 const DOOR_OPEN_SEC: Color = Color::srgb(0.72, 0.78, 0.82);
-/// Palette-mask airlocks (`airlock closed.png` / `airlock open.png`).
-pub(crate) const AIRLOCK_PRI: Color = Color::srgb(0.58, 0.61, 0.64);
-pub(crate) const AIRLOCK_SEC: Color = Color::srgb(0.52, 0.55, 0.58);
+/// Palette-mask airlocks (now in entities::AIRLOCK_PRI / AIRLOCK_SEC).
 /// Primary color used for the player sprite and "You:" log labels.
 pub const PLAYER_PRIMARY: Color = Color::srgb(0.72, 0.72, 0.72);
 /// Simulated 60Hz display: one grid step / one input gate spans this many render updates.
@@ -1542,15 +1540,15 @@ fn door_glyph(open: bool, is_airlock: bool) -> Glyph {
       Glyph::palette_sprite(
         "textures/space_qud/airlock open.png",
         '/',
-        AIRLOCK_PRI,
-        AIRLOCK_SEC
+        entities::AIRLOCK_PRI,
+        entities::AIRLOCK_SEC
       )
     } else {
       Glyph::palette_sprite(
         "textures/space_qud/airlock closed.png",
         '+',
-        AIRLOCK_PRI,
-        AIRLOCK_SEC
+        entities::AIRLOCK_PRI,
+        entities::AIRLOCK_SEC
       )
     }
   } else if open {
