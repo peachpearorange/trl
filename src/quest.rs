@@ -1,5 +1,20 @@
 use std::collections::HashMap;
 
+pub const ALIEN_HUNT: &QuestDef = &quest(
+  "alien_hunt", "Alien Extermination",
+  &[
+    stage(10,
+      "ORI-1 asked me to kill 10 alien creatures in the area. \
+       Apparently they've been getting bolder.",
+      &["Kill aliens (0/10)"]
+    ),
+    complete_stage(100,
+      "I killed 10 aliens for ORI-1. The area should be safer now."
+    ),
+  ]
+);
+pub const ALIEN_HUNT_KILL_FLAG: &str = "kills";
+
 pub type QuestId = &'static str;
 pub type StageId = u16;
 
@@ -103,6 +118,10 @@ impl QuestLog {
     self.quests.keys().filter_map(|id| {
       self.registry.get(id).map(|def| (*id, def.name, self.is_completed(id), self.is_failed(id)))
     }).collect()
+  }
+
+  pub fn quest_name(&self, id: QuestId) -> Option<&'static str> {
+    self.registry.get(id).map(|def| def.name)
   }
 
   fn stage_def(&self, id: QuestId, stage: StageId) -> Option<&'static StageDef> {

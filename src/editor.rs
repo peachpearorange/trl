@@ -11,6 +11,8 @@ mod utils;
 mod faction;
 #[path = "level.rs"]
 mod level;
+#[path = "quest.rs"]
+pub mod quest;
 #[path = "entities.rs"]
 mod entities;
 

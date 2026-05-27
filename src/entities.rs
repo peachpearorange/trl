@@ -1,25 +1,26 @@
 //! Entity types and spawnable definitions for the game.
 
-use {crate::faction::Faction,
+use {crate::{faction::Faction, quest},
      bevy::prelude::*,
      std::{borrow::Cow, collections::VecDeque, sync::Arc}};
 
 // ============ DIALOGUE ============
 
-/// A flat list of named nodes that forms one NPC's conversation.
 #[derive(Debug)]
 pub struct DialogueTree {
   pub nodes: &'static [DialogueNode]
 }
 
 impl DialogueTree {
-  /// Find a node by name. Returns the first node if `name` is not found.
   pub fn find(&self, name: &str) -> &DialogueNode {
     self.nodes.iter().find(|n| n.name == name).unwrap_or(&self.nodes[0])
   }
+
+  pub fn visible_choices(&self, node_name: &str, quests: &quest::QuestLog) -> Vec<&DialogueChoice> {
+    self.find(node_name).choices.iter().filter(|c| c.condition.check(quests)).collect()
+  }
 }
 
-/// One node in a dialogue tree: a name, what the NPC says, and the player's choices.
 #[derive(Debug)]
 pub struct DialogueNode {
   pub name: &'static str,
@@ -27,25 +28,48 @@ pub struct DialogueNode {
   pub choices: &'static [DialogueChoice]
 }
 
-/// One response option the player can pick.
 #[derive(Debug)]
 pub struct DialogueChoice {
-  /// Button label shown to the player.
   pub text: &'static str,
-  /// Name of the next node, or `None` to end the conversation.
-  pub next: Option<&'static str>
+  pub next: Option<&'static str>,
+  pub on_select: &'static [QuestAction],
+  pub condition: DialogueCondition,
 }
 
-/// Marks an entity as conversable; holds a pointer to its dialogue tree.
+#[derive(Debug, Clone, Copy)]
+pub enum QuestAction {
+  Start(quest::QuestId),
+  SetStage(quest::QuestId, quest::StageId),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum DialogueCondition {
+  Always,
+  QuestInactive(quest::QuestId),
+  QuestActive(quest::QuestId),
+  QuestStageAtLeast(quest::QuestId, quest::StageId),
+  QuestCompleted(quest::QuestId),
+}
+
+impl DialogueCondition {
+  pub fn check(&self, quests: &quest::QuestLog) -> bool {
+    match *self {
+      DialogueCondition::Always => true,
+      DialogueCondition::QuestInactive(id) => quests.stage(id).is_none(),
+      DialogueCondition::QuestActive(id) => quests.is_active(id),
+      DialogueCondition::QuestStageAtLeast(id, min) => quests.stage_at_least(id, min),
+      DialogueCondition::QuestCompleted(id) => quests.is_completed(id),
+    }
+  }
+}
+
 #[derive(Component, Clone, Debug)]
 pub struct Dialogue(pub &'static DialogueTree);
 
-/// Construct a [`DialogueTree`] (for use in `static` initializers).
 pub const fn dialogue_tree(nodes: &'static [DialogueNode]) -> DialogueTree {
   DialogueTree { nodes }
 }
 
-/// Construct a named [`DialogueNode`].
 pub const fn node(
   name: &'static str,
   text: &'static str,
@@ -54,14 +78,12 @@ pub const fn node(
   DialogueNode { name, text, choices }
 }
 
-/// A choice that advances to another node by name.
 pub const fn go(text: &'static str, next: &'static str) -> DialogueChoice {
-  DialogueChoice { text, next: Some(next) }
+  DialogueChoice { text, next: Some(next), on_select: &[], condition: DialogueCondition::Always }
 }
 
-/// A choice that ends the conversation.
 pub const fn end(text: &'static str) -> DialogueChoice {
-  DialogueChoice { text, next: None }
+  DialogueChoice { text, next: None, on_select: &[], condition: DialogueCondition::Always }
 }
 
 // ============ LOCATION ============
@@ -431,6 +453,14 @@ pub struct Player;
 #[derive(Component, Clone, Copy)]
 pub struct Enemy;
 
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CreatureKind {
+  Alien,
+  Rat,
+  Robot,
+  Human,
+}
+
 /// A dead creature whose inventory can be looted.
 #[derive(Component, Clone, Debug)]
 pub struct Corpse {
@@ -759,7 +789,7 @@ macro_rules! object_data {
 object_data! {
   pub struct ObjectData(
     Named, Stats, Glyph, Loadout, Collidable, Character, FactionComp, Gravity,
-    Enemy, Player, TimeSinceAction, DriftChance, WalkAnim, DamageCloud, Dialogue,
+    Enemy, Player, CreatureKind, TimeSinceAction, DriftChance, WalkAnim, DamageCloud, Dialogue,
     WalkAroundRandomly, BlocksSight,
     Door, Bed, CraftingTable, FlightConsole, LoadoutConsole, LootChest, AirlockDoor,
     Tree, GroundItem, LightSource, WallComp, Elevator, FixedChestLoot,
@@ -851,6 +881,7 @@ impl Object {
   // ---- enemy definitions ----
 
   pub const RAT_SOLDIER: Self = Self::ENEMY_BASE
+    .with(CreatureKind::Rat)
     .with(Named {
       name: "Rat Soldier",
       flavor: "A wiry rat-person clutching a crude spear. Smells like wet fur and old iron.",
@@ -866,6 +897,7 @@ impl Object {
     ]));
 
   pub const ARMORED_RAT_SOLDIER: Self = Self::ENEMY_BASE
+    .with(CreatureKind::Rat)
     .with(Named {
       name: "Armored Rat Soldier",
       flavor: "A rat-person in battered leather armor, gripping a crude spear. The hide smells worse than the iron.",
@@ -882,6 +914,7 @@ impl Object {
     ]));
 
   pub const ROBOT: Self = Self::ENEMY_BASE
+    .with(CreatureKind::Robot)
     .with(Named {
       name: "Robot",
       flavor: "A damaged security robot. Its threat-response routines are still very much active.",
@@ -896,6 +929,7 @@ impl Object {
     ]));
 
   pub const WACK_ROBOT: Self = Self::ENEMY_BASE
+    .with(CreatureKind::Robot)
     .with(Named {
       name: "Salvage Bot",
       flavor: "A repurposed salvage drone running corrupted directives. Approaches everything as scrap.",
@@ -910,6 +944,7 @@ impl Object {
     ]));
 
   pub const ALIEN_RUNNER: Self = Self::ENEMY_BASE
+    .with(CreatureKind::Alien)
     .with(Named {
       name: "Xel-Naran Hunter",
       flavor: "A fast-moving predator native to Xel-Nara IV. Moves in bursts. Closes distance before you can react.",
@@ -933,6 +968,7 @@ impl Object {
     });
 
   pub const LAVA_CRAB: Self = Self::ENEMY_BASE
+    .with(CreatureKind::Alien)
     .with(Named {
       name: "Scorch Crawler",
       flavor: "A heat-adapted crustacean from Pyros Maw. Its shell has fused with volcanic rock over generations. Barely slowed by flame.",
@@ -950,6 +986,7 @@ impl Object {
     ]));
 
   pub const MANTIS_ALIEN: Self = Self::ENEMY_BASE
+    .with(CreatureKind::Alien)
     .with(Named {
       name: "Crystal Mantis",
       flavor: "A translucent predator that haunts crystal caves, nearly invisible until it strikes. Razor forelegs. Extremely fast.",
@@ -973,6 +1010,7 @@ impl Object {
     });
 
   pub const CRAB_ALIEN: Self = Self::ENEMY_BASE
+    .with(CreatureKind::Alien)
     .with(Named {
       name: "Xel-Naran Crawler",
       flavor: "A broad-shelled crustacean that lurks in alien undergrowth. Its claws can crush bone. Slow but armored.",
@@ -990,6 +1028,7 @@ impl Object {
     ]));
 
   pub const MUSHROOM_CREATURE: Self = Self::ENEMY_BASE
+    .with(CreatureKind::Alien)
     .with(Named {
       name: "Mycelid",
       flavor: "An ambulatory fungal mass. Moves with unsettling purpose. Its gills swell with spores.",
@@ -1005,6 +1044,7 @@ impl Object {
     ]));
 
   pub const GRENADE_THROWER: Self = Self::ENEMY_BASE
+    .with(CreatureKind::Human)
     .with(Named {
       name: "Grenadier",
       flavor: "A wiry soldier bristling with grenades. Keeps its distance.",
@@ -1020,6 +1060,7 @@ impl Object {
     ]));
 
   pub const GUNMAN: Self = Self::ENEMY_BASE
+    .with(CreatureKind::Human)
     .with(Named {
       name: "Gunman",
       flavor: "A sharp-eyed mercenary with a revolver. Shoots first.",
@@ -1035,6 +1076,7 @@ impl Object {
     ]));
 
   pub const ROBOT_DOG: Self = Self::ENEMY_BASE
+    .with(CreatureKind::Robot)
     .with(Named {
       name: "Guard Dog",
       flavor: "A battered patrol drone on four legs. Its mounted gun tracks movement.",
@@ -1050,6 +1092,7 @@ impl Object {
     ]));
 
   pub const TURRET: Self = Self::ENEMY_BASE
+    .with(CreatureKind::Robot)
     .with(Named {
       name: "Turret",
       flavor: "A ceiling-mounted autoturret. It can't move, but its tracking is relentless.",

@@ -1,4 +1,9 @@
-use {crate::entities::*, bevy::prelude::Color};
+use {crate::entities::*,
+     bevy::prelude::Color};
+
+const QUEST_ID: &str = "alien_hunt";
+
+static ACCEPT_ACTIONS: [QuestAction; 1] = [QuestAction::Start(QUEST_ID)];
 
 static DIALOGUE: DialogueTree = dialogue_tree(&[
   node(
@@ -9,8 +14,55 @@ static DIALOGUE: DialogueTree = dialogue_tree(&[
       go("Where am I?", "where"),
       go("What should I do?", "what_do"),
       go("Tell me about this place.", "about"),
+      DialogueChoice {
+        text: "Any work available?",
+        next: Some("quest_offer"),
+        on_select: &[],
+        condition: DialogueCondition::QuestInactive(QUEST_ID),
+      },
+      DialogueChoice {
+        text: "About those aliens...",
+        next: Some("quest_progress"),
+        on_select: &[],
+        condition: DialogueCondition::QuestActive(QUEST_ID),
+      },
+      DialogueChoice {
+        text: "I dealt with those aliens.",
+        next: Some("quest_done"),
+        on_select: &[],
+        condition: DialogueCondition::QuestCompleted(QUEST_ID),
+      },
       end("Thanks, I'll look around.")
     ]
+  ),
+  node(
+    "quest_offer",
+    "Actually — yes. The alien wildlife around here has been getting aggressive. \
+     Xel-Naran hunters, crawlers, even those fungal things. They've been pushing \
+     closer to the outpost. I can't do much about it with these old servos. \
+     Kill 10 of them and I'll make it worth your while.",
+    &[
+      DialogueChoice {
+        text: "Consider it done.",
+        next: None,
+        on_select: &ACCEPT_ACTIONS,
+        condition: DialogueCondition::Always,
+      },
+      end("Maybe later."),
+    ]
+  ),
+  node(
+    "quest_progress",
+    "Still working on it? The alien creatures are all over the surface — \
+     and in the caves nearby. Keep at it. I'll be here.",
+    &[end("I'll get back to it.")]
+  ),
+  node(
+    "quest_done",
+    "You really did it. The sensor readings are already calming down. \
+     Thank you — this outpost might actually stay standing another decade. \
+     Here, take this. It's not much, but it's what I can spare.",
+    &[end("Glad I could help.")]
   ),
   node(
     "where",

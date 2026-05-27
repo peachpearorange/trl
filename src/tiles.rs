@@ -160,11 +160,13 @@ pub enum Tile {
   #[assoc(glyph = "%", color = [0.15, 0.45, 0.15], walkable = false, name = "Bush")]
   Bush,
 
-  // --- Stairs & props ---
-  #[assoc(glyph = "<", color = [0.9, 0.9, 0.2], walkable = true, name = "Stairs Up")]
+  // --- Stairs & vertical transport ---
+  #[assoc(glyph = "<", color = [0.9, 0.9, 0.2], walkable = true, name = "Stairs Up", render_mode = TileRenderMode::Sprite("textures/space_qud/stairs up.png", [0.55, 0.50, 0.40], [0.90, 0.90, 0.20]))]
   StairsUp,
-  #[assoc(glyph = ">", color = [0.9, 0.9, 0.2], walkable = true, name = "Stairs Down")]
+  #[assoc(glyph = ">", color = [0.9, 0.9, 0.2], walkable = true, name = "Stairs Down", render_mode = TileRenderMode::Sprite("textures/space_qud/stairs.png", [0.35, 0.32, 0.28], [0.90, 0.90, 0.20]))]
   StairsDown,
+  #[assoc(glyph = "E", color = [0.42, 0.46, 0.50], walkable = false, name = "Elevator", render_mode = TileRenderMode::Sprite("textures/space_qud/elevator.png", [0.42, 0.46, 0.50], [1.0, 0.85, 0.10]))]
+  Elevator,
   #[assoc(glyph = "*", color = [0.5, 0.8, 0.95], walkable = false, name = "Crystal Formation", render_mode = TileRenderMode::Sprite("textures/space_qud/crystal.png", [0.28, 0.62, 0.82], [0.62, 0.88, 1.0]))]
   CrystalFormation,
   #[assoc(glyph = "*", color = [0.5, 0.8, 0.95], walkable = false, name = "Crystal Growth", render_mode = TileRenderMode::Sprite("textures/space_qud/crystal.png", [0.28, 0.62, 0.82], [0.62, 0.88, 1.0]))]

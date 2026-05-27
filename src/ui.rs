@@ -145,7 +145,19 @@ pub enum OverlayKind {
   CraftingTable {
     salvage: Vec<CraftingEntry>,
     craft: Vec<CraftingEntry>
+  },
+  QuestLog {
+    entries: Vec<QuestLogEntry>
   }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct QuestLogEntry {
+  pub name: String,
+  pub journal: String,
+  pub objectives: Vec<String>,
+  pub completed: bool,
+  pub failed: bool,
 }
 
 /// Written by the Haalka click handler; read + cleared by `handle_menus` each frame.
@@ -373,6 +385,7 @@ fn sidebar_column() -> impl Element {
     .background_color(BackgroundColor(PANEL_BG))
     .border_color(BorderColor::all(BORDER))
     .item(stats_panel())
+    .item(static_text("Q: Quest log", FONT_SIZE_SMALL, DIM_TEXT, W_UI))
     .item(inventory_panel())
     .item(hover_panel())
     .item(message_log()) // flex-grows to fill remainder
@@ -990,6 +1003,46 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
               ))
           )
       }
+      OverlayKind::QuestLog { entries } => {
+        let mut lines: Vec<String> = Vec::new();
+        if entries.is_empty() {
+          lines.push("No quests.".into());
+        }
+        for e in &entries {
+          let status = if e.completed { " [DONE]" } else if e.failed { " [FAILED]" } else { "" };
+          lines.push(format!("● {}{status}", e.name));
+          lines.push(format!("  {}", e.journal));
+          for obj in &e.objectives {
+            lines.push(format!("  - {obj}"));
+          }
+          lines.push(String::new());
+        }
+        lines.push("Q / Space to close".into());
+        El::<Node>::new()
+          .with_node(|mut n| {
+            n.width = Val::Percent(100.);
+            n.height = Val::Percent(100.0);
+          })
+          .background_color(BackgroundColor(OVERLAY_DIM))
+          .align(Align::center())
+          .align_content(Align::center())
+          .child(
+            Column::<Node>::new()
+              .with_node(|mut n| {
+                n.border_radius = BorderRadius::all(Val::Px(6.0));
+                n.padding = UiRect::all(Val::Px(16.));
+                n.column_gap = Val::Px(6.0);
+                n.min_width = Val::Px(400.0);
+              })
+              .background_color(BackgroundColor(DARK_BG))
+              .border_color(BorderColor::all(BORDER))
+              .item(static_text("Quest Log", FONT_SIZE_TITLE, LIGHT_TEXT, W_STRONG))
+              .items(
+                lines.into_iter()
+                  .map(|l| static_text(l, FONT_SIZE_BODY, LIGHT_TEXT, W_OVERLAY))
+              )
+          )
+      }
       kind => {
         let (label, lines) = match &kind {
           OverlayKind::PauseMain => ("Paused", vec![
@@ -1004,6 +1057,7 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
             "Space           use / interact".into(),
             ".               wait".into(),
             "?               controls".into(),
+            "Q               quest log".into(),
             "Tab             pause menu".into(),
           ]),
           _ => ("", vec![])
@@ -1110,7 +1164,8 @@ fn sync_ui(
     ResMut<OverlayData>
   ),
   res_log: Res<LogEntries>,
-  mut log_display: ResMut<LogDisplayData>
+  mut log_display: ResMut<LogDisplayData>,
+  quest_log: Res<crate::quest::QuestLog>
 ) {
   // ── Clock ──
   *clock_data = ClockData {
@@ -1193,14 +1248,35 @@ fn sync_ui(
   })
   .or_else(|| match &ui.dialogue {
     crate::DialogueState::Open { speaker, tree, node_name, .. } => {
-      let node = tree.find(node_name);
-      let options: Vec<String> = mapv(|c| c.text.to_string(), node.choices);
+      let visible = tree.visible_choices(node_name, &quest_log);
+      let options: Vec<String> = visible.iter().map(|c| c.text.to_string()).collect();
       Some(OverlayKind::Dialogue {
         title: format!("What do you say? ({speaker})"),
         options
       })
     }
     crate::DialogueState::Closed => None
+  })
+  .or_else(|| if ui.quest_log_open {
+    let entries = quest_log.all_quests().iter().map(|&(id, name, completed, failed)| {
+      QuestLogEntry {
+        name: name.to_string(),
+        journal: quest_log.journal(id).unwrap_or("").to_string(),
+        objectives: quest_log.objectives(id).iter().map(|s| {
+          if id == crate::quest::ALIEN_HUNT.id && s.contains("/10") {
+            let kills = quest_log.flag(id, crate::quest::ALIEN_HUNT_KILL_FLAG);
+            format!("Kill aliens ({kills}/10)")
+          } else {
+            s.to_string()
+          }
+        }).collect(),
+        completed,
+        failed,
+      }
+    }).collect();
+    Some(OverlayKind::QuestLog { entries })
+  } else {
+    None
   });
   if overlay.kind != new_overlay_kind {
     overlay.kind = new_overlay_kind;

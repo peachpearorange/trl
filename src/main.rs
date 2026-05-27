@@ -30,7 +30,7 @@ mod ui;
 mod utils;
 
 use {crate::entities::{AirlockDoor, Bed, BlocksSight, Collidable, CraftingTable,
-                       Dialogue, DialogueNode, DialogueTree, Door, Elevator, Enemy,
+                       CreatureKind, Dialogue, DialogueNode, DialogueTree, Door, Elevator, Enemy,
                        FixedChestLoot, FlightConsole, FollowerData, FollowerState,
                        Glyph, Loadout, LoadoutConsole, Location, LootChest, Named,
                        Stats, Tree, Visuals, WalkAnim},
@@ -201,6 +201,7 @@ struct UiState {
   interact: InteractMenu,
   crafting: CraftingMenu,
   dialogue: DialogueState,
+  quest_log_open: bool,
   /// Set by `handle_dialogue`/`handle_menus` when Space closes a menu; read+cleared by
   /// `handle_interact` so the same keypress doesn't also open an interaction.
   space_consumed: bool,
@@ -219,6 +220,7 @@ impl UiState {
       || matches!(self.interact, InteractMenu::Open { .. })
       || matches!(self.crafting, CraftingMenu::Open { .. })
       || matches!(self.dialogue, DialogueState::Open { .. })
+      || self.quest_log_open
   }
 }
 
@@ -718,7 +720,11 @@ fn main() {
     .init_resource::<FlowField>()
     .init_resource::<abilities::AbilityBarData>()
     .init_resource::<abilities::TargetingState>()
-    .init_resource::<quest::QuestLog>()
+    .insert_resource({
+      let mut ql = quest::QuestLog::default();
+      ql.register(quest::ALIEN_HUNT);
+      ql
+    })
     .init_resource::<path_overlay::RangedPathOverlay>()
     .add_plugins(ui::UiPlugin)
     .add_plugins(particles::ParticlesPlugin)
@@ -913,13 +919,27 @@ fn enemy_death_check(
   frame: Res<RenderFrame>,
   mut palette_cache: ResMut<PaletteImageCache>,
   mut images: ResMut<Assets<Image>>,
+  mut quests: ResMut<quest::QuestLog>,
+  mut log: ResMut<LogEntries>,
   enemy_q: Query<
-    (Entity, &Stats, &Loadout, &Location, Option<&Named>, &Glyph),
+    (Entity, &Stats, &Loadout, &Location, Option<&Named>, &Glyph, Option<&CreatureKind>),
     With<Enemy>
   >
 ) {
-  for (entity, stats, loadout, location, _, glyph) in enemy_q.iter() {
+  for (entity, stats, loadout, location, _, glyph, creature_kind) in enemy_q.iter() {
     if stats.hp <= 0 {
+      if creature_kind == Some(&CreatureKind::Alien)
+        && quests.is_active(quest::ALIEN_HUNT.id)
+      {
+        let kills = quests.flag(quest::ALIEN_HUNT.id, quest::ALIEN_HUNT_KILL_FLAG) + 1;
+        quests.set_flag(quest::ALIEN_HUNT.id, quest::ALIEN_HUNT_KILL_FLAG, kills);
+        if kills >= 10 {
+          quests.set_stage(quest::ALIEN_HUNT.id, 100);
+          log_message(&mut *log, "[Quest completed: Alien Extermination]".into());
+        } else {
+          log_message(&mut *log, format!("Alien killed ({}/10)", kills));
+        }
+      }
       let loot = loadout.lootable_items();
       let (ex, ey, ez) = if let Location::Coords { x, y, z, .. } = *location {
         (x, y, z)
@@ -1835,20 +1855,30 @@ fn handle_menus(
         }
       }
     }
+  } else if ui.quest_log_open {
+    menu_click.0 = None;
+    if keys.just_pressed(KeyCode::Space) || keys.just_pressed(KeyCode::KeyQ) {
+      ui.quest_log_open = false;
+      ui.space_consumed = true;
+    }
   } else {
-    menu_click.0 = None; // discard stale clicks when no menu is open
+    menu_click.0 = None;
     match ui.pause {
       PauseMenu::Closed => {
-        let open = keys.just_pressed(KeyCode::Tab)
-          || (keys.just_pressed(KeyCode::Slash)
-            && (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight)));
+        if keys.just_pressed(KeyCode::KeyQ) {
+          ui.quest_log_open = true;
+        } else {
+          let open = keys.just_pressed(KeyCode::Tab)
+            || (keys.just_pressed(KeyCode::Slash)
+              && (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight)));
 
-        if open {
-          ui.pause = if keys.just_pressed(KeyCode::Slash) {
-            PauseMenu::Controls
-          } else {
-            PauseMenu::Main
-          };
+          if open {
+            ui.pause = if keys.just_pressed(KeyCode::Slash) {
+              PauseMenu::Controls
+            } else {
+              PauseMenu::Main
+            };
+          }
         }
       }
       PauseMenu::Main => {
@@ -1886,10 +1916,9 @@ fn log_dialogue_node_block(
 fn handle_dialogue(
   keys: Res<ButtonInput<KeyCode>>,
   mut ui: ResMut<UiState>,
-  mut log: ResMut<LogEntries>
+  mut log: ResMut<LogEntries>,
+  mut quests: ResMut<quest::QuestLog>
 ) {
-  // Digit keys are shared with the interact list; `handle_menus` runs after us. While the
-  // interact overlay is up, that same key would otherwise apply to dialogue the same frame.
   if matches!(&ui.interact, InteractMenu::Open { .. }) {
     return;
   }
@@ -1897,7 +1926,7 @@ fn handle_dialogue(
   if let DialogueState::Open { speaker, tree, node_name, speaker_color } = &ui.dialogue {
     let (speaker, tree, node_name, speaker_color) =
       (*speaker, *tree, *node_name, *speaker_color);
-    let node = tree.find(node_name);
+    let visible = tree.visible_choices(node_name, &quests);
     if keys.just_pressed(KeyCode::Space) {
       ui.dialogue = DialogueState::Closed;
       ui.space_consumed = true;
@@ -1914,9 +1943,20 @@ fn handle_dialogue(
     ]
     .iter()
     .position(|k| keys.just_pressed(*k))
-      && idx < node.choices.len()
+      && idx < visible.len()
     {
-      let choice = &node.choices[idx];
+      let choice = visible[idx];
+      for action in choice.on_select {
+        match *action {
+          entities::QuestAction::Start(id) => {
+            quests.start(id);
+            log_message(&mut *log, format!("[Quest started: {}]", quests.quest_name(id).unwrap_or(id)));
+          }
+          entities::QuestAction::SetStage(id, stage) => {
+            quests.set_stage(id, stage);
+          }
+        }
+      }
       log_spans(&mut *log, vec![
         LogSpan::colored("You:", PLAYER_PRIMARY),
         LogSpan::plain(format!(" {}", choice.text)),
