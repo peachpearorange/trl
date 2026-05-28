@@ -667,6 +667,7 @@ fn main() {
   galaxy.insert(locations::asteroid_field::ID, locations::asteroid_field::generate());
   galaxy.insert(locations::meridian_station::ID, locations::meridian_station::generate());
   galaxy.insert(locations::lava_planet::ID, locations::lava_planet::generate());
+  galaxy.insert(locations::island::ID, locations::island::generate());
   galaxy.insert(locations::mushroom_planet::ID, locations::mushroom_planet::generate());
   galaxy.insert(locations::gamma_station::ID, locations::gamma_station::generate());
   for (id, name) in locations::planet_gen::all_ids() {
