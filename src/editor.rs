@@ -1601,8 +1601,11 @@ fn canvas_interact(
           for gz in z1..=z2 {
             for gy in y1..=y2 {
               for gx in x1..=x2 {
-                let on_face = gx == x1 || gx == x2 || gy == y1 || gy == y2 || gz == z1 || gz == z2;
-                if filled || on_face {
+                let x_edge = gx == x1 || gx == x2;
+                let y_edge = gy == y1 || gy == y2;
+                let z_edge = gz == z1 || gz == z2;
+                let on_wire = (x_edge as u8 + y_edge as u8 + z_edge as u8) >= 2;
+                if filled || on_wire {
                   let (ix, iy) = grid_to_index(gx, gy, *origin);
                   canvas.place_tile(ix, iy, gz, state.selected_tile, state.selected_object, paint_marker.clone());
                 }
