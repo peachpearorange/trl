@@ -25,7 +25,7 @@ use {bevy::{input::{keyboard::{Key, KeyboardInput}, mouse::AccumulatedMouseScrol
      grid_2d::Grid,
      haalka::prelude::*,
      num_enum::TryFromPrimitive,
-     std::{collections::{HashMap, VecDeque},
+     std::{collections::{BTreeMap, HashMap, VecDeque},
            num::NonZeroU32,
            path::{Path, PathBuf},
            time::{SystemTime, UNIX_EPOCH}},
@@ -219,8 +219,8 @@ struct ClipboardLayer {
 struct Clipboard {
   layers: Vec<ClipboardLayer>,
   source: ClipboardSource,
-  source_z1: usize,
-  source_z2: usize,
+  source_z1: i32,
+  source_z2: i32,
   mode: ClipboardMode
 }
 
@@ -231,7 +231,7 @@ impl Clipboard {
 
   fn height(&self) -> usize { self.layers.first().map(|l| l.tiles.len()).unwrap_or(0) }
 
-  fn depth(&self) -> usize { self.layers.len() }
+  fn depth(&self) -> i32 { self.layers.len() as i32 }
 }
 
 // ---------------------------------------------------------------------------
@@ -242,33 +242,35 @@ impl Clipboard {
 struct CanvasLevel {
   tiles: Vec<Vec<Tile>>,
   objects: Vec<Vec<Option<ObjectTemplate>>>,
-  markers: Vec<Vec<Option<String>>>
+  markers: Vec<Vec<Option<String>>>,
+  default_tile: Tile
 }
 
 impl CanvasLevel {
-  fn new(width: usize, height: usize) -> Self {
+  fn new(width: usize, height: usize, default_tile: Tile) -> Self {
     Self {
-      tiles: vec![vec![Tile::Grass; width]; height],
+      tiles: vec![vec![default_tile; width]; height],
       objects: vec![vec![None; width]; height],
-      markers: vec![vec![None; width]; height]
+      markers: vec![vec![None; width]; height],
+      default_tile
     }
   }
 }
 
 #[derive(Resource)]
 struct EditorCanvas {
-  levels: Vec<CanvasLevel>
+  levels: BTreeMap<i32, CanvasLevel>
 }
 
 #[derive(Resource, Clone, Copy)]
-struct CurrentZ(usize);
+struct CurrentZ(i32);
 
 #[derive(Resource)]
 struct EditorState {
   tool: ToolMode,
   selected_tile: Tile,
   selected_object: Option<ObjectTemplate>,
-  drag_start: Option<(i32, i32, usize)>,
+  drag_start: Option<(i32, i32, i32)>,
   paste_drag_offset: Option<(i32, i32)>,
   clipboard: Option<Clipboard>,
   pattern_size: u32,
@@ -302,7 +304,7 @@ struct ObjectVisualCache(Vec<ObjectVisualInfo>);
 struct EditorTileset(sprites::TilesetInfo);
 
 #[derive(Resource)]
-struct UndoStack(Vec<(Vec<CanvasLevel>, CanvasGridOrigin)>);
+struct UndoStack(Vec<(BTreeMap<i32, CanvasLevel>, CanvasGridOrigin)>);
 
 #[derive(Resource, Clone, Copy, PartialEq, Eq)]
 struct CanvasGridOrigin {
@@ -316,7 +318,7 @@ struct SpawnedCanvasSize {
   height: usize,
   origin_x: i32,
   origin_y: i32,
-  z: usize
+  z: i32
 }
 
 // ---------------------------------------------------------------------------
@@ -428,7 +430,7 @@ struct MarkerListPanel;
 struct MarkerListContent;
 
 #[derive(Component)]
-struct MarkerListButton(usize, usize, usize);
+struct MarkerListButton(usize, usize, i32);
 
 #[derive(Component)]
 struct CanvasMarkerText(usize, usize);
@@ -469,19 +471,20 @@ fn marker_color(name: &str) -> Color {
 
 impl EditorCanvas {
   fn width(&self) -> usize {
-    self.levels.first().and_then(|l| l.tiles.first().map(Vec::len)).unwrap_or(0)
+    self.levels.values().next().and_then(|l| l.tiles.first().map(Vec::len)).unwrap_or(0)
   }
 
-  fn height(&self) -> usize { self.levels.first().map(|l| l.tiles.len()).unwrap_or(0) }
+  fn height(&self) -> usize { self.levels.values().next().map(|l| l.tiles.len()).unwrap_or(0) }
 
-  fn depth(&self) -> usize { self.levels.len() }
+  fn z_range(&self) -> Option<(i32, i32)> {
+    self.levels.first_key_value().and_then(|(min, _)|
+      self.levels.last_key_value().map(|(max, _)| (*min, *max)))
+  }
 
-  fn ensure_depth(&mut self, min_depth: usize) {
+  fn ensure_z(&mut self, z: i32) {
     let width = self.width();
     let height = self.height();
-    while self.levels.len() < min_depth {
-      self.levels.push(CanvasLevel::new(width, height));
-    }
+    self.levels.entry(z).or_insert_with(|| CanvasLevel::new(width, height, Tile::Air));
   }
 
   fn ensure_size(&mut self, min_width: usize, min_height: usize) {
@@ -489,14 +492,15 @@ impl EditorCanvas {
     let height = self.height();
     let target_width = width.max(min_width).max(1);
     let target_height = height.max(min_height).max(1);
-    for lvl in &mut self.levels {
+    for lvl in self.levels.values_mut() {
+      let fill = lvl.default_tile;
       if target_width > width {
-        for row in &mut lvl.tiles { row.resize(target_width, Tile::Grass); }
+        for row in &mut lvl.tiles { row.resize(target_width, fill); }
         for row in &mut lvl.objects { row.resize(target_width, None); }
         for row in &mut lvl.markers { row.resize(target_width, None); }
       }
       if target_height > height {
-        lvl.tiles.resize_with(target_height, || vec![Tile::Grass; target_width]);
+        lvl.tiles.resize_with(target_height, || vec![fill; target_width]);
         lvl.objects.resize_with(target_height, || vec![None; target_width]);
         lvl.markers.resize_with(target_height, || vec![None; target_width]);
       }
@@ -506,12 +510,15 @@ impl EditorCanvas {
   fn resize_exact(&mut self, width: usize, height: usize) {
     let target_width = width.max(1);
     let target_height = height.max(1);
-    if self.levels.is_empty() { self.levels.push(CanvasLevel::new(target_width, target_height)); }
-    for lvl in &mut self.levels {
+    if self.levels.is_empty() {
+      self.levels.insert(0, CanvasLevel::new(target_width, target_height, Tile::Grass));
+    }
+    for lvl in self.levels.values_mut() {
+      let fill = lvl.default_tile;
       lvl.tiles.resize_with(target_height, Vec::new);
       lvl.objects.resize_with(target_height, Vec::new);
       lvl.markers.resize_with(target_height, Vec::new);
-      for row in &mut lvl.tiles { row.resize(target_width, Tile::Grass); }
+      for row in &mut lvl.tiles { row.resize(target_width, fill); }
       for row in &mut lvl.objects { row.resize(target_width, None); }
       for row in &mut lvl.markers { row.resize(target_width, None); }
     }
@@ -527,25 +534,26 @@ impl EditorCanvas {
     let height = self.height();
     let can_contract_x = width > 1;
     let can_contract_y = height > 1;
-    for lvl in &mut self.levels {
+    for lvl in self.levels.values_mut() {
+      let fill = lvl.default_tile;
       match (side, action) {
         (EdgeSide::Left, EdgeAction::Expand) => {
-          for row in &mut lvl.tiles { row.insert(0, Tile::Grass); }
+          for row in &mut lvl.tiles { row.insert(0, fill); }
           for row in &mut lvl.objects { row.insert(0, None); }
           for row in &mut lvl.markers { row.insert(0, None); }
         }
         (EdgeSide::Right, EdgeAction::Expand) => {
-          for row in &mut lvl.tiles { row.push(Tile::Grass); }
+          for row in &mut lvl.tiles { row.push(fill); }
           for row in &mut lvl.objects { row.push(None); }
           for row in &mut lvl.markers { row.push(None); }
         }
         (EdgeSide::Top, EdgeAction::Expand) => {
-          lvl.tiles.insert(0, vec![Tile::Grass; width]);
+          lvl.tiles.insert(0, vec![fill; width]);
           lvl.objects.insert(0, vec![None; width]);
           lvl.markers.insert(0, vec![None; width]);
         }
         (EdgeSide::Bottom, EdgeAction::Expand) => {
-          lvl.tiles.push(vec![Tile::Grass; width]);
+          lvl.tiles.push(vec![fill; width]);
           lvl.objects.push(vec![None; width]);
           lvl.markers.push(vec![None; width]);
         }
@@ -581,22 +589,23 @@ impl EditorCanvas {
     }
   }
 
-  fn place_tile(&mut self, x: usize, y: usize, z: usize, tile: Tile, obj: Option<ObjectTemplate>, marker: Option<String>) {
-    self.ensure_depth(z + 1);
+  fn place_tile(&mut self, x: usize, y: usize, z: i32, tile: Tile, obj: Option<ObjectTemplate>, marker: Option<String>) {
+    self.ensure_z(z);
     let width = self.width();
     let height = self.height();
     if x < width && y < height {
-      let lvl = &mut self.levels[z];
+      let lvl = self.levels.get_mut(&z).unwrap();
       lvl.tiles[y][x] = tile;
       lvl.objects[y][x] = obj;
       lvl.markers[y][x] = marker;
       match tile {
         Tile::StairsDown => {
-          self.ensure_depth(z + 2);
-          self.levels[z + 1].tiles[y][x] = Tile::StairsUp;
+          self.ensure_z(z - 1);
+          self.levels.get_mut(&(z - 1)).unwrap().tiles[y][x] = Tile::StairsUp;
         }
-        Tile::StairsUp if z > 0 => {
-          self.levels[z - 1].tiles[y][x] = Tile::StairsDown;
+        Tile::StairsUp => {
+          self.ensure_z(z + 1);
+          self.levels.get_mut(&(z + 1)).unwrap().tiles[y][x] = Tile::StairsDown;
         }
         _ => {}
       }
@@ -699,28 +708,30 @@ fn flood_fill_same_tile_type(
   canvas: &mut EditorCanvas,
   sx: usize,
   sy: usize,
-  z: usize,
+  z: i32,
   target: Tile,
   paint_tile: Tile,
   paint_obj: Option<ObjectTemplate>,
   paint_marker: Option<String>
 ) {
   if target != paint_tile {
+    canvas.ensure_z(z);
     let width = canvas.width();
     let height = canvas.height();
+    let lvl = canvas.levels.get_mut(&z).unwrap();
     let mut q = VecDeque::new();
     let mut seen = vec![vec![false; width]; height];
     seen[sy][sx] = true;
     q.push_back((sx, sy));
     let mut painted = Vec::new();
     while let Some((x, y)) = q.pop_front() {
-      if canvas.levels[z].tiles[y][x] == target {
+      if lvl.tiles[y][x] == target {
         painted.push((x, y));
-        canvas.levels[z].tiles[y][x] = paint_tile;
-        canvas.levels[z].objects[y][x] = paint_obj;
-        canvas.levels[z].markers[y][x] = paint_marker.clone();
+        lvl.tiles[y][x] = paint_tile;
+        lvl.objects[y][x] = paint_obj;
+        lvl.markers[y][x] = paint_marker.clone();
         let mut consider = |nx: usize, ny: usize| {
-          if canvas.levels[z].tiles[ny][nx] == target && !seen[ny][nx] {
+          if lvl.tiles[ny][nx] == target && !seen[ny][nx] {
             seen[ny][nx] = true;
             q.push_back((nx, ny));
           }
@@ -808,7 +819,7 @@ fn build_object_visual_cache(
 fn spawn_canvas_cells(
   commands: &mut Commands,
   canvas: &EditorCanvas,
-  z: usize,
+  z: i32,
   tile_cache: &TileImageCache,
   object_visuals: &ObjectVisualCache,
   origin: CanvasGridOrigin,
@@ -824,13 +835,14 @@ fn spawn_canvas_cells(
     .first()
     .map(|visual| visual.text_color)
     .unwrap_or(Color::srgb(1.0, 0.8, 0.2));
-  let lvl = canvas.levels.get(z);
+  let lvl = canvas.levels.get(&z);
+  let default_tile = lvl.map(|l| l.default_tile).unwrap_or(Tile::Air);
   for y in y_start..y_end {
     for x in x_start..x_end {
       let w = grid_to_world(x, y, origin);
       let tile = lvl
         .and_then(|l| l.tiles.get(y).and_then(|row| row.get(x)).copied())
-        .unwrap_or(Tile::Grass);
+        .unwrap_or(default_tile);
       let object_visual = lvl
         .and_then(|l| l.objects.get(y).and_then(|row| row.get(x)).copied().flatten())
         .and_then(|tmpl| object_visuals.0.get(tmpl as u8 as usize));
@@ -1317,9 +1329,9 @@ fn camera_zoom(
 ) {
   if scroll.delta.y != 0.0 {
     if mouse.pressed(MouseButton::Right) {
-      let dz = -scroll.delta.y.signum() as i32;
-      let new_z = (current_z.0 as i32 + dz).max(0) as usize;
-      canvas.ensure_depth(new_z + 1);
+      let dz = scroll.delta.y.signum() as i32;
+      let new_z = current_z.0 + dz;
+      canvas.ensure_z(new_z);
       current_z.0 = new_z;
     } else {
       let (cam, cam_gt, ref mut tf) = *camera_q;
@@ -1449,10 +1461,11 @@ fn update_mode_bar(
     let obj_name =
       state.selected_object.map(|t| t.label()).unwrap_or("none");
     let marker_str = if marker_input.text.is_empty() { "none" } else { &marker_input.text };
+    let range_str = canvas.z_range().map(|(lo, hi)| format!("{lo}..{hi}")).unwrap_or_else(|| "-".into());
     status_text.0 = format!(
-      "z:{}/{}  tile:{}  obj:{}  marker:{}  pat:{}  |  RMB+wheel:z U:undo G:gen K:markers [,./]:pat Ctrl+S/O:save/load",
+      "z:{} ({})  tile:{}  obj:{}  marker:{}  pat:{}  |  RMB+wheel:z U:undo G:gen K:markers [,./]:pat Ctrl+S/O:save/load",
       current_z.0,
-      canvas.depth(),
+      range_str,
       state.selected_tile.name(),
       obj_name,
       marker_str,
@@ -1557,7 +1570,7 @@ fn canvas_interact(
         if mouse.just_pressed(MouseButton::Left)
           && let Some((gx, gy)) = grid_pos
         {
-          let target = canvas.levels[z].tiles[gy][gx];
+          let target = canvas.levels.get(&z).map(|l| l.tiles[gy][gx]).unwrap_or(Tile::Air);
           if target != state.selected_tile {
             push_undo(&canvas, *origin, &mut undo);
             flood_fill_same_tile_type(
@@ -1584,7 +1597,7 @@ fn canvas_interact(
           let (x1, y1, x2, y2) = selection_rect((start.0, start.1), (end.0, end.1));
           let (z1, z2) = (start.2.min(end.2), start.2.max(end.2));
           let filled = state.tool == ToolMode::RectFill;
-          canvas.ensure_depth(z2 + 1);
+          for gz in z1..=z2 { canvas.ensure_z(gz); }
           for gz in z1..=z2 {
             for gy in y1..=y2 {
               for gx in x1..=x2 {
@@ -1630,10 +1643,12 @@ fn canvas_interact(
               let mut row_m = Vec::new();
               for gx in source.x1..=source.x2 {
                 let (ix, iy) = grid_to_index(gx, gy, *origin);
-                let lvl = &canvas.levels[gz];
-                row_t.push(lvl.tiles[iy][ix]);
-                row_o.push(lvl.objects[iy][ix]);
-                row_m.push(lvl.markers[iy][ix].clone());
+                let (tile, obj, marker) = canvas.levels.get(&gz).map(|lvl|
+                  (lvl.tiles[iy][ix], lvl.objects[iy][ix], lvl.markers[iy][ix].clone())
+                ).unwrap_or((Tile::Air, None, None));
+                row_t.push(tile);
+                row_o.push(obj);
+                row_m.push(marker);
               }
               clip_tiles.push(row_t);
               clip_objects.push(row_o);
@@ -1668,29 +1683,31 @@ fn canvas_interact(
                 for gx in clip.source.x1..=clip.source.x2 {
                   if let Some((ix, iy)) =
                     grid_coord_to_canvas_index(gx, gy, *origin, width, height)
-                    && gz < canvas.levels.len()
+                    && let Some(lvl) = canvas.levels.get_mut(&gz)
                   {
-                    canvas.levels[gz].tiles[iy][ix] = Tile::Grass;
-                    canvas.levels[gz].objects[iy][ix] = None;
-                    canvas.levels[gz].markers[iy][ix] = None;
+                    let fill = lvl.default_tile;
+                    lvl.tiles[iy][ix] = fill;
+                    lvl.objects[iy][ix] = None;
+                    lvl.markers[iy][ix] = None;
                   }
                 }
               }
             }
           }
-          canvas.ensure_depth(dest_z1 + clip.depth());
+          for dz in 0..clip.depth() { canvas.ensure_z(dest_z1 + dz); }
           for (dz, layer) in clip.layers.iter().enumerate() {
-            let gz = dest_z1 + dz;
+            let gz = dest_z1 + dz as i32;
             for (dy, row) in layer.tiles.iter().enumerate() {
               for (dx, &tile) in row.iter().enumerate() {
                 let gx = top_left.0 + dx as i32;
                 let gy = top_left.1 + dy as i32;
                 if let Some((ix, iy)) =
                   grid_coord_to_canvas_index(gx, gy, *origin, width, height)
+                  && let Some(lvl) = canvas.levels.get_mut(&gz)
                 {
-                  canvas.levels[gz].tiles[iy][ix] = tile;
-                  canvas.levels[gz].objects[iy][ix] = layer.objects[dy][dx];
-                  canvas.levels[gz].markers[iy][ix] = layer.markers[dy][dx].clone();
+                  lvl.tiles[iy][ix] = tile;
+                  lvl.objects[iy][ix] = layer.objects[dy][dx];
+                  lvl.markers[iy][ix] = layer.markers[dy][dx].clone();
                 }
               }
             }
@@ -1728,10 +1745,11 @@ fn eyedropper(
     if let Some((gx, gy)) = cursor_world(&windows, &camera_q)
       .and_then(|cursor| world_to_grid(cursor, &canvas, *origin))
     {
-      let lvl = &canvas.levels[current_z.0];
-      state.selected_tile = lvl.tiles[gy][gx];
-      state.selected_object = lvl.objects[gy][gx];
-      marker_input.text = lvl.markers[gy][gx].clone().unwrap_or_default();
+      if let Some(lvl) = canvas.levels.get(&current_z.0) {
+        state.selected_tile = lvl.tiles[gy][gx];
+        state.selected_object = lvl.objects[gy][gx];
+        marker_input.text = lvl.markers[gy][gx].clone().unwrap_or_default();
+      }
     }
   }
 }
@@ -1920,7 +1938,7 @@ fn sync_canvas_sprites(
   mut query: Query<(&CanvasCell, &mut Sprite)>
 ) {
   if canvas.is_changed() || current_z.is_changed() {
-    let lvl = canvas.levels.get(current_z.0);
+    let lvl = canvas.levels.get(&current_z.0);
     for (cell, mut sprite) in &mut query {
       if let Some(tile) =
         lvl.and_then(|l| l.tiles.get(cell.1).and_then(|row| row.get(cell.0)).copied())
@@ -1947,7 +1965,7 @@ fn sync_object_visuals(
   )>
 ) {
   if canvas.is_changed() || current_z.is_changed() {
-    let lvl = canvas.levels.get(current_z.0);
+    let lvl = canvas.levels.get(&current_z.0);
     for (label, mut sprite, mut visibility) in &mut queries.p0() {
       if let Some(obj_idx) = lvl
         .and_then(|l| l.objects.get(label.1).and_then(|row| row.get(label.0)).copied().flatten())
@@ -1985,7 +2003,7 @@ fn sync_marker_visuals(
   mut query: Query<(&CanvasMarkerText, &mut Text2d, &mut TextColor, &mut Visibility)>
 ) {
   if canvas.is_changed() || current_z.is_changed() {
-    let lvl = canvas.levels.get(current_z.0);
+    let lvl = canvas.levels.get(&current_z.0);
     for (label, mut text, mut color, mut visibility) in &mut query {
       if let Some(name) = lvl
         .and_then(|l| l.markers.get(label.1).and_then(|row| row.get(label.0)).and_then(|m| m.as_deref()))
@@ -2111,7 +2129,9 @@ fn generate_wfc(
   mut commands: Commands,
   (existing, save_name, marker_input): (Query<Entity, Or<(With<OutputChunk>, With<OutputLabel>)>>, Res<SaveNameInput>, Res<MarkerInput>)
 ) {
-  if keys.just_pressed(KeyCode::KeyG) && !save_name.focused && !marker_input.focused {
+  if keys.just_pressed(KeyCode::KeyG) && !save_name.focused && !marker_input.focused
+    && let Some(lvl) = canvas.levels.get(&current_z.0)
+  {
 
   clear_wfc_preview(&mut commands, &existing);
 
@@ -2120,7 +2140,6 @@ fn generate_wfc(
   let ow = INITIAL_CANVAS_W as u32 * state.output_mult;
   let oh = INITIAL_CANVAS_H as u32 * state.output_mult;
 
-  let lvl = &canvas.levels[current_z.0];
   let input_grid = Grid::new_fn(
     coord_2d::Size::new(canvas_width as u32, canvas_height as u32),
     |coord| {
@@ -2273,15 +2292,15 @@ fn save_canvas(canvas: &EditorCanvas, origin: CanvasGridOrigin, name: &str) -> O
   let _ = std::fs::create_dir_all(SAVE_DIR);
   let width = canvas.width();
   let height = canvas.height();
-  let depth = canvas.depth();
+  let (z_min, z_max) = canvas.z_range().unwrap_or((0, 0));
   let filename = if name.is_empty() {
     format!("editor_save_{}.txt", save_timestamp())
   } else {
     format!("{name}.txt")
   };
   let path = PathBuf::from(SAVE_DIR).join(filename);
-  let mut out = format!("{width} {height} {} {} DEPTH {depth}\n", origin.x, origin.y);
-  for (z, lvl) in canvas.levels.iter().enumerate() {
+  let mut out = format!("{width} {height} {} {} ZRANGE {z_min} {z_max}\n", origin.x, origin.y);
+  for (&z, lvl) in canvas.levels.iter() {
     out.push_str(&format!("LEVEL {z}\n"));
     for y in 0..height {
       for x in 0..width {
@@ -2293,7 +2312,7 @@ fn save_canvas(canvas: &EditorCanvas, origin: CanvasGridOrigin, name: &str) -> O
     }
   }
   out.push_str("MARKERS\n");
-  for (z, lvl) in canvas.levels.iter().enumerate() {
+  for (&z, lvl) in canvas.levels.iter() {
     for y in 0..height {
       for x in 0..width {
         if let Some(name) = &lvl.markers[y][x] {
@@ -2326,14 +2345,25 @@ fn load_canvas_from_file(
       let h: usize = header_iter.next().and_then(|s| s.parse().ok()).unwrap_or(INITIAL_CANVAS_H);
       let saved_origin_x: i32 = header_iter.next().and_then(|s| s.parse().ok()).unwrap_or(0);
       let saved_origin_y: i32 = header_iter.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-      let depth: usize = (header_iter.next() == Some("DEPTH"))
-        .then(|| header_iter.next().and_then(|s| s.parse().ok()).unwrap_or(1))
-        .unwrap_or(1);
+      let tag = header_iter.next();
+      let (z_min, z_max): (i32, i32) = match tag {
+        Some("ZRANGE") => {
+          let lo = header_iter.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+          let hi = header_iter.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+          (lo, hi)
+        }
+        Some("DEPTH") => {
+          let d: i32 = header_iter.next().and_then(|s| s.parse().ok()).unwrap_or(1);
+          (0, (d - 1).max(0))
+        }
+        _ => (0, 0)
+      };
 
       push_undo(canvas, *origin, undo);
       canvas.levels.clear();
-      for _ in 0..depth {
-        canvas.levels.push(CanvasLevel::new(w, h));
+      for z in z_min..=z_max {
+        let default_tile = if z == 0 { Tile::Grass } else { Tile::Air };
+        canvas.levels.insert(z, CanvasLevel::new(w, h, default_tile));
       }
       canvas.resize_exact(w, h);
       origin.x = saved_origin_x;
@@ -2346,24 +2376,27 @@ fn load_canvas_from_file(
       let multi_level = remaining_lines.first().is_some_and(|l| l.starts_with("LEVEL "));
 
       if multi_level {
-        let mut cur_z: Option<usize> = None;
+        let mut cur_z: Option<i32> = None;
         let mut cur_y = 0usize;
         for line in &remaining_lines {
           if let Some(rest) = line.strip_prefix("LEVEL ") {
             cur_z = rest.trim().parse().ok();
             cur_y = 0;
-          } else if let Some(z) = cur_z && z < canvas.levels.len() && cur_y < height {
+          } else if let Some(z) = cur_z
+            && let Some(lvl) = canvas.levels.get_mut(&z)
+            && cur_y < height
+          {
             let mut toks = line.split_whitespace();
             for x in 0..width {
               let tile_tok = toks.next().unwrap_or("Grass");
               let obj_tok = toks.next().unwrap_or("-");
-              canvas.levels[z].tiles[cur_y][x] = Tile::from_save(tile_tok).unwrap_or(Tile::Grass);
-              canvas.levels[z].objects[cur_y][x] = ObjectTemplate::from_save(obj_tok);
+              lvl.tiles[cur_y][x] = Tile::from_save(tile_tok).unwrap_or(lvl.default_tile);
+              lvl.objects[cur_y][x] = ObjectTemplate::from_save(obj_tok);
             }
             cur_y += 1;
           }
         }
-      } else {
+      } else if let Some(lvl) = canvas.levels.get_mut(&0) {
         let all_toks: Vec<&str> = remaining_lines.iter().flat_map(|l| l.split_whitespace()).collect();
         let mut data_idx = 0;
         for y in 0..h.min(height) {
@@ -2372,8 +2405,8 @@ fn load_canvas_from_file(
             data_idx += 1;
             let obj_tok = all_toks.get(data_idx).copied().unwrap_or("-");
             data_idx += 1;
-            canvas.levels[0].tiles[y][x] = Tile::from_save(tile_tok).unwrap_or(Tile::Grass);
-            canvas.levels[0].objects[y][x] = ObjectTemplate::from_save(obj_tok);
+            lvl.tiles[y][x] = Tile::from_save(tile_tok).unwrap_or(Tile::Grass);
+            lvl.objects[y][x] = ObjectTemplate::from_save(obj_tok);
           }
         }
       }
@@ -2384,14 +2417,15 @@ fn load_canvas_from_file(
           let x = parts.next().and_then(|s| s.parse::<usize>().ok());
           let y = parts.next().and_then(|s| s.parse::<usize>().ok());
           let third = parts.next();
-          let (z, name) = match third.and_then(|s| s.parse::<usize>().ok()) {
+          let (z, name) = match third.and_then(|s| s.parse::<i32>().ok()) {
             Some(z_val) => (z_val, parts.next()),
-            None => (0usize, third)
+            None => (0i32, third)
           };
           if let (Some(x), Some(y), Some(name)) = (x, y, name)
-            && x < width && y < height && z < canvas.levels.len()
+            && x < width && y < height
+            && let Some(lvl) = canvas.levels.get_mut(&z)
           {
-            canvas.levels[z].markers[y][x] = Some(name.to_string());
+            lvl.markers[y][x] = Some(name.to_string());
           }
         }
       }
@@ -2525,7 +2559,7 @@ fn save_load_ui_actions(
         SaveUiAction::New => {
           push_undo(&canvas, *origin, &mut undo);
           canvas.levels.clear();
-          canvas.levels.push(CanvasLevel::new(INITIAL_CANVAS_W, INITIAL_CANVAS_H));
+          canvas.levels.insert(0, CanvasLevel::new(INITIAL_CANVAS_W, INITIAL_CANVAS_H, Tile::Grass));
           origin.x = 0;
           origin.y = 0;
           current_z.0 = 0;
@@ -2613,8 +2647,9 @@ fn load_picker_file_clicks(
 
 fn export_prefab(keys: Res<ButtonInput<KeyCode>>, canvas: Res<EditorCanvas>, current_z: Res<CurrentZ>, save_name: Res<SaveNameInput>, marker_input: Res<MarkerInput>) {
   let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
-  if !save_name.focused && !marker_input.focused && keys.just_pressed(KeyCode::KeyE) && !ctrl {
-    let lvl = &canvas.levels[current_z.0];
+  if !save_name.focused && !marker_input.focused && keys.just_pressed(KeyCode::KeyE) && !ctrl
+    && let Some(lvl) = canvas.levels.get(&current_z.0)
+  {
     let mut chars_used = HashMap::<u16, char>::new();
     let mut next_char = b'a';
 
@@ -2797,8 +2832,8 @@ fn refresh_marker_list(
       commands.entity(e).despawn();
     }
 
-    let mut entries: Vec<(usize, usize, usize, String)> = Vec::new();
-    for (z, lvl) in canvas.levels.iter().enumerate() {
+    let mut entries: Vec<(usize, usize, i32, String)> = Vec::new();
+    for (&z, lvl) in canvas.levels.iter() {
       for (y, row) in lvl.markers.iter().enumerate() {
         for (x, marker) in row.iter().enumerate() {
           if let Some(name) = marker {
@@ -2875,7 +2910,7 @@ fn main() {
     }))
     .insert_resource(ClearColor(Color::srgb(0.08, 0.08, 0.1)))
     .insert_resource(EditorCanvas {
-      levels: vec![CanvasLevel::new(INITIAL_CANVAS_W, INITIAL_CANVAS_H)]
+      levels: BTreeMap::from([(0, CanvasLevel::new(INITIAL_CANVAS_W, INITIAL_CANVAS_H, Tile::Grass))])
     })
     .insert_resource(SpawnedCanvasSize {
       width: INITIAL_CANVAS_W,
