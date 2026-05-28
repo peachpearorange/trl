@@ -339,7 +339,8 @@ struct EdgeResizeButton {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SaveUiAction {
   SaveNow,
-  ToggleLoadPicker
+  ToggleLoadPicker,
+  New
 }
 
 #[derive(Component)]
@@ -945,6 +946,19 @@ fn save_load_section() -> Column<Node> {
             .insert(Button)
             .insert(SaveUiButton(SaveUiAction::ToggleLoadPicker))
             .child(static_text("Load", 10.0, Color::srgb(0.95, 0.95, 0.95)))
+        )
+        .item(
+          El::<Node>::new()
+            .with_node(|mut n| {
+              n.width = Val::Px(44.0);
+              n.height = Val::Px(20.0);
+              n.justify_content = JustifyContent::Center;
+              n.align_items = AlignItems::Center;
+            })
+            .background_color(BackgroundColor(Color::srgba(0.18, 0.12, 0.2, 0.95)))
+            .insert(Button)
+            .insert(SaveUiButton(SaveUiAction::New))
+            .child(static_text("New", 10.0, Color::srgb(0.95, 0.95, 0.95)))
         )
     )
 }
@@ -2386,10 +2400,11 @@ fn save_load_hotkeys(
 
 fn save_load_ui_actions(
   interaction_q: Query<(&Interaction, &SaveUiButton), Changed<Interaction>>,
-  canvas: Res<EditorCanvas>,
-  origin: Res<CanvasGridOrigin>,
+  mut canvas: ResMut<EditorCanvas>,
+  mut origin: ResMut<CanvasGridOrigin>,
   mut picker: ResMut<LoadPickerState>,
-  save_name: Res<SaveNameInput>
+  mut save_name: ResMut<SaveNameInput>,
+  mut undo: ResMut<UndoStack>
 ) {
   for (interaction, button) in &interaction_q {
     if *interaction == Interaction::Pressed {
@@ -2403,6 +2418,21 @@ fn save_load_ui_actions(
         SaveUiAction::ToggleLoadPicker => {
           picker.open = !picker.open;
           picker.refresh_requested = picker.open;
+        }
+        SaveUiAction::New => {
+          push_undo(&canvas, *origin, &mut undo);
+          canvas.resize_exact(INITIAL_CANVAS_W, INITIAL_CANVAS_H);
+          for y in 0..canvas.height() {
+            for x in 0..canvas.width() {
+              canvas.tiles[y][x] = Tile::Grass;
+              canvas.objects[y][x] = None;
+              canvas.markers[y][x] = None;
+            }
+          }
+          origin.x = 0;
+          origin.y = 0;
+          save_name.text.clear();
+          save_name.focused = false;
         }
       }
     }
