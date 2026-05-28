@@ -87,6 +87,11 @@ impl Galaxy {
   }
 
   pub fn insert(&mut self, id: LocationId, location: Location) {
+    assert!(
+      !self.locations.contains_key(&id) && !self.generators.contains_key(&id),
+      "Galaxy LocationId collision at {id:?}: '{}' would overwrite existing entry",
+      location.name
+    );
     self.locations.insert(id, location);
   }
 
@@ -96,6 +101,10 @@ impl Galaxy {
     name: &'static str,
     make: fn(LocationId) -> Option<Location>
   ) {
+    assert!(
+      !self.locations.contains_key(&id) && !self.generators.contains_key(&id),
+      "Galaxy LocationId collision at {id:?}: deferred '{name}' would overwrite existing entry"
+    );
     self.generators.insert(id, make);
     self.deferred_names.insert(id, name);
   }
