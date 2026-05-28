@@ -55,6 +55,8 @@ const DEFAULT_PATTERN_SIZE: u32 = 5;
 pub enum ObjectTemplate {
   #[assoc(label = "tree", object = entities::Object::TREE)]
   Tree,
+  #[assoc(label = "tree2", object = entities::Object::TREE2)]
+  Tree2,
   #[assoc(label = "boulder", object = entities::Object::BOULDER)]
   Boulder,
   #[assoc(label = "door", object = entities::Object::DOOR)]
