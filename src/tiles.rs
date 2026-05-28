@@ -137,6 +137,8 @@ pub enum Tile {
   AlienGrass,
   #[assoc(glyph = ".", color = [0.65, 0.78, 0.88], walkable = true, name = "Bright Ground", render_mode = TileRenderMode::SpritePackRandom(&["textures/space_qud/ground.png"], [0.58, 0.72, 0.85], [0.82, 0.90, 0.96]))]
   BrightGround,
+  #[assoc(glyph = ".", color = [0.68, 0.55, 0.38], walkable = true, name = "Ground", render_mode = TileRenderMode::SpritePackRandom(&["textures/space_qud/ground.png"], [0.52, 0.40, 0.26], [0.78, 0.62, 0.42]))]
+  Ground,
 
   // --- Walls & barriers ---
   #[assoc(glyph = "#", color = [0.4, 0.4, 0.4], walkable = false, opaque = true, name = "Wall")]
