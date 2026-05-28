@@ -1084,7 +1084,7 @@ impl Object {
     .with(Stats { hp: 10, max_hp: 10, attack: 2, move_speed: 3.0, attack_speed: 1.0 })
     .with(Glyph::palette_sprite(
       "textures/space_qud/robot dog with gun.png", 'd',
-      Color::srgb(0.15, 0.15, 0.18), Color::srgb(0.85, 0.75, 0.15),
+      Color::srgb(0.42, 0.44, 0.48), Color::srgb(0.85, 0.75, 0.15),
     ))
     .with(Loadout::from_gear(&[
       GearSlot::ability(Gear::InnateGun { damage: 3 }, 12),
