@@ -2191,7 +2191,9 @@ fn save_files() -> Vec<PathBuf> {
     .map(|entry| entry.path())
     .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("txt"))
     .collect::<Vec<_>>();
-  files.sort();
+  files.sort_by_key(|p| {
+    std::fs::metadata(p).and_then(|m| m.modified()).ok()
+  });
   files.reverse();
   files
 }
