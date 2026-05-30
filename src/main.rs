@@ -37,7 +37,8 @@ use {crate::entities::{AirlockDoor, Bed, BlocksSight, Collidable, CraftingTable,
      active_zone::ActiveZone,
      bevy::{camera::visibility::RenderLayers,
             prelude::*,
-            sprite_render::{AlphaMode2d, TileData, TilemapChunk, TilemapChunkTileData}},
+            sprite_render::{AlphaMode2d, TileData, TilemapChunk, TilemapChunkMaterial,
+                            TilemapChunkTileData}},
      combat::{FlowField, TileEntityIndex, compute_flow_field, damage_cloud_tick,
               enemy_ai, enemy_stealth_ai, follower_ai, grenade_thrower_ai,
               gun_attacker_ai, maintain_tile_index, mushroom_spore_attack, npc_wander,
@@ -427,6 +428,10 @@ pub struct Inventory(pub HashMap<Item, u32>);
 #[derive(Component)]
 struct GlyphVisual;
 
+/// FOV fade brightness (0 = black/invisible, 1 = fully lit) for glyph-rendered entities and items.
+#[derive(Component, Default)]
+struct GlyphFade(f32);
+
 /// Semi-transparent cell highlight following the cursor over the current zone.
 #[derive(Component)]
 struct TileHoverHighlight;
@@ -570,6 +575,7 @@ fn setup_glyph_visuals(
           },
           Transform::from_translation(pos),
           GlyphVisual,
+          GlyphFade::default(),
           RenderLayers::layer(post_process::LAYER_ENTITIES),
           PrevHp(stats_q.get(entity).map_or(0, |s| s.hp)),
           Visuals {
@@ -586,6 +592,7 @@ fn setup_glyph_visuals(
           TextColor(glyph.color),
           Transform::from_translation(pos),
           GlyphVisual,
+          GlyphFade::default(),
           RenderLayers::layer(post_process::LAYER_ENTITIES),
           PrevHp(stats_q.get(entity).map_or(0, |s| s.hp)),
           Visuals {
@@ -718,6 +725,7 @@ fn main() {
     .init_resource::<AccumulatedDir>()
     .insert_resource(UiState::default())
     .insert_resource(Fov(fov))
+    .init_resource::<FovFade>()
     .insert_resource(TileEntityIndex::default())
     .init_resource::<FlowField>()
     .init_resource::<abilities::AbilityBarData>()
@@ -837,6 +845,7 @@ fn main() {
         damage_flash,
         camera_follow,
         update_fov_visuals,
+        upload_fov_chunks,
         update_tile_hover_highlight,
         update_interactable_highlights
       )
@@ -976,6 +985,7 @@ fn enemy_death_check(
               duration_frames: 12
             },
             ItemGlyph { x: tx as usize, y: ty as usize, z: ez, item },
+            GlyphFade::default(),
             RenderLayers::layer(post_process::LAYER_ENTITIES)
           ));
         }
@@ -1303,23 +1313,58 @@ fn update_interactable_highlights(
   }
 }
 
+/// Per-tile brightness (0 = black, 1 = fully lit) for the active z-level, so tiles
+/// entering/leaving FOV can fade between texture and black instead of popping.
+/// Reset (snapped to target, no animation) whenever the level dimensions or z change.
+#[derive(Resource, Default)]
+struct FovFade {
+  brightness: Vec<f32>,
+  width: usize,
+  height: usize,
+  active_chunk: Option<Entity>
+}
+
+impl FovFade {
+  /// Point the fade grid at `chunk`, zeroing brightness whenever the active chunk entity
+  /// or level dimensions change (new zone, new z-level, or first run). Chunks are despawned
+  /// and respawned on zone change, so the grid must follow the live chunk — otherwise stale
+  /// brightness makes a freshly spawned (empty) chunk skip its tiles and render black.
+  /// Returns true on reset so the caller can clear stale tile data; the chunk then fades in.
+  fn retarget(&mut self, chunk: Entity, width: usize, height: usize) -> bool {
+    let reset =
+      self.active_chunk != Some(chunk) || self.width != width || self.height != height;
+    if reset {
+      self.brightness = vec![0.0; width * height];
+      self.width = width;
+      self.height = height;
+      self.active_chunk = Some(chunk);
+    }
+    reset
+  }
+}
+
+/// Per-frame brightness step toward the target (same rate fading in and out).
+const FOV_FADE_RATE: f32 = 0.08;
+
 fn update_fov_visuals(
   fov: Res<Fov>,
   current: Res<CurrentZone>,
   frame: Res<RenderFrame>,
   tileset: Res<Tileset>,
   index: Res<TileEntityIndex>,
+  mut fade: ResMut<FovFade>,
+  mut redraw: MessageWriter<bevy::window::RequestRedraw>,
   player: Single<(Entity, &Location, &mut Visibility), With<Player>>,
   mut chunk_q: Query<
-    (&TilemapLayer, &mut TilemapChunkTileData, &mut Visibility),
+    (Entity, &TilemapLayer, &mut TilemapChunkTileData, &mut Visibility),
     Without<Player>
   >,
   mut item_q: Query<
-    (Entity, &ItemGlyph, &mut Visibility),
+    (Entity, &ItemGlyph, &mut Visibility, &mut Sprite, &mut GlyphFade),
     (Without<Player>, Without<GlyphVisual>, Without<TilemapLayer>)
   >,
   mut entity_q: Query<
-    (Entity, &Location, &mut Visibility),
+    (Entity, &Location, &mut Visibility, Option<&mut Sprite>, &mut GlyphFade),
     (With<GlyphVisual>, Without<Player>, Without<TilemapLayer>)
   >
 ) {
@@ -1329,17 +1374,43 @@ fn update_fov_visuals(
   let width = current.0.width;
   let height = current.0.height;
 
-  for (layer, mut tile_data, mut vis) in chunk_q.iter_mut() {
+  // Set while any tile is still animating. The app renders reactively (a short burst of
+  // frames per input/event), so an in-progress fade would otherwise freeze partway; we
+  // request another frame each tick until everything has settled.
+  let mut animating = false;
+  for (chunk_ent, layer, mut tile_data, mut vis) in chunk_q.iter_mut() {
     *vis = if layer.0 == z { Visibility::Visible } else { Visibility::Hidden };
-    let chunk_fresh = tile_data.0.iter().all(|t| t.is_none());
-    if layer.0 == z && (fov.is_changed() || chunk_fresh) {
-      for y in 0..height {
-        for x in 0..width {
-          let chunk_idx = (height - 1 - y) * width + x;
+    if layer.0 == z {
+      // A new chunk (zone/z change, first run) starts dark; clear any stale data so it
+      // stays consistent with the zeroed brightness grid, then fade in from black.
+      if fade.retarget(chunk_ent, width, height) {
+        tile_data.0.iter_mut().for_each(|t| *t = None);
+      }
+      let y0 = (pos_y - FOV_RADIUS as i32).max(0) as usize;
+      let y1 = (pos_y + FOV_RADIUS as i32 + 1).min(height as i32) as usize;
+      let x0 = (pos_x - FOV_RADIUS as i32).max(0) as usize;
+      let x1 = (pos_x + FOV_RADIUS as i32 + 1).min(width as i32) as usize;
+      for y in y0..y1 {
+        for x in x0..x1 {
           let tile = level.get(x as i32, y as i32).unwrap_or(Tile::Air);
-          tile_data.0[chunk_idx] = if tile == Tile::Air || tile == Tile::Blank {
-            None
+          let is_blank = tile == Tile::Air || tile == Tile::Blank;
+          let target = if !is_blank && fov.0.is_visible(x, y) { 1.0 } else { 0.0 };
+          let fi = y * width + x;
+          let prev = fade.brightness[fi];
+          let b = if prev < target {
+            (prev + FOV_FADE_RATE).min(target)
           } else {
+            (prev - FOV_FADE_RATE).max(target)
+          };
+          animating |= b != target;
+          // Settled and unchanged: tile_data already holds the right value, skip the
+          // write so change detection doesn't re-upload the chunk every frame.
+          if b == prev {
+            continue;
+          }
+          fade.brightness[fi] = b;
+          let chunk_idx = (height - 1 - y) * width + x;
+          tile_data.0[chunk_idx] = (b > 0.0 && !is_blank).then(|| {
             let info = tileset.0.layer_range[tile as usize];
             let tileset_index = match info.select {
               sprites::TileSelect::Single => info.base,
@@ -1362,34 +1433,25 @@ fn update_fov_visuals(
                 info.base + mask
               }
             };
-            if fov.0.is_visible(x, y) {
-              let color = if tile.is_liquid() {
-                Color::srgba(1.0, 1.0, 1.0, 254.0 / 255.0)
-              } else {
-                Color::WHITE
-              };
-              Some(TileData { tileset_index, color, visible: true })
-            } else {
-              None
-            }
-          };
+            // Scale rgb toward black by brightness; keep the per-tile alpha.
+            let alpha = if tile.is_liquid() { 254.0 / 255.0 } else { 1.0 };
+            TileData { tileset_index, color: Color::srgba(b, b, b, alpha), visible: true }
+          });
         }
       }
     }
   }
-
   let t = frame.0 as f32 * 0.052;
   let tau = std::f32::consts::TAU;
   let mut stacks: HashMap<(i32, i32), Vec<Entity>> = HashMap::new();
   stacks.entry((pos_x, pos_y)).or_default().push(player_ent);
   for (&(x, y, zz), ents) in index.0.iter() {
-    if zz != z {
-      continue;
+    if zz == z && fov.0.is_visible(x as usize, y as usize) {
+      stacks.entry((x, y)).or_default().extend(ents.iter().copied());
     }
-    stacks.entry((x, y)).or_default().extend(ents.iter().copied());
   }
-  for (entity, item, _) in item_q.iter_mut() {
-    if item.z == z {
+  for (entity, item, _, _, _) in item_q.iter_mut() {
+    if item.z == z && fov.0.is_visible(item.x, item.y) {
       stacks.entry((item.x as i32, item.y as i32)).or_default().push(entity);
     }
   }
@@ -1397,8 +1459,8 @@ fn update_fov_visuals(
     ents.sort_by_key(|e| e.index());
   }
 
-  for (entity, location, mut vis) in entity_q.iter_mut() {
-    let visible_in_fov = if let Location::Coords { x, y, z: lz, .. } = location
+  for (entity, location, mut vis, sprite_opt, mut glyph_fade) in entity_q.iter_mut() {
+    let in_fov = if let Location::Coords { x, y, z: lz, .. } = location
       && *lz == z
       && fov.0.is_visible(*x as usize, *y as usize)
     {
@@ -1406,16 +1468,25 @@ fn update_fov_visuals(
     } else {
       false
     };
-    if !visible_in_fov {
-      *vis = Visibility::Hidden;
-      continue;
-    }
-    let Location::Coords { x, y, .. } = location else {
-      *vis = Visibility::Hidden;
-      continue;
+    let target = if in_fov { 1.0_f32 } else { 0.0 };
+    let prev = glyph_fade.0;
+    let brightness = if prev < target {
+      (prev + FOV_FADE_RATE).min(target)
+    } else {
+      (prev - FOV_FADE_RATE).max(target)
     };
-    let key = (*x, *y);
-    if let Some(list) = stacks.get(&key)
+    animating |= brightness != target;
+    if brightness != prev {
+      glyph_fade.0 = brightness;
+      if let Some(mut sprite) = sprite_opt {
+        let a = sprite.color.alpha() * brightness;
+        sprite.color.set_alpha(a);
+      }
+    }
+    if brightness == 0.0 {
+      *vis = Visibility::Hidden;
+    } else if let Location::Coords { x, y, .. } = location
+      && let Some(list) = stacks.get(&(*x, *y))
       && list.len() > 1
     {
       let n = list.len() as f32;
@@ -1434,9 +1505,22 @@ fn update_fov_visuals(
       *vis = Visibility::Visible;
     }
   }
-  for (entity, item, mut vis) in item_q.iter_mut() {
-    let visible_in_fov = item.z == z && fov.0.is_visible(item.x, item.y);
-    if !visible_in_fov {
+  for (entity, item, mut vis, mut sprite, mut glyph_fade) in item_q.iter_mut() {
+    let in_fov = item.z == z && fov.0.is_visible(item.x, item.y);
+    let target = if in_fov { 1.0_f32 } else { 0.0 };
+    let prev = glyph_fade.0;
+    let brightness = if prev < target {
+      (prev + FOV_FADE_RATE).min(target)
+    } else {
+      (prev - FOV_FADE_RATE).max(target)
+    };
+    animating |= brightness != target;
+    if brightness != prev {
+      glyph_fade.0 = brightness;
+      let a = sprite.color.alpha() * brightness;
+      sprite.color.set_alpha(a);
+    }
+    if brightness == 0.0 {
       *vis = Visibility::Hidden;
     } else if let Some(list) = stacks.get(&(item.x as i32, item.y as i32))
       && list.len() > 1
@@ -1476,6 +1560,40 @@ fn update_fov_visuals(
       if player_ent == winner { Visibility::Visible } else { Visibility::Hidden }
     }
   });
+  if animating {
+    redraw.write(bevy::window::RequestRedraw);
+  }
+}
+
+// update_tilemap_chunk_indices misses same-tick changes (T_n > T_n = false); running
+// right after update_fov_visuals means last_run=T_{n-1}, change=T_n, so T_n > T_{n-1}.
+fn upload_fov_chunks(
+  changed_q: Query<
+    (&TilemapChunkTileData, &MeshMaterial2d<TilemapChunkMaterial>),
+    Changed<TilemapChunkTileData>
+  >,
+  materials: Res<Assets<TilemapChunkMaterial>>,
+  mut images: ResMut<Assets<Image>>,
+) {
+  for (tile_data, mat_handle) in changed_q.iter() {
+    if let Some(mat) = materials.get(mat_handle.id())
+        && let Some(img) = images.get_mut(&mat.tile_data)
+        && let Some(data) = img.data.as_mut()
+    {
+      data.clear();
+      for &t in tile_data.0.iter() {
+        match t {
+          None => data.extend_from_slice(&[0xFF, 0xFF, 0, 0, 0, 0, 0, 0]),
+          Some(TileData { tileset_index, color, visible }) => {
+            let Srgba { red, green, blue, alpha } = color.to_srgba();
+            data.extend_from_slice(&tileset_index.to_le_bytes());
+            data.extend_from_slice(&[red, green, blue, alpha].map(|f| (f * 255.0).round() as u8));
+            data.extend_from_slice(&(visible as u16).to_le_bytes());
+          }
+        }
+      }
+    }
+  }
 }
 
 
@@ -3361,6 +3479,7 @@ fn setup(
       idle_interval: 30
     },
     GlyphVisual,
+    GlyphFade(1.0),
     RenderLayers::layer(post_process::LAYER_ENTITIES),
     Visuals {
       prev: start_local,
@@ -3422,12 +3541,12 @@ fn materialize_ground_items(
 ) {
   for (entity, gi, location) in q.iter() {
     if let Location::Coords { x, y, z, .. } = *location {
-      commands.entity(entity).insert(ItemGlyph {
+      commands.entity(entity).insert((ItemGlyph {
         x: x as usize,
         y: y as usize,
         z,
         item: gi.0
-      });
+      }, GlyphFade::default()));
     }
   }
 }

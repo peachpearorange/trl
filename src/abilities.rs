@@ -5,7 +5,7 @@ use {crate::{Clock, CurrentZone, Inventory, Player, TimeMode,
              TurnBasedWorldState, UiState,
              entities::{Enemy, Glyph, GrenadeInFlight, Loadout, Location, Named, Stats},
              level::Item,
-             particles::{ParticleEffects, spawn_bullet_trail, spawn_laser_beam,
+             particles::{ParticleEffects, spawn_gun_bullet, spawn_laser_beam,
                          spawn_plasma_burst, spawn_pulse_beam, spawn_scatter_trails,
                          tile_to_world},
              path_overlay::{bresenham_path, dda_cells, euclidean_los_point},
@@ -319,9 +319,7 @@ pub fn handle_ability_click(
           matches!(loc, Location::Coords { x, y, z, .. } if *x == cx && *y == cy && *z == pos_z)
         })
       }).copied();
-      let (end_x, end_y) = hit.unwrap_or((los_x as i32, los_y as i32));
-      let trail_path = bresenham_path(pos_x, pos_y, end_x, end_y);
-      spawn_bullet_trail(&mut commands, &effects, &trail_path, level.width, level.height);
+      spawn_gun_bullet(&mut commands, &effects, pos_x, pos_y, los_x, los_y, level.width, level.height);
       if let Some((hx, hy)) = hit
         && let Some((_, mut stats, named)) = enemy_q.iter_mut().find(|(loc, _, _)| {
           matches!(loc, Location::Coords { x, y, z, .. } if *x == hx && *y == hy && *z == pos_z)

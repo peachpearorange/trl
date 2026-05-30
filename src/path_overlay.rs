@@ -358,7 +358,7 @@ fn spawn_path_tile(
       image: img,
       custom_size: Some(Vec2::splat(TILE_SIZE)),
       flip_x,
-      color: Color::WHITE,
+      color: Color::srgba(1.0, 1.0, 1.0, 0.25),
       ..default()
     },
     Transform::from_translation(screen_pos)
@@ -368,7 +368,7 @@ fn spawn_path_tile(
 }
 
 const LASER_LINE_WIDTH: f32 = TILE_SIZE * 0.12;
-const LASER_LINE_COLOR: Color = Color::srgb(0.0, 0.88, 1.0);
+const LASER_LINE_COLOR: Color = Color::srgba(0.0, 0.88, 1.0, 0.25);
 
 /// Spawns/despawns path overlay tile entities whenever `RangedPathOverlay` changes.
 pub fn render_ranged_path(

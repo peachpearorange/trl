@@ -590,6 +590,45 @@ mod fov_tests {
   }
 
   #[test]
+  fn door_closed_hides_at_each_distance() {
+    // Big enclosed room on the left (x=1..=8, y=1..=8), wall at x=9 with a door at
+    // (9,5). Player stands in the open corridor to the right and walks away from the door.
+    // Closing the door should hide the whole interior at EVERY distance, not just far away.
+    let w = 20;
+    let h = 11;
+    for px in 10..=18 {
+      let mut level = Level::new(w, h, Tile::StationFloor);
+      for x in 0..w as i32 {
+        level.set(x, 0, Tile::StationWall);
+        level.set(x, (h - 1) as i32, Tile::StationWall);
+      }
+      for y in 0..h as i32 {
+        level.set(0, y, Tile::StationWall);
+        level.set(9, y, Tile::StationWall); // dividing wall
+        level.set((w - 1) as i32, y, Tile::StationWall);
+      }
+      level.set(9, 5, Tile::StationFloor); // doorway gap
+
+      let (py, door) = (5, (9i32, 5i32));
+      let mut fov = FovGrid::new(w, h);
+      compute_fov(&mut fov, &level, px as i32, py, 18, |x, y| (x, y) == door);
+
+      let leaked: Vec<(usize, usize)> = (1..=8)
+        .flat_map(|y| (1..=8).map(move |x| (x, y)))
+        .filter(|&(x, y)| fov.is_visible(x, y))
+        .collect();
+      let map = render_fov(&fov, &level, px as i32, py);
+      assert!(
+        leaked.is_empty(),
+        "player at dist {} from door: interior tiles {:?} leak through closed door\n{}",
+        px - 9,
+        leaked,
+        map
+      );
+    }
+  }
+
+  #[test]
   fn bedroom_door_closed_hides_interior() {
     let mut level = Level::new(7, 5, Tile::StationFloor);
     for x in 0..5 {

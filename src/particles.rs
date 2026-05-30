@@ -11,6 +11,8 @@ use {crate::{TILE_SIZE, entities::Location, CurrentZone},
 /// Cached effect-asset handles created at startup.
 #[derive(Resource)]
 pub struct ParticleEffects {
+  /// Single particle that travels from the gun muzzle to the aim point.
+  pub gun_bullet: Handle<EffectAsset>,
   /// Single bright dot: one spawned per tile along the bullet path.
   pub bullet_tracer: Handle<EffectAsset>,
   /// Impact spark burst at the hit point.
@@ -31,6 +33,14 @@ pub struct ParticleEffects {
 #[derive(Component)]
 pub struct EffectLifetime(pub Timer);
 
+/// Moves the particle emitter from its spawn point toward `end` at `velocity` world-units/sec.
+/// Despawns the entity on arrival — no EffectLifetime needed.
+#[derive(Component)]
+pub struct GunBullet {
+  pub velocity: Vec3,
+  pub end: Vec3
+}
+
 // ---------------------------------------------------------------------------
 // Plugin
 // ---------------------------------------------------------------------------
@@ -42,7 +52,7 @@ impl Plugin for ParticlesPlugin {
     app
       .add_plugins(HanabiPlugin)
       .add_systems(Startup, setup_particle_effects)
-      .add_systems(Update, tick_effect_lifetime);
+      .add_systems(Update, (tick_effect_lifetime, move_gun_bullets));
   }
 }
 
@@ -78,6 +88,34 @@ fn setup_particle_effects(
   mut commands: Commands,
   mut effects: ResMut<Assets<EffectAsset>>
 ) {
+  // --- Gun bullet ---
+  // Moving emitter: a GunBullet entity travels muzzle→aim (see move_gun_bullets).
+  // Particles flash briefly in place as the emitter sweeps through — no per-particle velocity.
+  let writer = ExprWriter::new();
+  let age = writer.lit(0.0_f32).expr();
+  let lifetime = writer.lit(0.06_f32).uniform(writer.lit(0.15_f32)).expr();
+  let position = writer.lit(Vec3::ZERO).expr();
+  let module = writer.finish();
+
+  let mut cg: bevy_hanabi::Gradient<Vec4> = bevy_hanabi::Gradient::new();
+  cg.add_key(0.0, Vec4::new(1.0, 1.0, 0.9, 1.0));
+  cg.add_key(0.4, Vec4::new(1.0, 0.9, 0.3, 1.0));
+  cg.add_key(1.0, Vec4::new(1.0, 0.5, 0.0, 0.0));
+
+  let mut sg: bevy_hanabi::Gradient<Vec3> = bevy_hanabi::Gradient::new();
+  sg.add_key(0.0, Vec3::splat(40.0));
+  sg.add_key(1.0, Vec3::splat(15.0));
+
+  let gun_bullet = effects.add(
+    EffectAsset::new(32, SpawnerSettings::rate(60.0_f32.into()), module)
+      .with_name("gun_bullet")
+      .init(SetAttributeModifier::new(Attribute::POSITION, position))
+      .init(SetAttributeModifier::new(Attribute::AGE, age))
+      .init(SetAttributeModifier::new(Attribute::LIFETIME, lifetime))
+      .render(ColorOverLifetimeModifier::new(cg))
+      .render(SizeOverLifetimeModifier { gradient: sg, screen_space_size: false })
+  );
+
   // --- Bullet tracer dot ---
   // Spawned once per tile on the bullet path. Very bright white flash.
   // Particles start on a tiny seed sphere so the velocity sphere direction is defined.
@@ -328,6 +366,7 @@ fn setup_particle_effects(
   );
 
   commands.insert_resource(ParticleEffects {
+    gun_bullet,
     bullet_tracer,
     bullet_spark,
     explosion,
@@ -366,6 +405,32 @@ pub fn spawn_bullet_trail(
       EffectLifetime(Timer::from_seconds(0.6, TimerMode::Once))
     ));
   }
+}
+
+/// Spawn a gun bullet: a moving particle emitter that sweeps from the shooter at `(ex, ey)`
+/// to the continuous-tile-space aim point `(aim_x, aim_y)`, leaving a brief flash trail.
+pub fn spawn_gun_bullet(
+  commands: &mut Commands,
+  effects: &ParticleEffects,
+  ex: i32,
+  ey: i32,
+  aim_x: f32,
+  aim_y: f32,
+  level_w: usize,
+  level_h: usize
+) {
+  let start = grid_world(ex, ey, level_w, level_h);
+  let end   = tile_to_world(aim_x, aim_y, level_w, level_h);
+  let diff  = (end - start).truncate();
+  let dist  = diff.length();
+  if dist < 1.0 { return; }
+  const SPEED: f32 = 400.0; // world-units/sec — slow enough to see
+  let velocity = diff.normalize().extend(0.0) * SPEED;
+  commands.spawn((
+    ParticleEffect::new(effects.gun_bullet.clone()),
+    GunBullet { velocity, end },
+    Transform::from_translation(start)
+  ));
 }
 
 /// Spawn a cyan laser beam flash as a straight Euclidean line from `start` to `end`
@@ -552,6 +617,22 @@ pub fn liquid_splash_on_move(
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
+
+fn move_gun_bullets(
+  mut commands: Commands,
+  mut q: Query<(Entity, &mut Transform, &GunBullet)>,
+  time: Res<Time>
+) {
+  for (entity, mut tf, bullet) in q.iter_mut() {
+    let step = bullet.velocity * time.delta_secs();
+    let remaining = (bullet.end - tf.translation).truncate();
+    if remaining.length() <= step.truncate().length() {
+      commands.entity(entity).despawn();
+    } else {
+      tf.translation += step;
+    }
+  }
+}
 
 fn tick_effect_lifetime(
   mut commands: Commands,

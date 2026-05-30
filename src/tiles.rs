@@ -1,5 +1,4 @@
-use enum_assoc::Assoc;
-use num_enum::TryFromPrimitive;
+use {enum_assoc::Assoc, num_enum::TryFromPrimitive};
 
 /// Describes how a tile is rendered in graphical mode.
 pub enum TileRenderMode {
@@ -59,7 +58,7 @@ pub enum Tile {
   Blank,
 
   // --- Liquids (keep contiguous for editor palette) ---
-  #[assoc(glyph = "~", color = [0.2, 0.3, 0.8], walkable = false, name = "Water", is_liquid = true, render_mode = TileRenderMode::Sprite("textures/space_qud/liquid tile.png", [0.08, 0.18, 0.55], [0.28, 0.52, 0.88]))]
+  #[assoc(glyph = "~", color = [0.2, 0.3, 0.8], walkable = true, name = "Water", is_liquid = true, render_mode = TileRenderMode::Sprite("textures/space_qud/liquid tile.png", [0.08, 0.18, 0.55], [0.28, 0.52, 0.88]))]
   Water,
   #[assoc(glyph = "~", color = [0.3, 0.5, 0.85], walkable = true, name = "Shallow Water", is_liquid = true, render_mode = TileRenderMode::Sprite("textures/space_qud/wavy.png", [0.18, 0.42, 0.62], [0.45, 0.68, 0.88]))]
   ShallowWater,
@@ -172,7 +171,7 @@ pub enum Tile {
   #[assoc(glyph = "*", color = [0.5, 0.8, 0.95], walkable = false, name = "Crystal Formation", render_mode = TileRenderMode::Sprite("textures/space_qud/crystal.png", [0.28, 0.62, 0.82], [0.62, 0.88, 1.0]))]
   CrystalFormation,
   #[assoc(glyph = "*", color = [0.5, 0.8, 0.95], walkable = false, name = "Crystal Growth", render_mode = TileRenderMode::Sprite("textures/space_qud/crystal.png", [0.28, 0.62, 0.82], [0.62, 0.88, 1.0]))]
-  CrystalGrowth,
+  CrystalGrowth
 }
 
 impl Tile {
