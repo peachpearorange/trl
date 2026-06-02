@@ -6,8 +6,9 @@ use {bevy::prelude::*,
                         Gear, Glyph, Grabbed, GrenadeInFlight, Invisible, Loadout, Location, Named, Phasing,
                         Object, Path, Stats, TimeSinceAction,
                         WalkAroundRandomly},
-             path_overlay::{bresenham_path, euclidean_los_point},
-             particles::{ParticleEffects, spawn_explosion_burst, spawn_gun_bullet},
+             path_overlay::{dda_cells, euclidean_los_point},
+             particles::{GunBullet, GunBulletVisual, ParticleEffects, PendingImpact,
+                         spawn_explosion_burst, spawn_gun_bullet, tile_to_world},
              ui::{LogEntries, log_message}}};
 
 // ---------------------------------------------------------------------------
@@ -484,7 +485,8 @@ pub fn grenade_thrower_ai(
       slot.timer = 0;
       let name = named.map(|n| n.name).unwrap_or("Something");
       log_message(&mut log, format!("{name} hurls a grenade!"));
-      let path = bresenham_path(ex, ey, px, py);
+      let from = Vec2::new(ex as f32 + 0.5, ey as f32 + 0.5);
+      let to   = Vec2::new(px as f32 + 0.5, py as f32 + 0.5);
       commands.spawn((
         Glyph::palette_sprite(
           "textures/space_qud/grenade.png",
@@ -493,7 +495,13 @@ pub fn grenade_thrower_ai(
           Color::srgb(0.30, 0.20, 0.10)
         ),
         Location::xyz(ex, ey, pz),
-        GrenadeInFlight { path, step: 0, tiles_per_turn: 4, z: pz }
+        GrenadeInFlight {
+          dir: (to - from).normalize(),
+          pos: from,
+          target: to,
+          tiles_per_turn: 4.0,
+          z: pz
+        }
       ));
     }
   }
@@ -503,10 +511,9 @@ pub fn grenade_thrower_ai(
 pub fn gun_attacker_ai(
   mut commands: Commands,
   mut log: ResMut<LogEntries>,
-  current: Res<crate::CurrentZone>,
   effects: Res<ParticleEffects>,
+  current: Res<crate::CurrentZone>,
   player_q: Single<(&Location, Option<&Invisible>), (With<crate::Player>, Without<Enemy>)>,
-  mut player_stats: Single<&mut Stats, (With<crate::Player>, Without<Enemy>)>,
   player_loadout: Single<&Loadout, (With<crate::Player>, Without<Enemy>)>,
   mut gunner_q: Query<(&Location, &mut Loadout, Option<&Named>), (With<Enemy>, Without<crate::Player>)>
 ) {
@@ -515,28 +522,93 @@ pub fn gun_attacker_ai(
     let level = current.0.level(pz);
     let player_dr = player_loadout.armor_dr();
     for (location, mut loadout, named) in gunner_q.iter_mut() {
-    let Some(slot) = loadout.gun_mut() else { continue };
-    let Gear::InnateGun { damage } = slot.gear else { continue };
-    slot.timer = slot.timer.saturating_add(1);
-    if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location
-      && ez == pz
-      && slot.timer >= slot.cooldown
-      && let Some((aim_x, aim_y)) = euclidean_los_point(ex as f32 + 0.5, ey as f32 + 0.5, px, py, level)
-    {
-      slot.timer = 0;
-      let name = named.map(|n| n.name).unwrap_or("Something");
-      spawn_gun_bullet(&mut commands, &effects, ex, ey, aim_x, aim_y, level.width, level.height);
-      let dmg = (damage - player_dr).max(0);
-      player_stats.hp = (player_stats.hp - dmg).max(0);
-      if dmg > 0 {
-        log_message(&mut log, format!("{name} shoots you for {dmg}."));
-      } else {
-        log_message(&mut log, format!("{name} shoots at you but deals no damage."));
-      }
-      if player_stats.hp == 0 {
-        log_message(&mut log, "You died.".into());
+      let Some(slot) = loadout.gun_mut() else { continue };
+      let Gear::InnateGun { damage } = slot.gear else { continue };
+      slot.timer = slot.timer.saturating_add(1);
+      if let Location::Coords { x: ex, y: ey, z: ez, .. } = *location
+        && ez == pz
+        && slot.timer >= slot.cooldown
+        && let Some((aim_x, aim_y)) = euclidean_los_point(ex as f32 + 0.5, ey as f32 + 0.5, px, py, level)
+      {
+        slot.timer = 0;
+        let name = named.map(|n| n.name).unwrap_or("Something");
+        log_message(&mut log, format!("{name} fires at you!"));
+        let dmg = (damage - player_dr).max(0);
+        spawn_gun_bullet(&mut commands, &effects, ex, ey, aim_x, aim_y, dmg, false, ez, level.width, level.height);
       }
     }
+  }
+}
+
+/// Each sim step: advance every [`GunBullet`] along its Euclidean line, check for
+/// wall/entity hits, apply damage and despawn on contact.
+pub fn advance_gun_bullets(
+  mut commands: Commands,
+  current: Res<crate::CurrentZone>,
+  index: Res<TileEntityIndex>,
+  effects: Res<ParticleEffects>,
+  mut log: ResMut<LogEntries>,
+  mut stats_q: Query<(&mut Stats, Option<&Named>, Has<crate::Player>)>,
+  mut bullets: Query<(Entity, &mut GunBullet)>,
+  mut visuals: Query<&mut GunBulletVisual>
+) {
+  for (ent, mut bullet) in bullets.iter_mut() {
+    let level = current.0.level(bullet.z);
+    let remaining = (bullet.target - bullet.pos).length();
+    let step = bullet.tiles_per_turn.min(remaining);
+    let new_pos = bullet.pos + bullet.dir * step;
+    let cells = dda_cells(bullet.pos.x, bullet.pos.y, new_pos.x, new_pos.y);
+    let mut final_pos = new_pos;
+    let mut hit_wall = false;
+    let mut hit_tile: Option<(i32, i32)> = None;
+    for &(cx, cy) in cells.iter().skip(1) {
+      if !level.walkable(cx, cy) {
+        hit_wall = true;
+        final_pos = Vec2::new(cx as f32 + 0.5 - bullet.dir.x, cy as f32 + 0.5 - bullet.dir.y);
+        break;
+      }
+      if index.0.get(&(cx, cy, bullet.z)).is_some_and(|ents| ents.iter().any(|&e| stats_q.get(e).is_ok())) {
+        hit_tile = Some((cx, cy));
+        final_pos = Vec2::new(cx as f32 + 0.5, cy as f32 + 0.5);
+        break;
+      }
+    }
+    bullet.pos = final_pos;
+    let cur_world = tile_to_world(final_pos.x, final_pos.y, level.width, level.height);
+
+    if let Some(emitter) = bullet.emitter
+      && let Ok(mut visual) = visuals.get_mut(emitter)
+    {
+      visual.dest = cur_world;
+    }
+
+    let despawn = hit_tile.is_some() || hit_wall || step >= remaining;
+    if let Some((cx, cy)) = hit_tile {
+      let hit_ents: Vec<Entity> = index.0.get(&(cx, cy, bullet.z)).map(|v| v.clone()).unwrap_or_default();
+      for e in hit_ents {
+        if let Ok((mut stats, named, is_player)) = stats_q.get_mut(e) {
+          stats.hp = (stats.hp - bullet.damage).max(0);
+          if bullet.is_player {
+            log_message(&mut log, format!("You shoot {} for {}!", named.map(|n| n.name).unwrap_or("it"), bullet.damage));
+          } else if is_player {
+            log_message(&mut log, format!("The bullet hits you for {}!", bullet.damage));
+            if stats.hp == 0 {
+              log_message(&mut log, "You died.".into());
+            }
+          }
+        }
+      }
+    } else if (hit_wall || step >= remaining) && bullet.is_player {
+      log_message(&mut log, "Your shot hits nothing.".into());
+    }
+    if despawn {
+      if let Some(emitter) = bullet.emitter {
+        commands.entity(emitter).insert(PendingImpact {
+          effect: effects.bullet_spark.clone(),
+          pos: cur_world
+        });
+      }
+      commands.entity(ent).despawn();
     }
   }
 }
@@ -560,8 +632,8 @@ fn detonate_grenade(
   spawn_explosion_burst(commands, effects, (cx, cy), level.width, level.height);
 }
 
-/// Each sim step: advance every [`GrenadeInFlight`] along its path by `tiles_per_turn`.
-/// When a grenade reaches the end of its path it detonates and despawns.
+/// Each sim step: advance every [`GrenadeInFlight`] along its Euclidean line by `tiles_per_turn`.
+/// Detonates and despawns on wall hit or arrival at target.
 pub fn tick_grenade_in_flight(
   mut commands: Commands,
   current: Res<crate::CurrentZone>,
@@ -570,23 +642,23 @@ pub fn tick_grenade_in_flight(
 ) {
   for (entity, mut grenade, mut location) in grenade_q.iter_mut() {
     let level = current.0.level(grenade.z);
-    let last_idx = grenade.path.len().saturating_sub(1);
-    let target_step = (grenade.step + grenade.tiles_per_turn).min(last_idx);
+    let remaining = (grenade.target - grenade.pos).length();
+    let step = grenade.tiles_per_turn.min(remaining);
+    let new_pos = grenade.pos + grenade.dir * step;
+    let cells = dda_cells(grenade.pos.x, grenade.pos.y, new_pos.x, new_pos.y);
+    let mut final_tile = (grenade.pos.x.floor() as i32, grenade.pos.y.floor() as i32);
     let mut hit_wall = false;
-    let mut next_step = grenade.step;
-    for s in (grenade.step + 1)..=target_step {
-      let &(sx, sy) = &grenade.path[s];
-      if !level.walkable(sx, sy) {
+    for &(cx, cy) in cells.iter().skip(1) {
+      if !level.walkable(cx, cy) {
         hit_wall = true;
         break;
       }
-      next_step = s;
+      final_tile = (cx, cy);
     }
-    let &(nx, ny) = &grenade.path[next_step.max(grenade.step)];
-    *location = Location::xyz(nx, ny, grenade.z);
-    grenade.step = next_step;
-    if hit_wall || next_step >= last_idx {
-      detonate_grenade(&mut commands, &effects, level, nx, ny, grenade.z);
+    grenade.pos = Vec2::new(final_tile.0 as f32 + 0.5, final_tile.1 as f32 + 0.5);
+    *location = Location::xyz(final_tile.0, final_tile.1, grenade.z);
+    if hit_wall || step >= remaining {
+      detonate_grenade(&mut commands, &effects, level, final_tile.0, final_tile.1, grenade.z);
       commands.entity(entity).despawn();
     }
   }

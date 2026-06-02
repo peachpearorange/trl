@@ -313,25 +313,10 @@ pub fn handle_ability_click(
     }
     AbilityKind::FireGun => {
       let (los_x, los_y) = los_point.unwrap();
-      let cells = dda_cells(px, py, los_x, los_y);
-      let hit = cells.iter().skip(1).find(|&&(cx, cy)| {
-        enemy_q.iter().any(|(loc, _, _)| {
-          matches!(loc, Location::Coords { x, y, z, .. } if *x == cx && *y == cy && *z == pos_z)
-        })
-      }).copied();
-      spawn_gun_bullet(&mut commands, &effects, pos_x, pos_y, los_x, los_y, level.width, level.height);
-      if let Some((hx, hy)) = hit
-        && let Some((_, mut stats, named)) = enemy_q.iter_mut().find(|(loc, _, _)| {
-          matches!(loc, Location::Coords { x, y, z, .. } if *x == hx && *y == hy && *z == pos_z)
-        })
-      {
-        let attack = loadout.weapon_attack_bonus() + 5;
-        stats.hp -= attack;
-        let name = named.map(|n| n.name).unwrap_or("Enemy");
-        log_message(&mut log, format!("You shoot {} for {} damage!", name, attack));
-      } else {
-        log_message(&mut log, "Your shot hits nothing.".into());
-      }
+      let attack = loadout.weapon_attack_bonus() + 5;
+      let level = current.0.level(pos_z);
+      spawn_gun_bullet(&mut commands, &effects, pos_x, pos_y, los_x, los_y, attack, true, pos_z as usize, level.width, level.height);
+      log_message(&mut log, "You fire your gun!".into());
       true
     }
     AbilityKind::FirePlasma => {
@@ -444,7 +429,8 @@ pub fn handle_ability_click(
           inventory.0.remove(&item);
           loadout.remove_grenade_by_item(item);
         }
-        let path = bresenham_path(pos_x, pos_y, tx, ty);
+        let from = Vec2::new(pos_x as f32 + 0.5, pos_y as f32 + 0.5);
+        let to   = Vec2::new(tx as f32 + 0.5, ty as f32 + 0.5);
         commands.spawn((
           Glyph::palette_sprite(
             "textures/space_qud/grenade.png",
@@ -454,9 +440,10 @@ pub fn handle_ability_click(
           ),
           Location::xyz(pos_x, pos_y, pos_z),
           GrenadeInFlight {
-            path,
-            step: 0,
-            tiles_per_turn: GRENADE_TILES_PER_TURN,
+            dir: (to - from).normalize(),
+            pos: from,
+            target: to,
+            tiles_per_turn: GRENADE_TILES_PER_TURN as f32,
             z: pos_z
           }
         ));

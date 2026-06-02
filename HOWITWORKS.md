@@ -88,6 +88,8 @@ Most orchestration lives in `src/main.rs`:
 - `TileEntityIndex` is rebuilt from those positions and should be consulted when adding AI/interaction logic.
 - Deferred generation is used for some locations; `Galaxy` can materialize those on demand when docking/navigation occurs.
 - Ability UI and targeting are resource-driven (`TargetingState`, ability slot resources) rather than direct UI mutation.
+- Zone navigation (`apply_pending_navigation`) **despawns every tilemap chunk + entity and respawns fresh ones**, and resets `Fov`. Any cached per-tile *visual* state that persists across frames (e.g. the FOV fade `brightness` grid in `update_fov_visuals`) must key off the live chunk `Entity` and reset when it changes — otherwise stale state plus a "skip if unchanged" optimization leaves the new empty chunk unwritten (tiles render black while entities show, since entities aren't chunk-based and the player isn't FOV-gated).
+- `update_fov` rebuilds `Fov` from scratch *every* frame (in the ungated `EveryFrame` set) from the level's opaque tiles plus all `BlocksSight` entities (closed doors). It mutates the resource unconditionally, so `Fov.is_changed()` is effectively always true — don't gate visuals on it.
 
 ## Practical "Where To Edit" Guide
 

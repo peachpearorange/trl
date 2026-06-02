@@ -33,13 +33,33 @@ pub struct ParticleEffects {
 #[derive(Component)]
 pub struct EffectLifetime(pub Timer);
 
-/// Moves the particle emitter from its spawn point toward `end` at `velocity` world-units/sec.
-/// Despawns the entity on arrival — no EffectLifetime needed.
+/// Sim-step driven projectile. Hanabi emitter is a separate entity (see `GunBulletVisual`)
+/// spawned after the first advance so it starts away from the shooter tile.
 #[derive(Component)]
 pub struct GunBullet {
-  pub velocity: Vec3,
-  pub end: Vec3
+  pub dir: Vec2,
+  pub pos: Vec2,
+  pub target: Vec2,
+  pub tiles_per_turn: f32,
+  pub damage: i32,
+  pub is_player: bool,
+  pub z: usize,
+  pub emitter: Option<Entity>
 }
+
+#[derive(Component)]
+pub struct GunBulletVisual {
+  pub dest: Vec3,
+  pub speed: f32
+}
+
+#[derive(Component)]
+pub struct PendingImpact {
+  pub effect: Handle<EffectAsset>,
+  pub pos: Vec3
+}
+
+pub const BULLET_TILES_PER_TURN: f32 = 8.0;
 
 // ---------------------------------------------------------------------------
 // Plugin
@@ -52,7 +72,7 @@ impl Plugin for ParticlesPlugin {
     app
       .add_plugins(HanabiPlugin)
       .add_systems(Startup, setup_particle_effects)
-      .add_systems(Update, (tick_effect_lifetime, move_gun_bullets));
+;
   }
 }
 
@@ -93,8 +113,9 @@ fn setup_particle_effects(
   // Particles flash briefly in place as the emitter sweeps through — no per-particle velocity.
   let writer = ExprWriter::new();
   let age = writer.lit(0.0_f32).expr();
-  let lifetime = writer.lit(0.06_f32).uniform(writer.lit(0.15_f32)).expr();
-  let position = writer.lit(Vec3::ZERO).expr();
+  let lifetime = writer.lit(0.08_f32).uniform(writer.lit(0.18_f32)).expr();
+  let p_center = writer.lit(Vec3::ZERO).expr();
+  let p_radius = writer.lit(0.0_f32).expr();
   let module = writer.finish();
 
   let mut cg: bevy_hanabi::Gradient<Vec4> = bevy_hanabi::Gradient::new();
@@ -107,11 +128,12 @@ fn setup_particle_effects(
   sg.add_key(1.0, Vec3::splat(15.0));
 
   let gun_bullet = effects.add(
-    EffectAsset::new(32, SpawnerSettings::rate(60.0_f32.into()), module)
+    EffectAsset::new(16, SpawnerSettings::rate(60.0_f32.into()), module)
       .with_name("gun_bullet")
-      .init(SetAttributeModifier::new(Attribute::POSITION, position))
+      .with_motion_integration(MotionIntegration::None)
       .init(SetAttributeModifier::new(Attribute::AGE, age))
       .init(SetAttributeModifier::new(Attribute::LIFETIME, lifetime))
+      .init(SetPositionSphereModifier { center: p_center, radius: p_radius, dimension: ShapeDimension::Volume })
       .render(ColorOverLifetimeModifier::new(cg))
       .render(SizeOverLifetimeModifier { gradient: sg, screen_space_size: false })
   );
@@ -407,8 +429,6 @@ pub fn spawn_bullet_trail(
   }
 }
 
-/// Spawn a gun bullet: a moving particle emitter that sweeps from the shooter at `(ex, ey)`
-/// to the continuous-tile-space aim point `(aim_x, aim_y)`, leaving a brief flash trail.
 pub fn spawn_gun_bullet(
   commands: &mut Commands,
   effects: &ParticleEffects,
@@ -416,22 +436,35 @@ pub fn spawn_gun_bullet(
   ey: i32,
   aim_x: f32,
   aim_y: f32,
+  damage: i32,
+  is_player: bool,
+  z: usize,
   level_w: usize,
   level_h: usize
 ) {
-  let start = grid_world(ex, ey, level_w, level_h);
-  let end   = tile_to_world(aim_x, aim_y, level_w, level_h);
-  let diff  = (end - start).truncate();
-  let dist  = diff.length();
-  if dist < 1.0 { return; }
-  const SPEED: f32 = 400.0; // world-units/sec — slow enough to see
-  let velocity = diff.normalize().extend(0.0) * SPEED;
-  commands.spawn((
+  let pos = Vec2::new(ex as f32 + 0.5, ey as f32 + 0.5);
+  let target = Vec2::new(aim_x, aim_y);
+  let diff = target - pos;
+  if diff.length() < 0.1 { return; }
+  let start_world = tile_to_world(pos.x, pos.y, level_w, level_h);
+  let emitter = commands.spawn((
     ParticleEffect::new(effects.gun_bullet.clone()),
-    GunBullet { velocity, end },
-    Transform::from_translation(start)
-  ));
+    GunBulletVisual { dest: start_world, speed: VISUAL_SPEED },
+    Transform::from_translation(start_world)
+  )).id();
+  commands.spawn(GunBullet {
+    dir: diff.normalize(),
+    pos,
+    target,
+    tiles_per_turn: BULLET_TILES_PER_TURN,
+    damage,
+    is_player,
+    z,
+    emitter: Some(emitter)
+  });
 }
+
+const VISUAL_SPEED: f32 = 500.0;
 
 /// Spawn a cyan laser beam flash as a straight Euclidean line from `start` to `end`
 /// (world-space positions). Emitters are placed every half-tile along the line.
@@ -618,23 +651,34 @@ pub fn liquid_splash_on_move(
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-fn move_gun_bullets(
+pub fn move_gun_bullets(
+  time: Res<Time>,
   mut commands: Commands,
-  mut q: Query<(Entity, &mut Transform, &GunBullet)>,
-  time: Res<Time>
+  mut q: Query<(Entity, &GunBulletVisual, &mut Transform, Option<&PendingImpact>)>
 ) {
-  for (entity, mut tf, bullet) in q.iter_mut() {
-    let step = bullet.velocity * time.delta_secs();
-    let remaining = (bullet.end - tf.translation).truncate();
-    if remaining.length() <= step.truncate().length() {
-      commands.entity(entity).despawn();
+  for (entity, visual, mut tf, impact) in q.iter_mut() {
+    let to_dest = visual.dest - tf.translation;
+    let dist = to_dest.truncate().length();
+    let step = visual.speed * time.delta_secs();
+    if dist <= step {
+      tf.translation = visual.dest;
+      if let Some(impact) = impact {
+        commands.spawn((
+          ParticleEffect::new(impact.effect.clone()),
+          Transform::from_translation(impact.pos),
+          EffectLifetime(Timer::from_seconds(0.5, TimerMode::Once))
+        ));
+        commands.entity(entity).remove::<PendingImpact>();
+        commands.entity(entity).insert(EffectLifetime(Timer::from_seconds(0.2, TimerMode::Once)));
+      }
     } else {
-      tf.translation += step;
+      let dir = to_dest.truncate().normalize().extend(0.0);
+      tf.translation += dir * step;
     }
   }
 }
 
-fn tick_effect_lifetime(
+pub fn tick_effect_lifetime(
   mut commands: Commands,
   mut query: Query<(Entity, &mut EffectLifetime)>,
   time: Res<Time>

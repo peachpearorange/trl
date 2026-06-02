@@ -647,13 +647,14 @@ pub struct DamageCloud {
 }
 
 /// A grenade lobbed by the player, traveling tile-by-tile toward its target.
-/// On each sim step it advances `tiles_per_turn` along `path`; when it reaches the end
-/// it detonates (spawns an explosion at the final tile) and despawns.
+/// Travels `tiles_per_turn` per sim step along a Euclidean straight line.
+/// Detonates (spawns explosion cloud + burst) on wall hit or arrival.
 #[derive(Component, Debug)]
 pub struct GrenadeInFlight {
-  pub path: Vec<(i32, i32)>,
-  pub step: usize,
-  pub tiles_per_turn: usize,
+  pub dir: Vec2,
+  pub pos: Vec2,
+  pub target: Vec2,
+  pub tiles_per_turn: f32,
   pub z: usize
 }
 

@@ -40,7 +40,7 @@ use {crate::entities::{AirlockDoor, Bed, BlocksSight, Collidable, CraftingTable,
             sprite_render::{AlphaMode2d, TileData, TilemapChunk, TilemapChunkMaterial,
                             TilemapChunkTileData}},
      combat::{FlowField, TileEntityIndex, compute_flow_field, damage_cloud_tick,
-              enemy_ai, enemy_stealth_ai, follower_ai, grenade_thrower_ai,
+              advance_gun_bullets, enemy_ai, enemy_stealth_ai, follower_ai, grenade_thrower_ai,
               gun_attacker_ai, maintain_tile_index, mushroom_spore_attack, npc_wander,
               tick_grabbed, tick_grenade_in_flight, tick_invisible, tick_phasing},
      level::{FovGrid, Item, LocationType, Tile, compute_fov},
@@ -335,6 +335,7 @@ fn is_sim_frame(
   clock: Res<Clock>,
   acc: Res<AccumulatedDir>,
   keys: Res<ButtonInput<KeyCode>>,
+  tb: Res<TurnBasedWorldState>,
 ) -> bool {
   if frame.0 == 0 { false }
   else if clock.mode == TimeMode::RealTime {
@@ -345,7 +346,7 @@ fn is_sim_frame(
       || any_direction_pressed(&keys)
       || keys.pressed(KeyCode::Space)
       || keys.pressed(KeyCode::Period);
-    has_input
+    (has_input || tb.world_tick_pending)
       && frame.0.saturating_sub(sim_clock.last_player_frame) >= u64::from(RENDER_FRAMES_PER_SIM_STEP)
   }
 }
@@ -817,6 +818,7 @@ fn main() {
         tick_invisible,
         tick_phasing,
         tick_grenade_in_flight,
+        advance_gun_bullets,
         damage_cloud_tick,
         player_death_check,
         npc_wander,
@@ -851,6 +853,10 @@ fn main() {
       )
         .chain()
         .in_set(Render)
+    )
+    .add_systems(
+      Update,
+      (particles::tick_effect_lifetime, particles::move_gun_bullets).in_set(Render)
     )
     .configure_sets(Update, (EveryFrame, EveryFrameUi, SimFrame, WorldStep, Render).chain())
     .run();
