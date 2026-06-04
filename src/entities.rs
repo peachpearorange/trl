@@ -518,16 +518,18 @@ pub struct Glyph {
   /// Asset path relative to `assets/` (e.g. `textures/catgirl.png`).
   pub texture: Option<&'static str>,
   /// Space-Qud–style mask: black → first color, white → second; transparent stays clear.
-  pub sprite_palette: Option<(Color, Color)>
+  pub sprite_palette: Option<(Color, Color)>,
+  /// When true, use GPU RecolorMaterial instead of CPU-baked palette sprite.
+  pub shader_recolor: bool
 }
 
 impl Glyph {
   pub fn ascii(ch: char, color: Color) -> Self {
-    Self { ch, color, texture: None, sprite_palette: None }
+    Self { ch, color, texture: None, sprite_palette: None, shader_recolor: false }
   }
 
   pub fn sprite(path: &'static str, ch: char, color: Color) -> Self {
-    Self { ch, color, texture: Some(path), sprite_palette: None }
+    Self { ch, color, texture: Some(path), sprite_palette: None, shader_recolor: false }
   }
 
   /// Mask PNG (black / white / alpha); instance colors set how it draws.
@@ -541,7 +543,25 @@ impl Glyph {
       ch,
       color: primary,
       texture: Some(path),
-      sprite_palette: Some((primary, secondary))
+      sprite_palette: Some((primary, secondary)),
+      shader_recolor: false
+    }
+  }
+
+  /// Like `palette_sprite` but recolors on the GPU via RecolorMaterial,
+  /// so primary/secondary can be changed at runtime.
+  pub const fn recolor_sprite(
+    path: &'static str,
+    ch: char,
+    primary: Color,
+    secondary: Color
+  ) -> Self {
+    Self {
+      ch,
+      color: primary,
+      texture: Some(path),
+      sprite_palette: Some((primary, secondary)),
+      shader_recolor: true
     }
   }
 }
@@ -888,7 +908,7 @@ impl Object {
       flavor: "A wiry rat-person clutching a crude spear. Smells like wet fur and old iron.",
     })
     .with(Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 2.1, attack_speed: 1.0 })
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/gunman .png", 'r',
       Color::srgb(0.72, 0.48, 0.28), Color::srgb(0.95, 0.78, 0.55),
     ))
@@ -904,7 +924,7 @@ impl Object {
       flavor: "A rat-person in battered leather armor, gripping a crude spear. The hide smells worse than the iron.",
     })
     .with(Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 1.9, attack_speed: 1.0 })
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/mogussy.png", 'r',
       Color::srgb(0.55, 0.42, 0.28), Color::srgb(0.82, 0.68, 0.45),
     ))
@@ -921,7 +941,7 @@ impl Object {
       flavor: "A damaged security robot. Its threat-response routines are still very much active.",
     })
     .with(Stats { hp: 15, max_hp: 15, attack: 4, move_speed: 2.0, attack_speed: 0.8 })
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/robo.png", 'R',
       Color::srgb(0.28, 0.52, 0.58), Color::srgb(0.55, 0.82, 0.88),
     ))
@@ -936,7 +956,7 @@ impl Object {
       flavor: "A repurposed salvage drone running corrupted directives. Approaches everything as scrap.",
     })
     .with(Stats { hp: 8, max_hp: 8, attack: 3, move_speed: 2.3, attack_speed: 1.2 })
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/wack robo.png", 'R',
       Color::srgb(0.62, 0.38, 0.18), Color::srgb(0.88, 0.68, 0.32),
     ))
@@ -952,7 +972,7 @@ impl Object {
     })
     .with(Stats { hp: 5, max_hp: 5, attack: 3, move_speed: 12.0, attack_speed: 1.5 })
     .with(DriftChance(0.3))
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/alien1.png", 'x',
       Color::srgb(0.18, 0.72, 0.22), Color::srgb(0.92, 0.82, 0.18),
     ))
@@ -976,7 +996,7 @@ impl Object {
     })
     .with(Stats { hp: 14, max_hp: 14, attack: 5, move_speed: 4.0, attack_speed: 0.9 })
     .with(DriftChance(0.05))
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/crab alien.png", 'c',
       Color::srgb(0.85, 0.25, 0.05), Color::srgb(1.0, 0.55, 0.0),
     ))
@@ -994,7 +1014,7 @@ impl Object {
     })
     .with(Stats { hp: 6, max_hp: 6, attack: 5, move_speed: 10.0, attack_speed: 2.0 })
     .with(DriftChance(0.5))
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/mantis alien.png", 'M',
       Color::srgb(0.65, 0.90, 0.95), Color::srgb(0.20, 0.55, 0.70),
     ))
@@ -1018,7 +1038,7 @@ impl Object {
     })
     .with(Stats { hp: 10, max_hp: 10, attack: 4, move_speed: 3.5, attack_speed: 0.8 })
     .with(DriftChance(0.1))
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/crab alien.png", 'c',
       Color::srgb(0.55, 0.18, 0.72), Color::srgb(0.92, 0.72, 0.18),
     ))
@@ -1035,7 +1055,7 @@ impl Object {
       flavor: "An ambulatory fungal mass. Moves with unsettling purpose. Its gills swell with spores.",
     })
     .with(Stats { hp: 6, max_hp: 6, attack: 2, move_speed: 2.0, attack_speed: 0.6 })
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/mushroom.png", 'm',
       Color::srgb(0.42, 0.28, 0.18), Color::srgb(0.82, 0.72, 0.55),
     ))
@@ -1051,7 +1071,7 @@ impl Object {
       flavor: "A wiry soldier bristling with grenades. Keeps its distance.",
     })
     .with(Stats { hp: 8, max_hp: 8, attack: 2, move_speed: 2.0, attack_speed: 0.8 })
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/gunman .png", 'g',
       Color::srgb(0.22, 0.48, 0.22), Color::srgb(0.60, 0.78, 0.42),
     ))
@@ -1067,7 +1087,7 @@ impl Object {
       flavor: "A sharp-eyed mercenary with a revolver. Shoots first.",
     })
     .with(Stats { hp: 8, max_hp: 8, attack: 3, move_speed: 2.0, attack_speed: 1.0 })
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/gunman .png", 'g',
       Color::srgb(0.42, 0.52, 0.68), Color::srgb(0.72, 0.82, 0.92),
     ))
@@ -1083,7 +1103,7 @@ impl Object {
       flavor: "A battered patrol drone on four legs. Its mounted gun tracks movement.",
     })
     .with(Stats { hp: 10, max_hp: 10, attack: 2, move_speed: 3.0, attack_speed: 1.0 })
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/robot dog with gun.png", 'd',
       Color::srgb(0.42, 0.44, 0.48), Color::srgb(0.85, 0.75, 0.15),
     ))
@@ -1099,7 +1119,7 @@ impl Object {
       flavor: "A ceiling-mounted autoturret. It can't move, but its tracking is relentless.",
     })
     .with(Stats { hp: 12, max_hp: 12, attack: 1, move_speed: 0.0, attack_speed: 1.0 })
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/turret1.png", 't',
       Color::srgb(0.5, 0.5, 0.5), Color::srgb(0.8, 0.2, 0.2),
     ))
@@ -1117,21 +1137,21 @@ impl Object {
     .with(Player);
 
   pub const SPACE_CAT: Self = Self::STRUCTURE_PASSABLE
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/space cat.png", 'c',
       Color::srgb(0.92, 0.82, 0.62), Color::srgb(0.52, 0.36, 0.26),
     ))
     .with(Named { name: "Space cat", flavor: "Judges your piloting from a warm bulkhead. Offers no corrections." });
 
   pub const BOULDER: Self = Self::STRUCTURE
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/rock.png", 'o',
       Color::srgb(0.32, 0.30, 0.28), Color::srgb(0.58, 0.55, 0.50),
     ))
     .with(Named { name: "Boulder", flavor: "A massive rock. Immovable." });
 
   pub const THRUSTER: Self = Self::STRUCTURE
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/thruster.png", '>',
       Color::srgb(0.72, 0.38, 0.08), Color::srgb(0.75, 0.75, 0.72),
     ))
@@ -1139,7 +1159,7 @@ impl Object {
 
   pub const SPORE_CLOUD: Self = Self::EMPTY
     .with(Collidable(false))
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/checkerboard pattern.png", '*',
       Color::srgb(0.30, 0.72, 0.22), Color::srgb(0.18, 0.48, 0.12),
     ))
@@ -1148,7 +1168,7 @@ impl Object {
 
   pub const EXPLOSION_CLOUD: Self = Self::EMPTY
     .with(Collidable(false))
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/checkerboard pattern.png", '*',
       Color::srgb(0.95, 0.55, 0.10), Color::srgb(0.72, 0.22, 0.06),
     ))
@@ -1156,42 +1176,42 @@ impl Object {
     .with(DamageCloud { damage_per_tick: 3, ticks_remaining: 2, tick_interval: 2, tick_timer: 0 });
 
   pub const LASER_SWORD: Self = Self::STRUCTURE_PASSABLE
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/laser sword.png", '/',
       Color::srgb(0.18, 0.08, 0.52), Color::srgb(0.42, 0.82, 0.98),
     ))
     .with(Named { name: "Laser Sword", flavor: "An energy blade, dormant. Still hums faintly." });
 
   pub const TABLE: Self = Self::STRUCTURE
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/table.png", 't',
       Color::srgb(0.48, 0.34, 0.18), Color::srgb(0.72, 0.58, 0.36),
     ))
     .with(Named { name: "Table", flavor: "A sturdy table." });
 
   pub const CHAIR: Self = Self::STRUCTURE_PASSABLE
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/chair (1).png", 'h',
       Color::srgb(0.60, 0.62, 0.65), Color::srgb(0.72, 0.18, 0.14),
     ))
     .with(Named { name: "Chair", flavor: "A chair. Something to sit on." });
 
   pub const LOCKER: Self = Self::STRUCTURE
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/locker (2).png", 'l',
       Color::srgb(0.32, 0.38, 0.42), Color::srgb(0.62, 0.68, 0.72),
     ))
     .with(Named { name: "Locker", flavor: "A metal locker. Whatever was inside is long gone." });
 
   pub const CRATE_OBJ: Self = Self::STRUCTURE
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/crate.png", 'c',
       Color::srgb(0.42, 0.32, 0.18), Color::srgb(0.72, 0.60, 0.38),
     ))
     .with(Named { name: "Crate", flavor: "A battered storage crate. Probably empty." });
 
   pub const DOOR: Self = Self::STRUCTURE
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/door closed (1).png", '+',
       DOOR_CLOSED_PRI, DOOR_CLOSED_SEC,
     ))
@@ -1200,14 +1220,14 @@ impl Object {
     .with(Door { open: false, closed_color: DOOR_CLOSED_PRI });
 
   pub const AIRLOCK_DOOR: Self = Self::DOOR
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/airlock closed.png", '+',
       AIRLOCK_PRI, AIRLOCK_SEC,
     ))
     .with(AirlockDoor { opened_at_sim_time: None });
 
   pub const FLIGHT_CONSOLE: Self = Self::STRUCTURE
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/computer .png", 'C',
       Color::srgb(0.18, 0.34, 0.52), Color::srgb(0.32, 0.88, 0.45),
     ))
@@ -1215,7 +1235,7 @@ impl Object {
     .with(FlightConsole);
 
   pub const LOADOUT_CONSOLE: Self = Self::STRUCTURE
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/locker (1).png", 'Q',
       Color::srgb(0.25, 0.38, 0.52), Color::srgb(0.55, 0.75, 0.88),
     ))
@@ -1223,7 +1243,7 @@ impl Object {
     .with(LoadoutConsole);
 
   pub const LOOT_CHEST: Self = Self::STRUCTURE
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/crate.png", '&',
       Color::srgb(0.72, 0.52, 0.28), Color::srgb(0.42, 0.32, 0.22),
     ))
@@ -1231,7 +1251,7 @@ impl Object {
     .with(LootChest { opened: false });
 
   pub const BED: Self = Self::STRUCTURE
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/bed.png", 'b',
       Color::srgb(0.52, 0.38, 0.22), Color::srgb(0.88, 0.84, 0.72),
     ))
@@ -1239,7 +1259,7 @@ impl Object {
     .with(Bed);
 
   pub const CRAFTING_TABLE: Self = Self::STRUCTURE
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/crafting table.png", 'C',
       Color::srgb(0.38, 0.42, 0.48), Color::srgb(0.62, 0.62, 0.62),
     ))
@@ -1250,7 +1270,7 @@ impl Object {
 
   pub const fn mushroom(primary: Color, secondary: Color, name: &'static str) -> Self {
     Self::STRUCTURE_PASSABLE
-      .with(Glyph::palette_sprite("textures/space_qud/mushroom.png", 'm', primary, secondary))
+      .with(Glyph::recolor_sprite("textures/space_qud/mushroom.png", 'm', primary, secondary))
       .with(Named { name, flavor: "A large fungal growth rooted in the alien soil." })
   }
 
@@ -1287,7 +1307,7 @@ impl Object {
   pub const fn supply_cache(contents: &'static [(crate::level::Item, u32)]) -> Self {
     Self::EMPTY
       .with(Collidable(true))
-      .with(Glyph::palette_sprite(
+      .with(Glyph::recolor_sprite(
         "textures/space_qud/crate.png", 'S',
         Color::srgb(0.28, 0.42, 0.52), Color::srgb(0.52, 0.75, 0.88),
       ))
@@ -1299,7 +1319,7 @@ impl Object {
   // ---- fn factories (need rand, runtime Vec, etc.) ----
 
   pub const TREE: Self = Self::STRUCTURE_PASSABLE
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/tree.png", 'T',
       Color::srgb(0.14, 0.42, 0.16), Color::srgb(0.38, 0.62, 0.24),
     ))
@@ -1308,7 +1328,7 @@ impl Object {
     .with(Tree);
 
   pub const TREE2: Self = Self::STRUCTURE_PASSABLE
-    .with(Glyph::palette_sprite(
+    .with(Glyph::recolor_sprite(
       "textures/space_qud/tree2.png", 'T',
       Color::srgb(0.14, 0.42, 0.16), Color::srgb(0.38, 0.62, 0.24),
     ))
@@ -1322,7 +1342,7 @@ impl Object {
 
   pub fn elevator(current_z: usize, floors: Vec<(usize, i32, i32)>) -> Self {
     Self::STRUCTURE
-      .with(Glyph::palette_sprite(
+      .with(Glyph::recolor_sprite(
         "textures/space_qud/elevator.png", 'E',
         Color::srgb(0.42, 0.46, 0.50), Color::srgb(1.0, 0.85, 0.10),
       ))
@@ -1332,7 +1352,7 @@ impl Object {
 
   pub fn cave_entrance(surface_x: i32, surface_y: i32, cave_x: i32, cave_y: i32) -> Self {
     Self::STRUCTURE_PASSABLE
-      .with(Glyph::palette_sprite(
+      .with(Glyph::recolor_sprite(
         "textures/space_qud/stairs.png", '>',
         Color::srgb(0.35, 0.32, 0.28), Color::srgb(0.55, 0.50, 0.40),
       ))
@@ -1345,7 +1365,7 @@ impl Object {
 
   pub fn cave_exit(surface_x: i32, surface_y: i32, cave_x: i32, cave_y: i32) -> Self {
     Self::STRUCTURE_PASSABLE
-      .with(Glyph::palette_sprite(
+      .with(Glyph::recolor_sprite(
         "textures/space_qud/stairs up.png", '<',
         Color::srgb(0.55, 0.50, 0.40), Color::srgb(0.35, 0.32, 0.28),
       ))
@@ -1359,15 +1379,15 @@ impl Object {
   pub const fn ground_item(item: crate::level::Item) -> Self {
     let (primary, secondary) = item.loot_colors();
     Self::EMPTY
-      .with(Glyph::palette_sprite(item.loot_texture(), '*', primary, secondary))
+      .with(Glyph::recolor_sprite(item.loot_texture(), '*', primary, secondary))
       .with(GroundItem(item))
   }
 }
 
 pub fn npc_person_glyph(ch: char, primary: Color, secondary: Color) -> Glyph {
-  Glyph::palette_sprite("textures/space_qud/person (2).png", ch, primary, secondary)
+  Glyph::recolor_sprite("textures/space_qud/person (2).png", ch, primary, secondary)
 }
 
 pub fn npc_robo_glyph(ch: char, primary: Color, secondary: Color) -> Glyph {
-  Glyph::palette_sprite("textures/space_qud/robo (1).png", ch, primary, secondary)
+  Glyph::recolor_sprite("textures/space_qud/robo (1).png", ch, primary, secondary)
 }

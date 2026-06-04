@@ -144,7 +144,7 @@ fn spore_tender() -> Object {
     },
     Stats { hp: 20, max_hp: 20, attack: 2, move_speed: 1.5, attack_speed: 0.4 },
     Loadout::default(),
-    Glyph::palette_sprite(
+    Glyph::recolor_sprite(
       "textures/space_qud/mushroom.png",
       'n',
       Color::srgb(0.52, 0.06, 0.72),

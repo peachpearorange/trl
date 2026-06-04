@@ -18,6 +18,7 @@ mod loot;
 pub mod navigation;
 mod npcs;
 mod outline;
+pub mod recolor;
 mod particles;
 mod path_overlay;
 mod post_process;
@@ -272,7 +273,7 @@ impl Clock {
   fn spend_turn(&mut self, tb: &mut TurnBasedWorldState) {
     self.time = self.time.saturating_add(1);
     if self.mode == TimeMode::TurnBased {
-      tb.world_tick_pending = true;
+      tb.world_tick_pending += 1;
     }
   }
 }
@@ -281,7 +282,7 @@ impl Clock {
 /// to determine whether the world should advance; cleared at the end of `enemy_ai`.
 #[derive(Resource, Default)]
 pub struct TurnBasedWorldState {
-  pub world_tick_pending: bool
+  pub world_tick_pending: u32
 }
 
 /// Filled by [`player_input`] when a move is blocked; [`resolve_bump_interact`] reads it the same frame.
@@ -346,7 +347,7 @@ fn is_sim_frame(
       || any_direction_pressed(&keys)
       || keys.pressed(KeyCode::Space)
       || keys.pressed(KeyCode::Period);
-    (has_input || tb.world_tick_pending)
+    (has_input || tb.world_tick_pending > 0)
       && frame.0.saturating_sub(sim_clock.last_player_frame) >= u64::from(RENDER_FRAMES_PER_SIM_STEP)
   }
 }
@@ -354,7 +355,7 @@ fn is_sim_frame(
 
 fn record_sim_ran(frame: Res<RenderFrame>, clock: Res<Clock>, tb: Res<TurnBasedWorldState>, mut sim_clock: ResMut<SimClock>) {
   sim_clock.last_frame = frame.0;
-  if clock.mode == TimeMode::TurnBased || tb.world_tick_pending {
+  if clock.mode == TimeMode::TurnBased || tb.world_tick_pending > 0 {
     sim_clock.last_player_frame = frame.0;
   }
 }
@@ -416,10 +417,7 @@ struct LootDrop {
 #[derive(Component)]
 struct DeathShrink {
   start_frame: u64,
-  frames_per_texel: u64,
-  total_texels: u64,
-  prev_texels: u64,
-  source: image::RgbaImage
+  duration_frames: u64
 }
 
 #[derive(Component, Default)]
@@ -488,7 +486,9 @@ fn track_movement(
 fn interpolate_visual_one(vis: &mut Visuals, f: u64, local: Vec2) {
   if let Some(start) = vis.last_move_start_frame {
     let e = f.saturating_sub(start);
-    let n = u64::from(RENDER_FRAMES_PER_SIM_STEP);
+    let delta = local - vis.prev;
+    let diagonal = delta.x.abs() > 0.01 && delta.y.abs() > 0.01;
+    let n = u64::from(RENDER_FRAMES_PER_SIM_STEP) * if diagonal { 2 } else { 1 };
     if e >= n {
       vis.last_move_start_frame = None;
       vis.prev = local;
@@ -548,8 +548,7 @@ fn apply_bump_lunge(
 fn setup_glyph_visuals(
   mut commands: Commands,
   asset_server: Res<AssetServer>,
-  mut images: ResMut<Assets<Image>>,
-  mut palette_cache: ResMut<PaletteImageCache>,
+  mut sprites: recolor::SpriteRes,
   current: Res<CurrentZone>,
   query: Query<(Entity, &Glyph, &Location), (Added<Glyph>, Without<GlyphVisual>)>,
   stats_q: Query<&entities::Stats>
@@ -561,31 +560,50 @@ fn setup_glyph_visuals(
       let local = Vec2::new(lx as f32, ly as f32);
       let pos = tile_screen_pos(lx as f32, ly as f32, current.0.width, current.0.height)
         + Vec3::new(0.0, 0.0, 2.0);
+      let shared = (
+        Transform::from_translation(pos).with_scale(Vec3::splat(TILE_SIZE)),
+        GlyphVisual,
+        GlyphFade::default(),
+        RenderLayers::layer(post_process::LAYER_ENTITIES),
+        PrevHp(stats_q.get(entity).map_or(0, |s| s.hp)),
+        Visuals { prev: local, last_move_start_frame: None, display: local, last_pos: local }
+      );
       if let Some(path) = glyph.texture {
-        let img = if let Some((primary, secondary)) = glyph.sprite_palette {
-          palette_sprite_handle(path, primary, secondary, &mut palette_cache, &mut images)
+        if glyph.shader_recolor
+          && let Some((primary, secondary)) = glyph.sprite_palette
+        {
+          let tex = asset_server.load(path);
+          let mat = sprites.recolor_materials.add(recolor::RecolorMaterial {
+            texture: tex,
+            primary: primary.to_linear(),
+            secondary: secondary.to_linear()
+          });
+          commands.entity(entity).insert((
+            Mesh2d(sprites.recolor_quad.0.clone()),
+            MeshMaterial2d(mat),
+            shared
+          ));
         } else {
-          asset_server.load(path)
-        };
-        commands.entity(entity).insert((
-          Sprite {
-            image: img,
-            custom_size: Some(Vec2::splat(TILE_SIZE)),
-            color: Color::WHITE,
-            ..default()
-          },
-          Transform::from_translation(pos),
-          GlyphVisual,
-          GlyphFade::default(),
-          RenderLayers::layer(post_process::LAYER_ENTITIES),
-          PrevHp(stats_q.get(entity).map_or(0, |s| s.hp)),
-          Visuals {
-            prev: local,
-            last_move_start_frame: None,
-            display: local,
-            last_pos: local
-          }
-        ));
+          let img = if let Some((primary, secondary)) = glyph.sprite_palette {
+            palette_sprite_handle(path, primary, secondary, &mut sprites.palette_cache, &mut sprites.images)
+          } else {
+            asset_server.load(path)
+          };
+          commands.entity(entity).insert((
+            Sprite {
+              image: img,
+              custom_size: Some(Vec2::splat(TILE_SIZE)),
+              color: Color::WHITE,
+              ..default()
+            },
+            Transform::from_translation(pos),
+            GlyphVisual,
+            GlyphFade::default(),
+            RenderLayers::layer(post_process::LAYER_ENTITIES),
+            PrevHp(stats_q.get(entity).map_or(0, |s| s.hp)),
+            Visuals { prev: local, last_move_start_frame: None, display: local, last_pos: local }
+          ));
+        }
       } else {
         commands.entity(entity).insert((
           Text2d::new(glyph.ch.to_string()),
@@ -596,12 +614,7 @@ fn setup_glyph_visuals(
           GlyphFade::default(),
           RenderLayers::layer(post_process::LAYER_ENTITIES),
           PrevHp(stats_q.get(entity).map_or(0, |s| s.hp)),
-          Visuals {
-            prev: local,
-            last_move_start_frame: None,
-            display: local,
-            last_pos: local
-          }
+          Visuals { prev: local, last_move_start_frame: None, display: local, last_pos: local }
         ));
       }
     }
@@ -622,9 +635,9 @@ fn sync_entity_positions(
 fn animate_walk_sprites(
   frame: Res<RenderFrame>,
   keys: Res<ButtonInput<KeyCode>>,
-  mut palette_cache: ResMut<PaletteImageCache>,
-  mut images: ResMut<Assets<Image>>,
-  mut query: Query<(&WalkAnim, &Glyph, &mut Sprite)>
+  asset_server: Res<AssetServer>,
+  mut recolor_mats: ResMut<Assets<recolor::RecolorMaterial>>,
+  mut query: Query<(&WalkAnim, &Glyph, &MeshMaterial2d<recolor::RecolorMaterial>)>
 ) {
   let move_held = keys.any_pressed([
     KeyCode::KeyW,
@@ -636,7 +649,7 @@ fn animate_walk_sprites(
     KeyCode::ArrowLeft,
     KeyCode::ArrowRight
   ]);
-  for (anim, glyph, mut sprite) in query.iter_mut() {
+  for (anim, glyph, mat_handle) in query.iter_mut() {
     let (frames, interval) = if move_held {
       (anim.walk_frames, anim.interval)
     } else {
@@ -650,9 +663,10 @@ fn animate_walk_sprites(
       let phase = step % n;
       if phase % 2 == 0 { anim.idle } else { frames[phase / 2] }
     };
-    if let Some((primary, secondary)) = glyph.sprite_palette {
-      sprite.image =
-        palette_sprite_handle(path, primary, secondary, &mut palette_cache, &mut images);
+    if glyph.sprite_palette.is_some() {
+      if let Some(mat) = recolor_mats.get_mut(&mat_handle.0) {
+        mat.texture = asset_server.load(path);
+      }
     }
   }
 }
@@ -741,6 +755,7 @@ fn main() {
     .add_plugins(particles::ParticlesPlugin)
     .add_plugins(post_process::PostProcessPlugin)
     .add_plugins(outline::OutlinePlugin)
+    .add_plugins(recolor::RecolorPlugin)
     .add_systems(Startup, (setup, ui::spawn_haalka_root).chain())
     .add_systems(PostStartup, (update_fov, init_follower_homes).chain())
     // --- every frame: world bookkeeping ---
@@ -846,6 +861,7 @@ fn main() {
         apply_invisible_alpha,
         damage_flash,
         camera_follow,
+        debug_print_camera_pos,
         update_fov_visuals,
         upload_fov_chunks,
         update_tile_hover_highlight,
@@ -934,8 +950,8 @@ fn enemy_death_check(
   mut commands: Commands,
   mut current: ResMut<CurrentZone>,
   frame: Res<RenderFrame>,
-  mut palette_cache: ResMut<PaletteImageCache>,
-  mut images: ResMut<Assets<Image>>,
+  asset_server: Res<AssetServer>,
+  mut sprites: recolor::SpriteRes,
   mut quests: ResMut<quest::QuestLog>,
   mut log: ResMut<LogEntries>,
   enemy_q: Query<
@@ -943,7 +959,7 @@ fn enemy_death_check(
     With<Enemy>
   >
 ) {
-  for (entity, stats, loadout, location, _, glyph, creature_kind) in enemy_q.iter() {
+  for (entity, stats, loadout, location, _, _glyph, creature_kind) in enemy_q.iter() {
     if stats.hp <= 0 {
       if creature_kind == Some(&CreatureKind::Alien)
         && quests.is_active(quest::ALIEN_HUNT.id)
@@ -972,18 +988,17 @@ fn enemy_death_check(
       for (i, &(item, _qty)) in loot.iter().enumerate() {
         if let Some(&(tx, ty)) = drop_tiles.get(i) {
           let (primary, secondary) = item.loot_colors();
-          let img = palette_sprite_handle(
-            item.loot_texture(),
-            primary,
-            secondary,
-            &mut palette_cache,
-            &mut images
-          );
+          let mat = sprites.recolor_materials.add(recolor::RecolorMaterial {
+            texture: asset_server.load(item.loot_texture()),
+            primary: primary.to_linear(),
+            secondary: secondary.to_linear()
+          });
           commands.spawn((
-            Sprite { image: img, custom_size: Some(Vec2::splat(TILE_SIZE)), ..default() },
+            Mesh2d(sprites.recolor_quad.0.clone()),
+            MeshMaterial2d(mat),
             Transform::from_translation(
               tile_screen_pos(ex as f32, ey as f32, w, h) + Vec3::new(0.0, 0.0, 5.0)
-            ),
+            ).with_scale(Vec3::splat(TILE_SIZE)),
             LootDrop {
               from: Vec2::new(ex as f32, ey as f32),
               to: Vec2::new(tx as f32, ty as f32),
@@ -997,39 +1012,27 @@ fn enemy_death_check(
         }
       }
 
-      let source = glyph.texture.map(|path| {
-        let (primary, secondary) =
-          glyph.sprite_palette.unwrap_or((glyph.color, glyph.color));
-        sprites::bake_palette_rgba(path, primary, secondary)
-      });
-      if let Some(source) = source {
-        commands
-          .entity(entity)
-          .remove::<(
-            Enemy,
-            Stats,
-            Loadout,
-            entities::Character,
-            entities::FactionComp,
-            entities::Gravity,
-            entities::TimeSinceAction,
-            entities::Path,
-            entities::DriftChance,
-            entities::Invisible,
-            Glyph,
-            GlyphVisual,
-            WalkAnim
-          )>()
-          .insert((Collidable(false), DeathShrink {
-            start_frame: frame.0,
-            frames_per_texel: 6,
-            total_texels: SPRITE_TEXELS as u64,
-            prev_texels: SPRITE_TEXELS as u64,
-            source
-          }));
-      } else {
-        commands.entity(entity).despawn();
-      }
+      commands
+        .entity(entity)
+        .remove::<(
+          Enemy,
+          Stats,
+          Loadout,
+          entities::Character,
+          entities::FactionComp,
+          entities::Gravity,
+          entities::TimeSinceAction,
+          entities::Path,
+          entities::DriftChance,
+          entities::Invisible,
+          Glyph,
+          GlyphVisual,
+          WalkAnim
+        )>()
+        .insert((Collidable(false), DeathShrink {
+          start_frame: frame.0,
+          duration_frames: SPRITE_TEXELS as u64 * 6
+        }));
     }
   }
 }
@@ -1038,15 +1041,20 @@ fn animate_loot_drops(
   mut commands: Commands,
   frame: Res<RenderFrame>,
   current: Res<CurrentZone>,
-  mut query: Query<(Entity, &LootDrop, &mut Transform, &mut Sprite)>
+  mut recolor_mats: ResMut<Assets<recolor::RecolorMaterial>>,
+  mut query: Query<(Entity, &LootDrop, &ItemGlyph, &MeshMaterial2d<recolor::RecolorMaterial>, &mut Transform)>
 ) {
   let (w, h) = (current.0.width, current.0.height);
-  for (entity, drop, mut tf, mut sprite) in query.iter_mut() {
+  for (entity, drop, item, mat_handle, mut tf) in query.iter_mut() {
     let elapsed = frame.0.saturating_sub(drop.start_frame);
     if elapsed >= drop.duration_frames {
       tf.translation =
         tile_screen_pos(drop.to.x, drop.to.y, w, h) + Vec3::new(0.0, 0.0, 1.5);
-      sprite.color = Color::WHITE;
+      if let Some(mat) = recolor_mats.get_mut(&mat_handle.0) {
+        let (primary, secondary) = item.item.loot_colors();
+        mat.primary = primary.to_linear();
+        mat.secondary = secondary.to_linear();
+      }
       commands.entity(entity).remove::<LootDrop>();
     } else {
       let t = (elapsed + 1) as f32 / drop.duration_frames as f32;
@@ -1054,7 +1062,14 @@ fn animate_loot_drops(
       let arc = 1.5 * (t * std::f32::consts::PI).sin();
       tf.translation =
         tile_screen_pos(pos.x, pos.y, w, h) + Vec3::new(0.0, arc * TILE_SIZE, 5.0);
-      sprite.color = Color::srgba(1.0, 1.0, 1.0, (t * 2.0).min(1.0));
+      let alpha = (t * 2.0).min(1.0);
+      if let Some(mat) = recolor_mats.get_mut(&mat_handle.0) {
+        let (primary, secondary) = item.item.loot_colors();
+        let p = primary.to_linear();
+        let s = secondary.to_linear();
+        mat.primary = LinearRgba::new(p.red * alpha, p.green * alpha, p.blue * alpha, p.alpha * alpha);
+        mat.secondary = LinearRgba::new(s.red * alpha, s.green * alpha, s.blue * alpha, s.alpha * alpha);
+      }
     }
   }
 }
@@ -1062,59 +1077,43 @@ fn animate_loot_drops(
 fn animate_death_shrink(
   mut commands: Commands,
   frame: Res<RenderFrame>,
-  mut images: ResMut<Assets<Image>>,
-  mut query: Query<(Entity, &mut DeathShrink, &mut Sprite)>
+  mut query: Query<(Entity, &DeathShrink, &mut Transform)>
 ) {
-  use bevy::{asset::RenderAssetUsages,
-             render::render_resource::{Extent3d, TextureDimension, TextureFormat}};
-  for (entity, mut shrink, mut sprite) in query.iter_mut() {
+  for (entity, shrink, mut tf) in query.iter_mut() {
     let elapsed = frame.0.saturating_sub(shrink.start_frame);
-    let texels_lost = elapsed / shrink.frames_per_texel;
-    if texels_lost >= shrink.total_texels {
+    if elapsed >= shrink.duration_frames {
       commands.entity(entity).despawn();
     } else {
-      let remaining = shrink.total_texels - texels_lost;
-      if remaining != shrink.prev_texels {
-        shrink.prev_texels = remaining;
-        let n = remaining as u32;
-        let resized = image::imageops::resize(
-          &shrink.source,
-          n,
-          n,
-          image::imageops::FilterType::Nearest
-        );
-        let handle = images.add(Image::new(
-          Extent3d { width: n, height: n, depth_or_array_layers: 1 },
-          TextureDimension::D2,
-          resized.into_raw(),
-          TextureFormat::Rgba8UnormSrgb,
-          RenderAssetUsages::RENDER_WORLD
-        ));
-        sprite.image = handle;
-        sprite.custom_size = Some(Vec2::splat(n as f32 * SCREEN_PIXELS_PER_TEXEL));
-      }
+      let t = 1.0 - elapsed as f32 / shrink.duration_frames as f32;
+      tf.scale = Vec3::splat(TILE_SIZE * t);
     }
   }
 }
 
 fn apply_invisible_alpha(
-  mut query: Query<(&mut Sprite, Option<&entities::Invisible>), With<GlyphVisual>>
+  mut recolor_mats: ResMut<Assets<recolor::RecolorMaterial>>,
+  query: Query<(&Glyph, &MeshMaterial2d<recolor::RecolorMaterial>, Option<&entities::Invisible>), With<GlyphVisual>>
 ) {
-  for (mut sprite, invis) in query.iter_mut() {
-    let target = if invis.is_some() { 0.25 } else { 1.0 };
-    if (sprite.color.alpha() - target).abs() > 0.01 {
-      sprite.color.set_alpha(target);
+  for (glyph, mat_handle, invis) in query.iter() {
+    if let Some((primary, secondary)) = glyph.sprite_palette
+      && let Some(mat) = recolor_mats.get_mut(&mat_handle.0)
+    {
+      let factor = if invis.is_some() { 0.25 } else { 1.0 };
+      let p = primary.to_linear();
+      let s = secondary.to_linear();
+      mat.primary = LinearRgba::new(p.red * factor, p.green * factor, p.blue * factor, p.alpha);
+      mat.secondary = LinearRgba::new(s.red * factor, s.green * factor, s.blue * factor, s.alpha);
     }
   }
 }
 
-const DAMAGE_FLASH_FRAMES: u32 = 20;
-const DAMAGE_FLASH_BRIGHTNESS: f32 = 3.0;
+const DAMAGE_FLASH_FRAMES: u32 = 12;
 
 fn damage_flash(
   mut commands: Commands,
+  mut recolor_mats: ResMut<Assets<recolor::RecolorMaterial>>,
   mut hp_q: Query<(Entity, &entities::Stats, &mut PrevHp), With<GlyphVisual>>,
-  mut flash_q: Query<(Entity, &mut DamageFlash, &mut Sprite), With<GlyphVisual>>
+  mut flash_q: Query<(Entity, &mut DamageFlash, &Glyph, &MeshMaterial2d<recolor::RecolorMaterial>), With<GlyphVisual>>
 ) {
   for (entity, stats, mut prev) in hp_q.iter_mut() {
     if stats.hp < prev.0 {
@@ -1125,19 +1124,22 @@ fn damage_flash(
     }
     prev.0 = stats.hp;
   }
-  for (entity, mut flash, mut sprite) in flash_q.iter_mut() {
-    if flash.base_color.is_none() {
-      flash.base_color = Some(sprite.color);
-    }
-    let t = flash.frames_remaining as f32 / DAMAGE_FLASH_FRAMES as f32;
-    let base = flash.base_color.unwrap();
-    let tint = base.to_linear() * DAMAGE_FLASH_BRIGHTNESS;
-    let c = base.to_linear() * (1.0 - t) + tint * t;
-    sprite.color = Color::from(c).with_alpha(base.alpha());
-    flash.frames_remaining -= 1;
-    if flash.frames_remaining == 0 {
-      sprite.color = base;
-      commands.entity(entity).remove::<DamageFlash>();
+  for (entity, mut flash, glyph, mat_handle) in flash_q.iter_mut() {
+    if let Some(mat) = recolor_mats.get_mut(&mat_handle.0) {
+      if flash.base_color.is_none() {
+        flash.base_color = Some(Color::WHITE);
+      }
+      let white = LinearRgba::new(100.0, 100.0, 100.0, 1.0);
+      mat.primary = white;
+      mat.secondary = white;
+      flash.frames_remaining -= 1;
+      if flash.frames_remaining == 0
+        && let Some((primary, secondary)) = glyph.sprite_palette
+      {
+        mat.primary = primary.to_linear();
+        mat.secondary = secondary.to_linear();
+        commands.entity(entity).remove::<DamageFlash>();
+      }
     }
   }
 }
@@ -1258,7 +1260,8 @@ fn update_interactable_highlights(
     Option<&Bed>
   )>,
   loot_q: Query<&LootChest>,
-  sprite_q: Query<(&Sprite, &Transform, &Visibility), Without<outline::InteractOutline>>,
+  sprite_q: Query<(Option<&Sprite>, Option<&MeshMaterial2d<recolor::RecolorMaterial>>, &Transform, &Visibility), Without<outline::InteractOutline>>,
+  recolor_mats: Res<Assets<recolor::RecolorMaterial>>,
   pool: Res<outline::OutlinePool>,
   mut outline_q: Query<(&mut Transform, &mut Visibility), With<outline::InteractOutline>>,
   mut outline_mats: ResMut<Assets<outline::OutlineMaterial>>
@@ -1290,13 +1293,22 @@ fn update_interactable_highlights(
         if let Some(ents) = index.0.get(&(wx, wy, z)) {
           for &e in ents {
             if has_interaction(e, &interact_q, &loot_q)
-              && let Ok((sprite, entity_tf, vis)) = sprite_q.get(e)
+              && let Ok((sprite_opt, recolor_mat_opt, entity_tf, vis)) = sprite_q.get(e)
               && *vis != Visibility::Hidden
-              && sprite.image != Handle::default()
             {
-              let pos =
-                entity_tf.translation.truncate().extend(entity_tf.translation.z - 0.1);
-              targets.push((pos, sprite.image.clone()));
+              let tex = sprite_opt
+                .map(|s| &s.image)
+                .filter(|h| *h != &Handle::default())
+                .or_else(|| {
+                  recolor_mat_opt
+                    .and_then(|m| recolor_mats.get(&m.0))
+                    .map(|m| &m.texture)
+                });
+              if let Some(tex) = tex {
+                let pos =
+                  entity_tf.translation.truncate().extend(entity_tf.translation.z - 0.1);
+                targets.push((pos, tex.clone()));
+              }
             }
           }
         }
@@ -1365,12 +1377,13 @@ fn update_fov_visuals(
     (Entity, &TilemapLayer, &mut TilemapChunkTileData, &mut Visibility),
     Without<Player>
   >,
+  mut recolor_mats: ResMut<Assets<recolor::RecolorMaterial>>,
   mut item_q: Query<
-    (Entity, &ItemGlyph, &mut Visibility, &mut Sprite, &mut GlyphFade),
+    (Entity, &ItemGlyph, &mut Visibility, &MeshMaterial2d<recolor::RecolorMaterial>, &mut GlyphFade),
     (Without<Player>, Without<GlyphVisual>, Without<TilemapLayer>)
   >,
   mut entity_q: Query<
-    (Entity, &Location, &mut Visibility, Option<&mut Sprite>, &mut GlyphFade),
+    (Entity, &Location, &mut Visibility, &Glyph, Option<&MeshMaterial2d<recolor::RecolorMaterial>>, &mut GlyphFade),
     (With<GlyphVisual>, Without<Player>, Without<TilemapLayer>)
   >
 ) {
@@ -1465,7 +1478,7 @@ fn update_fov_visuals(
     ents.sort_by_key(|e| e.index());
   }
 
-  for (entity, location, mut vis, sprite_opt, mut glyph_fade) in entity_q.iter_mut() {
+  for (entity, location, mut vis, glyph, mat_handle_opt, mut glyph_fade) in entity_q.iter_mut() {
     let in_fov = if let Location::Coords { x, y, z: lz, .. } = location
       && *lz == z
       && fov.0.is_visible(*x as usize, *y as usize)
@@ -1484,9 +1497,14 @@ fn update_fov_visuals(
     animating |= brightness != target;
     if brightness != prev {
       glyph_fade.0 = brightness;
-      if let Some(mut sprite) = sprite_opt {
-        let a = sprite.color.alpha() * brightness;
-        sprite.color.set_alpha(a);
+      if let Some(mat_handle) = mat_handle_opt
+        && let Some((primary, secondary)) = glyph.sprite_palette
+        && let Some(mat) = recolor_mats.get_mut(&mat_handle.0)
+      {
+        let p = primary.to_linear();
+        let s = secondary.to_linear();
+        mat.primary = LinearRgba::new(p.red * brightness, p.green * brightness, p.blue * brightness, p.alpha);
+        mat.secondary = LinearRgba::new(s.red * brightness, s.green * brightness, s.blue * brightness, s.alpha);
       }
     }
     if brightness == 0.0 {
@@ -1511,7 +1529,7 @@ fn update_fov_visuals(
       *vis = Visibility::Visible;
     }
   }
-  for (entity, item, mut vis, mut sprite, mut glyph_fade) in item_q.iter_mut() {
+  for (entity, item, mut vis, mat_handle, mut glyph_fade) in item_q.iter_mut() {
     let in_fov = item.z == z && fov.0.is_visible(item.x, item.y);
     let target = if in_fov { 1.0_f32 } else { 0.0 };
     let prev = glyph_fade.0;
@@ -1523,8 +1541,13 @@ fn update_fov_visuals(
     animating |= brightness != target;
     if brightness != prev {
       glyph_fade.0 = brightness;
-      let a = sprite.color.alpha() * brightness;
-      sprite.color.set_alpha(a);
+      if let Some(mat) = recolor_mats.get_mut(&mat_handle.0) {
+        let (primary, secondary) = item.item.loot_colors();
+        let p = primary.to_linear();
+        let s = secondary.to_linear();
+        mat.primary = LinearRgba::new(p.red * brightness, p.green * brightness, p.blue * brightness, p.alpha);
+        mat.secondary = LinearRgba::new(s.red * brightness, s.green * brightness, s.blue * brightness, s.alpha);
+      }
     }
     if brightness == 0.0 {
       *vis = Visibility::Hidden;
@@ -1685,14 +1708,14 @@ fn resolve_move(
 fn door_glyph(open: bool, is_airlock: bool) -> Glyph {
   if is_airlock {
     if open {
-      Glyph::palette_sprite(
+      Glyph::recolor_sprite(
         "textures/space_qud/airlock open.png",
         '/',
         entities::AIRLOCK_PRI,
         entities::AIRLOCK_SEC
       )
     } else {
-      Glyph::palette_sprite(
+      Glyph::recolor_sprite(
         "textures/space_qud/airlock closed.png",
         '+',
         entities::AIRLOCK_PRI,
@@ -1700,14 +1723,14 @@ fn door_glyph(open: bool, is_airlock: bool) -> Glyph {
       )
     }
   } else if open {
-    Glyph::palette_sprite(
+    Glyph::recolor_sprite(
       "textures/space_qud/door open (2).png",
       '/',
       DOOR_OPEN_PRI,
       DOOR_OPEN_SEC
     )
   } else {
-    Glyph::palette_sprite(
+    Glyph::recolor_sprite(
       "textures/space_qud/door closed (1).png",
       '+',
       DOOR_CLOSED_PRI,
@@ -1725,8 +1748,7 @@ fn set_door_open_state(
   open: bool,
   airlock: Option<&mut AirlockDoor>,
   clock_time: u64,
-  palette_cache: &mut PaletteImageCache,
-  images: &mut Assets<Image>,
+  sprites: &mut recolor::SpriteRes,
   asset_server: &AssetServer,
   zone_w: usize,
   zone_h: usize
@@ -1749,48 +1771,58 @@ fn set_door_open_state(
     let local = Vec2::new(lx, ly);
     let pos = tile_screen_pos(lx, ly, zone_w, zone_h) + Vec3::new(0.0, 0.0, 2.0);
     commands.entity(entity).remove::<Sprite>();
+    commands.entity(entity).remove::<Mesh2d>();
+    commands.entity(entity).remove::<MeshMaterial2d<recolor::RecolorMaterial>>();
     commands.entity(entity).remove::<Text2d>();
     commands.entity(entity).remove::<TextFont>();
     commands.entity(entity).remove::<TextColor>();
     commands.entity(entity).remove::<GlyphVisual>();
     commands.entity(entity).remove::<Visuals>();
+    let shared = (
+      GlyphVisual,
+      RenderLayers::layer(post_process::LAYER_ENTITIES),
+      Visuals { prev: local, last_move_start_frame: None, display: local, last_pos: local }
+    );
     if let Some(path) = glyph.texture {
-      let img = if let Some((pri, sec)) = glyph.sprite_palette {
-        palette_sprite_handle(path, pri, sec, palette_cache, images)
+      if glyph.shader_recolor
+        && let Some((primary, secondary)) = glyph.sprite_palette
+      {
+        let tex = asset_server.load(path);
+        let mat = sprites.recolor_materials.add(recolor::RecolorMaterial {
+          texture: tex,
+          primary: primary.to_linear(),
+          secondary: secondary.to_linear()
+        });
+        commands.entity(entity).insert((
+          Mesh2d(sprites.recolor_quad.0.clone()),
+          MeshMaterial2d(mat),
+          Transform::from_translation(pos).with_scale(Vec3::splat(TILE_SIZE)),
+          shared
+        ));
       } else {
-        asset_server.load(path)
-      };
-      commands.entity(entity).insert((
-        Sprite {
-          image: img,
-          custom_size: Some(Vec2::splat(TILE_SIZE)),
-          color: Color::WHITE,
-          ..default()
-        },
-        Transform::from_translation(pos),
-        GlyphVisual,
-        RenderLayers::layer(post_process::LAYER_ENTITIES),
-        Visuals {
-          prev: local,
-          last_move_start_frame: None,
-          display: local,
-          last_pos: local
-        }
-      ));
+        let img = if let Some((pri, sec)) = glyph.sprite_palette {
+          palette_sprite_handle(path, pri, sec, &mut sprites.palette_cache, &mut sprites.images)
+        } else {
+          asset_server.load(path)
+        };
+        commands.entity(entity).insert((
+          Sprite {
+            image: img,
+            custom_size: Some(Vec2::splat(TILE_SIZE)),
+            color: Color::WHITE,
+            ..default()
+          },
+          Transform::from_translation(pos),
+          shared
+        ));
+      }
     } else {
       commands.entity(entity).insert((
         Text2d::new(glyph.ch.to_string()),
         TextFont { font_size: TILE_SIZE, ..default() },
         TextColor(glyph.color),
         Transform::from_translation(pos),
-        GlyphVisual,
-        RenderLayers::layer(post_process::LAYER_ENTITIES),
-        Visuals {
-          prev: local,
-          last_move_start_frame: None,
-          display: local,
-          last_pos: local
-        }
+        shared
       ));
     }
   }
@@ -1826,8 +1858,7 @@ fn handle_menus(
   mut log: ResMut<LogEntries>,
   mut player_query: Query<(&mut Location, &mut Inventory, &mut Loadout), With<Player>>,
   asset_server: Res<AssetServer>,
-  mut palette_cache: ResMut<PaletteImageCache>,
-  mut images: ResMut<Assets<Image>>,
+  mut sprites: recolor::SpriteRes,
   mut door_q: Query<(
     &mut Door,
     &mut Glyph,
@@ -1961,8 +1992,7 @@ fn handle_menus(
           &mut deferred,
           &mut door_q,
           &asset_server,
-          &mut palette_cache,
-          &mut images,
+          &mut sprites,
           &item_glyph_q
         );
         if is_loadout && let Ok((_, inventory, equipped)) = player_query.single() {
@@ -2597,8 +2627,7 @@ fn dispatch_interactive_choice(
     Option<&mut AirlockDoor>
   ), Without<Player>>,
   asset_server: &AssetServer,
-  palette_cache: &mut PaletteImageCache,
-  images: &mut Assets<Image>,
+  sprites: &mut recolor::SpriteRes,
   item_glyph_q: &Query<(Entity, &ItemGlyph)>
 ) {
   match &option.action {
@@ -2632,8 +2661,7 @@ fn dispatch_interactive_choice(
           open,
           airlock.as_deref_mut(),
           clock.time,
-          palette_cache,
-          images,
+          sprites,
           asset_server,
           zone.width,
           zone.height
@@ -2670,8 +2698,7 @@ fn auto_close_airlocks(
   clock: Res<Clock>,
   current: Res<CurrentZone>,
   asset_server: Res<AssetServer>,
-  mut palette_cache: ResMut<PaletteImageCache>,
-  mut images: ResMut<Assets<Image>>,
+  mut sprites: recolor::SpriteRes,
   mut airlock_q: Query<(Entity, &mut Door, &mut Glyph, &Location, &mut AirlockDoor)>
 ) {
   const AUTO_CLOSE_SIM_FRAMES: u64 = 100;
@@ -2690,8 +2717,7 @@ fn auto_close_airlocks(
         false,
         Some(&mut airlock),
         clock.time,
-        &mut palette_cache,
-        &mut images,
+        &mut sprites,
         &asset_server,
         current.0.width,
         current.0.height
@@ -2993,8 +3019,7 @@ fn apply_bump_auto_interact(
     Option<&mut AirlockDoor>
   ), Without<Player>>,
   asset_server: Res<AssetServer>,
-  mut palette_cache: ResMut<PaletteImageCache>,
-  mut images: ResMut<Assets<Image>>,
+  mut sprites: recolor::SpriteRes,
   item_glyph_q: Query<(Entity, &ItemGlyph)>
 ) {
   if let Some((entity, dir)) = pending_bump.1.take() {
@@ -3013,8 +3038,7 @@ fn apply_bump_auto_interact(
       &mut deferred,
       &mut door_q,
       &asset_server,
-      &mut palette_cache,
-      &mut images,
+      &mut sprites,
       &item_glyph_q
     );
   }
@@ -3436,25 +3460,14 @@ fn setup(
   let local_x = dox + spx;
   let local_y = doy + spy;
 
-  let start_local = Vec2::new(local_x as f32, local_y as f32);
+  let _start_local = Vec2::new(local_x as f32, local_y as f32);
 
   commands.spawn((
-    Sprite {
-      image: palette_sprite_handle(
-        "textures/space_qud/tough guy 1.png",
-        Color::srgb(0.72, 0.72, 0.72),
-        Color::srgb(0.35, 0.55, 0.72),
-        &mut palette_cache,
-        &mut images
-      ),
-      custom_size: Some(Vec2::splat(TILE_SIZE)),
-      color: Color::WHITE,
-      ..default()
-    },
     Transform::from_translation(
       tile_screen_pos(local_x as f32, local_y as f32, current.0.width, current.0.height)
         + Vec3::Z
     ),
+    Visibility::Visible,
     Player,
     Location::xyz(local_x, local_y, 0),
     Stats { hp: 20, max_hp: 20, attack: 5, move_speed: 3.0, attack_speed: 1.0 },
@@ -3468,7 +3481,7 @@ fn setup(
       l.equip_device(Item::PhaseDevice);
       l
     },
-    Glyph::palette_sprite(
+    Glyph::recolor_sprite(
       "textures/space_qud/tough guy 1.png",
       '@',
       Color::srgb(0.72, 0.72, 0.72),
@@ -3484,15 +3497,7 @@ fn setup(
       interval: 8,
       idle_interval: 30
     },
-    GlyphVisual,
-    GlyphFade(1.0),
-    RenderLayers::layer(post_process::LAYER_ENTITIES),
-    Visuals {
-      prev: start_local,
-      last_move_start_frame: None,
-      display: start_local,
-      last_pos: start_local
-    }
+    GlyphFade(1.0)
   ));
 
   bed_save.0 = Some(SaveData {
@@ -3554,6 +3559,20 @@ fn materialize_ground_items(
         item: gi.0
       }, GlyphFade::default()));
     }
+  }
+}
+
+fn debug_print_camera_pos(
+  keys: Res<ButtonInput<KeyCode>>,
+  cam_tf: Single<&Transform, With<post_process::GameCamera>>,
+) {
+  if keys.pressed(KeyCode::KeyW)
+    || keys.pressed(KeyCode::KeyA)
+    || keys.pressed(KeyCode::KeyS)
+    || keys.pressed(KeyCode::KeyD)
+  {
+    let t = cam_tf.translation;
+    info!("camera: ({:.1}, {:.1}, {:.1})", t.x, t.y, t.z);
   }
 }
 
@@ -3632,7 +3651,7 @@ fn player_input(
       TimeMode::RealTime => TimeMode::TurnBased,
       TimeMode::TurnBased => {
         *acc = AccumulatedDir::default();
-        r.tb.world_tick_pending = false;
+        r.tb.world_tick_pending = 0;
         TimeMode::RealTime
       }
     };
@@ -3644,7 +3663,7 @@ fn player_input(
       player.into_inner();
     let &Location::Coords { x: px, y: py, z: pz, .. } = &*loc else { unreachable!() };
     let player_attack = stats.attack + equipped.weapon_attack_bonus();
-    let turn_based_block = r.clock.mode == TimeMode::TurnBased && r.tb.world_tick_pending;
+    let turn_based_block = r.clock.mode == TimeMode::TurnBased && r.tb.world_tick_pending > 0;
 
     let wait_pressed = acc.wait
       || (r.clock.mode == TimeMode::TurnBased && keys.pressed(KeyCode::Space));
@@ -3742,6 +3761,9 @@ fn player_input(
         }
 
         r.clock.spend_turn(&mut r.tb);
+        if dx != 0 && dy != 0 {
+          r.clock.spend_turn(&mut r.tb);
+        }
       }
     }
   }

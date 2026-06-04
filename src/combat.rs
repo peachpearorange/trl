@@ -405,7 +405,7 @@ pub fn enemy_ai(
     }
   }
   if clock.mode == crate::TimeMode::TurnBased {
-    tb.world_tick_pending = false;
+    tb.world_tick_pending = tb.world_tick_pending.saturating_sub(1);
   }
 }
 
@@ -488,7 +488,7 @@ pub fn grenade_thrower_ai(
       let from = Vec2::new(ex as f32 + 0.5, ey as f32 + 0.5);
       let to   = Vec2::new(px as f32 + 0.5, py as f32 + 0.5);
       commands.spawn((
-        Glyph::palette_sprite(
+        Glyph::recolor_sprite(
           "textures/space_qud/grenade.png",
           'o',
           Color::srgb(0.85, 0.50, 0.10),

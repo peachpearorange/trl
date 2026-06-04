@@ -432,7 +432,7 @@ pub fn handle_ability_click(
         let from = Vec2::new(pos_x as f32 + 0.5, pos_y as f32 + 0.5);
         let to   = Vec2::new(tx as f32 + 0.5, ty as f32 + 0.5);
         commands.spawn((
-          Glyph::palette_sprite(
+          Glyph::recolor_sprite(
             "textures/space_qud/grenade.png",
             'o',
             Color::srgb(0.85, 0.50, 0.10),
