@@ -5,6 +5,8 @@
 @group(2) @binding(2) var<uniform> primary: vec4<f32>;
 @group(2) @binding(3) var<uniform> secondary: vec4<f32>;
 
+// FOV dimming is applied once over the whole composited scene in display.wgsl, so sprites
+// just recolor black->primary / white->secondary by luminance and stay at full brightness here.
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let sample = textureSample(sprite_tex, sprite_sampler, in.uv);

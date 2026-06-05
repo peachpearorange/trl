@@ -507,7 +507,8 @@ pub struct WalkAnim {
   pub idle_frames: &'static [&'static str],
   pub walk_frames: &'static [&'static str],
   pub interval: u64,
-  pub idle_interval: u64
+  pub idle_interval: u64,
+  pub current_path: &'static str
 }
 
 /// Visual for a grid entity: optional PNG (tile-sized sprite) or [`Text2d`] from `ch` + `color`.
@@ -986,6 +987,7 @@ impl Object {
       walk_frames: &["textures/space_qud/alien1 frame 2.png"],
       interval: 20,
       idle_interval: 20,
+      current_path: "textures/space_qud/alien1.png",
     });
 
   pub const LAVA_CRAB: Self = Self::ENEMY_BASE
@@ -1028,6 +1030,7 @@ impl Object {
       walk_frames: &["textures/space_qud/mantis alien frame 2.png"],
       interval: 20,
       idle_interval: 20,
+      current_path: "textures/space_qud/mantis alien.png",
     });
 
   pub const CRAB_ALIEN: Self = Self::ENEMY_BASE

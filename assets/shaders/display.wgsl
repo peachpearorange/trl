@@ -7,6 +7,34 @@
 @group(2) @binding(4) var<uniform> time: f32;
 @group(2) @binding(5) var<uniform> world_offset: vec2<i32>;
 @group(2) @binding(6) var<uniform> player_screen_pos: vec2<f32>;
+@group(2) @binding(7) var fov_tex: texture_2d<f32>;
+@group(2) @binding(8) var fov_sampler: sampler;
+@group(2) @binding(9) var<uniform> map_dims: vec2<f32>;
+@group(2) @binding(10) var<uniform> scale: f32;
+
+// World units per tile. Mirrors `TILE_SIZE` in main.rs (SPRITE_TEXELS * SCREEN_PIXELS_PER_TEXEL).
+const TILE_SIZE: f32 = 40.0;
+
+// FOV brightness for a screen pixel: map physical pixel -> world units (inverse of the camera
+// projection captured by world_offset/scale) -> tile, and read the shared per-tile lightmap.
+// Returns 1.0 (no dim) while the lightmap is the 1x1 placeholder before the first level loads.
+fn fov_brightness(coord: vec2<i32>) -> f32 {
+    let dims = vec2<f32>(textureDimensions(fov_tex));
+    if dims.x < 2.0 {
+        return 1.0;
+    }
+    let px = vec2<f32>(f32(coord.x) + 0.5, f32(coord.y) + 0.5);
+    let world = vec2<f32>(px.x + f32(world_offset.x),
+                          -(px.y + f32(world_offset.y))) / scale;
+    // Integer tile coords sit on tile centres (see tile_screen_pos), so round to the nearest
+    // tile rather than floor — flooring would shift the sampled brightness half a tile.
+    let tile = vec2<i32>(round(vec2<f32>(world.x / TILE_SIZE + map_dims.x * 0.5,
+                                         map_dims.y * 0.5 - world.y / TILE_SIZE)));
+    if tile.x < 0 || tile.y < 0 || tile.x >= i32(map_dims.x) || tile.y >= i32(map_dims.y) {
+        return 0.0;
+    }
+    return textureLoad(fov_tex, tile, 0).r;
+}
 
 fn sample_composited(coord: vec2<i32>, dims: vec2<i32>) -> vec4<f32> {
     let c = clamp(coord, vec2<i32>(0), dims - 1);
@@ -44,7 +72,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let b = sample_composited(coord - offset, dims).b;
     let aberrated = vec4<f32>(r, color.g, b, color.a);
 
+    // Single FOV overlay over the fully composited scene: fade both tiles and entities by the
+    // visibility of the tile under this pixel, hiding anything standing on out-of-view tiles.
+    let dimmed = aberrated.rgb * fov_brightness(coord);
+
     let screen_y = i32(floor(in.position.y));
     let scanline = f32((screen_y / 2) % 2) * 0.018;
-    return vec4<f32>(mix(aberrated.rgb, vec3<f32>(0.72, 1.0, 0.74), scanline), aberrated.a);
+    return vec4<f32>(mix(dimmed, vec3<f32>(0.72, 1.0, 0.74), scanline), aberrated.a);
 }

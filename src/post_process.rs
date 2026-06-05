@@ -66,7 +66,20 @@ pub struct DisplayMaterial {
   #[uniform(5)]
   world_offset: IVec2,
   #[uniform(6)]
-  player_screen_pos: Vec2
+  player_screen_pos: Vec2,
+  // Per-tile FOV brightness (R8, one texel per tile of the active level). Sampled per screen
+  // pixel to dim the whole scene by visibility — this is the single overlay that fades both
+  // tiles and entities in/out of view. `map_dims` is the active level size in tiles and
+  // `scale` is the window's physical-pixel scale factor, both needed to map a screen pixel
+  // back to its world tile. This material is re-prepared every frame (see update_display_uniforms),
+  // so binding the per-frame-mutated lightmap here is safe from stale bind groups.
+  #[texture(7)]
+  #[sampler(8)]
+  fov_lightmap: Handle<Image>,
+  #[uniform(9)]
+  map_dims: Vec2,
+  #[uniform(10)]
+  scale: f32
 }
 impl Material2d for DisplayMaterial {
   fn fragment_shader() -> ShaderRef { "shaders/display.wgsl".into() }
@@ -90,7 +103,7 @@ impl Plugin for PostProcessPlugin {
       .add_systems(PostStartup, setup_display)
       .add_systems(
         Update,
-        (on_window_resized, update_camera_world_offset, update_display_time)
+        (on_window_resized, update_camera_world_offset, update_display_uniforms)
       );
 
     let render_app = app.sub_app_mut(RenderApp);
@@ -138,6 +151,7 @@ fn setup_display(
   mut display_mats: ResMut<Assets<DisplayMaterial>>,
   output: Res<OutputImage>,
   entity_rt: Res<EntityRenderTarget>,
+  fov_lightmap: Res<crate::recolor::FovLightmap>,
   windows: Single<&Window>
 ) {
   let (w, h) = (windows.width(), windows.height());
@@ -147,7 +161,10 @@ fn setup_display(
     entities: entity_rt.0.clone(),
     time: 0.0,
     world_offset: IVec2::ZERO,
-    player_screen_pos: Vec2::ZERO
+    player_screen_pos: Vec2::ZERO,
+    fov_lightmap: fov_lightmap.0.clone(),
+    map_dims: Vec2::ONE,
+    scale: 1.0
   });
   commands.spawn((
     Mesh2d(quad),
@@ -231,17 +248,21 @@ fn update_camera_world_offset(
   }
 }
 
-fn update_display_time(
+fn update_display_uniforms(
   handle: Res<DisplayHandle>,
   mut display_mats: ResMut<Assets<DisplayMaterial>>,
   time: Res<Time>,
   offset: Res<CameraWorldOffset>,
-  player_screen: Res<PlayerScreenPos>
+  player_screen: Res<PlayerScreenPos>,
+  current: Res<crate::CurrentZone>,
+  windows: Single<&Window>
 ) {
   if let Some(m) = display_mats.get_mut(&handle.0) {
     m.time = time.elapsed_secs();
     m.world_offset = offset.0;
     m.player_screen_pos = player_screen.0;
+    m.map_dims = Vec2::new(current.0.width as f32, current.0.height as f32);
+    m.scale = windows.scale_factor();
   }
 }
 

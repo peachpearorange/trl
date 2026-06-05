@@ -427,6 +427,9 @@ pub struct Inventory(pub HashMap<Item, u32>);
 #[derive(Component)]
 struct GlyphVisual;
 
+#[derive(Component)]
+struct AnimMaterials(Vec<(&'static str, Handle<recolor::RecolorMaterial>)>);
+
 /// FOV fade brightness (0 = black/invisible, 1 = fully lit) for glyph-rendered entities and items.
 #[derive(Component, Default)]
 struct GlyphFade(f32);
@@ -550,10 +553,10 @@ fn setup_glyph_visuals(
   asset_server: Res<AssetServer>,
   mut sprites: recolor::SpriteRes,
   current: Res<CurrentZone>,
-  query: Query<(Entity, &Glyph, &Location), (Added<Glyph>, Without<GlyphVisual>)>,
+  query: Query<(Entity, &Glyph, &Location, Option<&WalkAnim>), (Added<Glyph>, Without<GlyphVisual>)>,
   stats_q: Query<&entities::Stats>
 ) {
-  for (entity, glyph, location) in query.iter() {
+  for (entity, glyph, location, walk_anim) in query.iter() {
     if let Location::Coords { x, y, .. } = location {
       let lx = *x;
       let ly = *y;
@@ -572,17 +575,27 @@ fn setup_glyph_visuals(
         if glyph.shader_recolor
           && let Some((primary, secondary)) = glyph.sprite_palette
         {
-          let tex = asset_server.load(path);
-          let mat = sprites.recolor_materials.add(recolor::RecolorMaterial {
-            texture: tex,
-            primary: primary.to_linear(),
-            secondary: secondary.to_linear()
-          });
-          commands.entity(entity).insert((
+          let p = primary.to_linear();
+          let s = secondary.to_linear();
+          let mat = sprites.add_recolor(asset_server.load(path), p, s);
+          let mut entity_cmds = commands.entity(entity);
+          entity_cmds.insert((
             Mesh2d(sprites.recolor_quad.0.clone()),
             MeshMaterial2d(mat),
             shared
           ));
+          if let Some(anim) = walk_anim {
+            let mut frame_mats: Vec<(&'static str, Handle<recolor::RecolorMaterial>)> = Vec::new();
+            for &f in anim.idle_frames.iter().chain(anim.walk_frames.iter()) {
+              if !frame_mats.iter().any(|(fp, _)| *fp == f) {
+                frame_mats.push((f, sprites.add_recolor(asset_server.load(f), p, s)));
+              }
+            }
+            if !frame_mats.iter().any(|(fp, _)| *fp == anim.idle) {
+              frame_mats.push((anim.idle, sprites.add_recolor(asset_server.load(anim.idle), p, s)));
+            }
+            entity_cmds.insert(AnimMaterials(frame_mats));
+          }
         } else {
           let img = if let Some((primary, secondary)) = glyph.sprite_palette {
             palette_sprite_handle(path, primary, secondary, &mut sprites.palette_cache, &mut sprites.images)
@@ -635,9 +648,8 @@ fn sync_entity_positions(
 fn animate_walk_sprites(
   frame: Res<RenderFrame>,
   keys: Res<ButtonInput<KeyCode>>,
-  asset_server: Res<AssetServer>,
   mut recolor_mats: ResMut<Assets<recolor::RecolorMaterial>>,
-  mut query: Query<(&WalkAnim, &Glyph, &MeshMaterial2d<recolor::RecolorMaterial>)>
+  mut query: Query<(&mut WalkAnim, &AnimMaterials, &mut MeshMaterial2d<recolor::RecolorMaterial>)>
 ) {
   let move_held = keys.any_pressed([
     KeyCode::KeyW,
@@ -649,7 +661,7 @@ fn animate_walk_sprites(
     KeyCode::ArrowLeft,
     KeyCode::ArrowRight
   ]);
-  for (anim, glyph, mat_handle) in query.iter_mut() {
+  for (mut anim, anim_mats, mut mat_handle) in query.iter_mut() {
     let (frames, interval) = if move_held {
       (anim.walk_frames, anim.interval)
     } else {
@@ -663,9 +675,17 @@ fn animate_walk_sprites(
       let phase = step % n;
       if phase % 2 == 0 { anim.idle } else { frames[phase / 2] }
     };
-    if glyph.sprite_palette.is_some() {
-      if let Some(mat) = recolor_mats.get_mut(&mat_handle.0) {
-        mat.texture = asset_server.load(path);
+    if anim.current_path != path {
+      anim.current_path = path;
+      let old_colors = recolor_mats.get(&mat_handle.0).map(|m| (m.primary, m.secondary));
+      if let Some((_, handle)) = anim_mats.0.iter().find(|(p, _)| *p == path) {
+        mat_handle.0 = handle.clone();
+        if let Some((primary, secondary)) = old_colors
+          && let Some(mat) = recolor_mats.get_mut(handle)
+        {
+          mat.primary = primary;
+          mat.secondary = secondary;
+        }
       }
     }
   }
@@ -988,11 +1008,11 @@ fn enemy_death_check(
       for (i, &(item, _qty)) in loot.iter().enumerate() {
         if let Some(&(tx, ty)) = drop_tiles.get(i) {
           let (primary, secondary) = item.loot_colors();
-          let mat = sprites.recolor_materials.add(recolor::RecolorMaterial {
-            texture: asset_server.load(item.loot_texture()),
-            primary: primary.to_linear(),
-            secondary: secondary.to_linear()
-          });
+          let mat = sprites.add_recolor(
+            asset_server.load(item.loot_texture()),
+            primary.to_linear(),
+            secondary.to_linear()
+          );
           commands.spawn((
             Mesh2d(sprites.recolor_quad.0.clone()),
             MeshMaterial2d(mat),
@@ -1092,17 +1112,27 @@ fn animate_death_shrink(
 
 fn apply_invisible_alpha(
   mut recolor_mats: ResMut<Assets<recolor::RecolorMaterial>>,
-  query: Query<(&Glyph, &MeshMaterial2d<recolor::RecolorMaterial>, Option<&entities::Invisible>), With<GlyphVisual>>
+  became_invis: Query<(&Glyph, &MeshMaterial2d<recolor::RecolorMaterial>), Added<entities::Invisible>>,
+  mut lost_invis: RemovedComponents<entities::Invisible>,
+  all_q: Query<(&Glyph, &MeshMaterial2d<recolor::RecolorMaterial>), With<GlyphVisual>>
 ) {
-  for (glyph, mat_handle, invis) in query.iter() {
+  for (glyph, mat_handle) in became_invis.iter() {
     if let Some((primary, secondary)) = glyph.sprite_palette
       && let Some(mat) = recolor_mats.get_mut(&mat_handle.0)
     {
-      let factor = if invis.is_some() { 0.25 } else { 1.0 };
       let p = primary.to_linear();
       let s = secondary.to_linear();
-      mat.primary = LinearRgba::new(p.red * factor, p.green * factor, p.blue * factor, p.alpha);
-      mat.secondary = LinearRgba::new(s.red * factor, s.green * factor, s.blue * factor, s.alpha);
+      mat.primary = LinearRgba::new(p.red * 0.25, p.green * 0.25, p.blue * 0.25, p.alpha);
+      mat.secondary = LinearRgba::new(s.red * 0.25, s.green * 0.25, s.blue * 0.25, s.alpha);
+    }
+  }
+  for entity in lost_invis.read() {
+    if let Ok((glyph, mat_handle)) = all_q.get(entity)
+      && let Some((primary, secondary)) = glyph.sprite_palette
+      && let Some(mat) = recolor_mats.get_mut(&mat_handle.0)
+    {
+      mat.primary = primary.to_linear();
+      mat.secondary = secondary.to_linear();
     }
   }
 }
@@ -1372,18 +1402,19 @@ fn update_fov_visuals(
   index: Res<TileEntityIndex>,
   mut fade: ResMut<FovFade>,
   mut redraw: MessageWriter<bevy::window::RequestRedraw>,
+  mut images: ResMut<Assets<Image>>,
+  lightmap: Res<recolor::FovLightmap>,
   player: Single<(Entity, &Location, &mut Visibility), With<Player>>,
   mut chunk_q: Query<
     (Entity, &TilemapLayer, &mut TilemapChunkTileData, &mut Visibility),
     Without<Player>
   >,
-  mut recolor_mats: ResMut<Assets<recolor::RecolorMaterial>>,
   mut item_q: Query<
-    (Entity, &ItemGlyph, &mut Visibility, &MeshMaterial2d<recolor::RecolorMaterial>, &mut GlyphFade),
+    (Entity, &ItemGlyph, &mut Visibility, &mut GlyphFade),
     (Without<Player>, Without<GlyphVisual>, Without<TilemapLayer>)
   >,
   mut entity_q: Query<
-    (Entity, &Location, &mut Visibility, &Glyph, Option<&MeshMaterial2d<recolor::RecolorMaterial>>, &mut GlyphFade),
+    (Entity, &Location, &mut Visibility, &mut GlyphFade),
     (With<GlyphVisual>, Without<Player>, Without<TilemapLayer>)
   >
 ) {
@@ -1393,10 +1424,22 @@ fn update_fov_visuals(
   let width = current.0.width;
   let height = current.0.height;
 
+  // FOV-radius tile rect, clamped to the map. Must cover the whole FOV (not just the
+  // on-screen viewport) because the shared lightmap dims every visible sprite by tile, and
+  // entities are shown anywhere `fov.is_visible` is true — a narrower rect leaves visible
+  // edge entities sampling brightness 0 (rendering black). The box is at most 37x37 tiles.
+  let view_x0 = (pos_x - FOV_RADIUS as i32).max(0) as usize;
+  let view_y0 = (pos_y - FOV_RADIUS as i32).max(0) as usize;
+  let view_x1 = (pos_x + FOV_RADIUS as i32 + 1).min(width as i32) as usize;
+  let view_y1 = (pos_y + FOV_RADIUS as i32 + 1).min(height as i32) as usize;
   // Set while any tile is still animating. The app renders reactively (a short burst of
   // frames per input/event), so an in-progress fade would otherwise freeze partway; we
   // request another frame each tick until everything has settled.
   let mut animating = false;
+  // Whether any tile brightness changed this frame. The shared lightmap (and thus every
+  // material that binds it) only needs re-uploading when it did; gating avoids re-preparing
+  // all sprite materials on settled frames that still redraw for particles/animation.
+  let mut lightmap_dirty = false;
   for (chunk_ent, layer, mut tile_data, mut vis) in chunk_q.iter_mut() {
     *vis = if layer.0 == z { Visibility::Visible } else { Visibility::Hidden };
     if layer.0 == z {
@@ -1404,16 +1447,16 @@ fn update_fov_visuals(
       // stays consistent with the zeroed brightness grid, then fade in from black.
       if fade.retarget(chunk_ent, width, height) {
         tile_data.0.iter_mut().for_each(|t| *t = None);
+        lightmap_dirty = true;
       }
-      let y0 = (pos_y - FOV_RADIUS as i32).max(0) as usize;
-      let y1 = (pos_y + FOV_RADIUS as i32 + 1).min(height as i32) as usize;
-      let x0 = (pos_x - FOV_RADIUS as i32).max(0) as usize;
-      let x1 = (pos_x + FOV_RADIUS as i32 + 1).min(width as i32) as usize;
-      for y in y0..y1 {
-        for x in x0..x1 {
+      for y in view_y0..view_y1 {
+        for x in view_x0..view_x1 {
           let tile = level.get(x as i32, y as i32).unwrap_or(Tile::Air);
           let is_blank = tile == Tile::Air || tile == Tile::Blank;
-          let target = if !is_blank && fov.0.is_visible(x, y) { 1.0 } else { 0.0 };
+          // Brightness tracks FOV visibility, not floor presence, so the shared lightmap also
+          // lights entities/items standing on otherwise-blank tiles. Blank tiles still skip
+          // their own floor sprite via the `!is_blank` gate on `tile_data` below.
+          let target = if fov.0.is_visible(x, y) { 1.0 } else { 0.0 };
           let fi = y * width + x;
           let prev = fade.brightness[fi];
           let b = if prev < target {
@@ -1427,6 +1470,7 @@ fn update_fov_visuals(
           if b == prev {
             continue;
           }
+          lightmap_dirty = true;
           fade.brightness[fi] = b;
           let chunk_idx = (height - 1 - y) * width + x;
           tile_data.0[chunk_idx] = (b > 0.0 && !is_blank).then(|| {
@@ -1452,14 +1496,30 @@ fn update_fov_visuals(
                 info.base + mask
               }
             };
-            // Scale rgb toward black by brightness; keep the per-tile alpha.
+            // Tiles render at full colour; FOV dimming is applied once over the whole
+            // composited scene in display.wgsl (sampling the same brightness lightmap below).
+            // The alpha still flags liquids for the wave effect.
             let alpha = if tile.is_liquid() { 254.0 / 255.0 } else { 1.0 };
-            TileData { tileset_index, color: Color::srgba(b, b, b, alpha), visible: true }
+            TileData { tileset_index, color: Color::srgba(1.0, 1.0, 1.0, alpha), visible: true }
           });
         }
       }
     }
   }
+
+  // Push the brightness grid to the shared lightmap so the recolor shader can dim every
+  // sprite by FOV without per-material mutation. Resize on level change, then copy the f32
+  // grid into the R8Unorm image (one cheap upload replaces thousands of material re-prepares).
+  if lightmap_dirty && let Some(img) = images.get_mut(&lightmap.0) {
+    let size = img.texture_descriptor.size;
+    if size.width as usize != width || size.height as usize != height {
+      *img = recolor::fov_image(width, height);
+    }
+    for (texel, &b) in img.data.as_mut().unwrap().iter_mut().zip(fade.brightness.iter()) {
+      *texel = (b.clamp(0.0, 1.0) * 255.0) as u8;
+    }
+  }
+
   let t = frame.0 as f32 * 0.052;
   let tau = std::f32::consts::TAU;
   let mut stacks: HashMap<(i32, i32), Vec<Entity>> = HashMap::new();
@@ -1469,7 +1529,7 @@ fn update_fov_visuals(
       stacks.entry((x, y)).or_default().extend(ents.iter().copied());
     }
   }
-  for (entity, item, _, _, _) in item_q.iter_mut() {
+  for (entity, item, _, _) in item_q.iter_mut() {
     if item.z == z && fov.0.is_visible(item.x, item.y) {
       stacks.entry((item.x as i32, item.y as i32)).or_default().push(entity);
     }
@@ -1478,7 +1538,7 @@ fn update_fov_visuals(
     ents.sort_by_key(|e| e.index());
   }
 
-  for (entity, location, mut vis, glyph, mat_handle_opt, mut glyph_fade) in entity_q.iter_mut() {
+  for (entity, location, mut vis, mut glyph_fade) in entity_q.iter_mut() {
     let in_fov = if let Location::Coords { x, y, z: lz, .. } = location
       && *lz == z
       && fov.0.is_visible(*x as usize, *y as usize)
@@ -1495,18 +1555,8 @@ fn update_fov_visuals(
       (prev - FOV_FADE_RATE).max(target)
     };
     animating |= brightness != target;
-    if brightness != prev {
-      glyph_fade.0 = brightness;
-      if let Some(mat_handle) = mat_handle_opt
-        && let Some((primary, secondary)) = glyph.sprite_palette
-        && let Some(mat) = recolor_mats.get_mut(&mat_handle.0)
-      {
-        let p = primary.to_linear();
-        let s = secondary.to_linear();
-        mat.primary = LinearRgba::new(p.red * brightness, p.green * brightness, p.blue * brightness, p.alpha);
-        mat.secondary = LinearRgba::new(s.red * brightness, s.green * brightness, s.blue * brightness, s.alpha);
-      }
-    }
+    // Brightness drives only the hide/show timing now; the shared lightmap dims the sprite.
+    glyph_fade.0 = brightness;
     if brightness == 0.0 {
       *vis = Visibility::Hidden;
     } else if let Location::Coords { x, y, .. } = location
@@ -1529,8 +1579,8 @@ fn update_fov_visuals(
       *vis = Visibility::Visible;
     }
   }
-  for (entity, item, mut vis, mat_handle, mut glyph_fade) in item_q.iter_mut() {
-    let in_fov = item.z == z && fov.0.is_visible(item.x, item.y);
+  for (entity, item, mut vis, mut glyph_fade) in item_q.iter_mut().filter(|(_, item, ..)| item.z == z) {
+    let in_fov = fov.0.is_visible(item.x, item.y);
     let target = if in_fov { 1.0_f32 } else { 0.0 };
     let prev = glyph_fade.0;
     let brightness = if prev < target {
@@ -1539,16 +1589,7 @@ fn update_fov_visuals(
       (prev - FOV_FADE_RATE).max(target)
     };
     animating |= brightness != target;
-    if brightness != prev {
-      glyph_fade.0 = brightness;
-      if let Some(mat) = recolor_mats.get_mut(&mat_handle.0) {
-        let (primary, secondary) = item.item.loot_colors();
-        let p = primary.to_linear();
-        let s = secondary.to_linear();
-        mat.primary = LinearRgba::new(p.red * brightness, p.green * brightness, p.blue * brightness, p.alpha);
-        mat.secondary = LinearRgba::new(s.red * brightness, s.green * brightness, s.blue * brightness, s.alpha);
-      }
-    }
+    glyph_fade.0 = brightness;
     if brightness == 0.0 {
       *vis = Visibility::Hidden;
     } else if let Some(list) = stacks.get(&(item.x as i32, item.y as i32))
@@ -1788,11 +1829,7 @@ fn set_door_open_state(
         && let Some((primary, secondary)) = glyph.sprite_palette
       {
         let tex = asset_server.load(path);
-        let mat = sprites.recolor_materials.add(recolor::RecolorMaterial {
-          texture: tex,
-          primary: primary.to_linear(),
-          secondary: secondary.to_linear()
-        });
+        let mat = sprites.add_recolor(tex, primary.to_linear(), secondary.to_linear());
         commands.entity(entity).insert((
           Mesh2d(sprites.recolor_quad.0.clone()),
           MeshMaterial2d(mat),
@@ -3495,7 +3532,8 @@ fn setup(
         "textures/space_qud/tough guy walk frame 2.png"
       ],
       interval: 8,
-      idle_interval: 30
+      idle_interval: 30,
+      current_path: "textures/space_qud/tough guy 1.png"
     },
     GlyphFade(1.0)
   ));
@@ -3562,19 +3600,7 @@ fn materialize_ground_items(
   }
 }
 
-fn debug_print_camera_pos(
-  keys: Res<ButtonInput<KeyCode>>,
-  cam_tf: Single<&Transform, With<post_process::GameCamera>>,
-) {
-  if keys.pressed(KeyCode::KeyW)
-    || keys.pressed(KeyCode::KeyA)
-    || keys.pressed(KeyCode::KeyS)
-    || keys.pressed(KeyCode::KeyD)
-  {
-    let t = cam_tf.translation;
-    info!("camera: ({:.1}, {:.1}, {:.1})", t.x, t.y, t.z);
-  }
-}
+fn debug_print_camera_pos() {}
 
 fn camera_follow(
   vis: Single<&Visuals, With<Player>>,
