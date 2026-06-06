@@ -649,7 +649,7 @@ fn animate_walk_sprites(
   frame: Res<RenderFrame>,
   keys: Res<ButtonInput<KeyCode>>,
   mut recolor_mats: ResMut<Assets<recolor::RecolorMaterial>>,
-  mut query: Query<(&mut WalkAnim, &AnimMaterials, &mut MeshMaterial2d<recolor::RecolorMaterial>)>
+  mut query: Query<(&mut WalkAnim, &AnimMaterials, &mut MeshMaterial2d<recolor::RecolorMaterial>, &Visibility)>
 ) {
   let move_held = keys.any_pressed([
     KeyCode::KeyW,
@@ -661,30 +661,34 @@ fn animate_walk_sprites(
     KeyCode::ArrowLeft,
     KeyCode::ArrowRight
   ]);
-  for (mut anim, anim_mats, mut mat_handle) in query.iter_mut() {
-    let (frames, interval) = if move_held {
-      (anim.walk_frames, anim.interval)
-    } else {
-      (anim.idle_frames, anim.idle_interval)
-    };
-    let path = if frames.is_empty() {
-      anim.idle
-    } else {
-      let step = (frame.0 / interval) as usize;
-      let n = frames.len() * 2;
-      let phase = step % n;
-      if phase % 2 == 0 { anim.idle } else { frames[phase / 2] }
-    };
-    if anim.current_path != path {
-      anim.current_path = path;
-      let old_colors = recolor_mats.get(&mat_handle.0).map(|m| (m.primary, m.secondary));
-      if let Some((_, handle)) = anim_mats.0.iter().find(|(p, _)| *p == path) {
-        mat_handle.0 = handle.clone();
-        if let Some((primary, secondary)) = old_colors
-          && let Some(mat) = recolor_mats.get_mut(handle)
-        {
-          mat.primary = primary;
-          mat.secondary = secondary;
+  for (mut anim, anim_mats, mut mat_handle, vis) in query.iter_mut() {
+    // Hidden entities (outside FOV per update_fov_visuals) are never drawn; animating them
+    // only churns their RecolorMaterial and forces a per-frame GPU re-upload in prepare_assets.
+    if *vis != Visibility::Hidden {
+      let (frames, interval) = if move_held {
+        (anim.walk_frames, anim.interval)
+      } else {
+        (anim.idle_frames, anim.idle_interval)
+      };
+      let path = if frames.is_empty() {
+        anim.idle
+      } else {
+        let step = (frame.0 / interval) as usize;
+        let n = frames.len() * 2;
+        let phase = step % n;
+        if phase % 2 == 0 { anim.idle } else { frames[phase / 2] }
+      };
+      if anim.current_path != path {
+        anim.current_path = path;
+        let old_colors = recolor_mats.get(&mat_handle.0).map(|m| (m.primary, m.secondary));
+        if let Some((_, handle)) = anim_mats.0.iter().find(|(p, _)| *p == path) {
+          mat_handle.0 = handle.clone();
+          if let Some((primary, secondary)) = old_colors
+            && let Some(mat) = recolor_mats.get_mut(handle)
+          {
+            mat.primary = primary;
+            mat.secondary = secondary;
+          }
         }
       }
     }
@@ -730,7 +734,7 @@ fn main() {
     max_fuel: 500
   };
 
-  let fov = level::FovGrid::new(active.width, active.height);
+  let fov = level::FovGrid::new();
 
   let _ = &active; // Keep 'active' in scope for init
 
@@ -3386,7 +3390,7 @@ fn apply_pending_navigation(
   });
 
   *current = CurrentZone(new_zone);
-  fov.0 = FovGrid::new(current.0.width, current.0.height);
+  fov.0 = FovGrid::new();
   spawn_zone_geometry(
     &mut commands,
     &current.0,

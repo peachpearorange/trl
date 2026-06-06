@@ -352,33 +352,42 @@ pub fn place_wide_corridor(level: &mut Level, x1: i32, y1: i32, x2: i32, y2: i32
 // A final boundary pass reveals wall faces adjacent to visible areas.
 // ---------------------------------------------------------------------------
 
+// FOV never reaches past this many tiles, so visibility is stored as a fixed window centered on
+// the viewer rather than a full-level grid — nothing farther is ever lit (it just renders black).
+pub const FOV_MAX_RADIUS: i32 = 20;
+const FOV_SIDE: usize = (2 * FOV_MAX_RADIUS + 1) as usize;
+const FOV_CELLS: usize = FOV_SIDE * FOV_SIDE;
+
+// Local-window index for an offset from the viewer. The window is always centered at
+// `FOV_MAX_RADIUS`, so the mapping is independent of the actual radius used.
+fn fov_idx(dx: i32, dy: i32) -> usize {
+  (dy + FOV_MAX_RADIUS) as usize * FOV_SIDE + (dx + FOV_MAX_RADIUS) as usize
+}
+
 pub struct FovGrid {
-  pub visible: Vec<Vec<bool>>,
-  pub width: usize,
-  pub height: usize
+  // World tile the window is centered on, and its half-extent (tiles farther than `r` in either
+  // axis are never visible). Both set by the last `compute_fov`.
+  origin: (i32, i32),
+  r: i32,
+  visible: [bool; FOV_CELLS]
 }
 
 impl FovGrid {
-  pub fn new(width: usize, height: usize) -> Self {
-    FovGrid { visible: vec![vec![false; width]; height], width, height }
-  }
-
-  pub fn clear_visible(&mut self) {
-    for row in &mut self.visible {
-      for cell in row.iter_mut() {
-        *cell = false;
-      }
-    }
-  }
-
-  pub fn mark_visible(&mut self, x: usize, y: usize) {
-    if x < self.width && y < self.height {
-      self.visible[y][x] = true;
-    }
+  pub fn new() -> Self {
+    // `r = -1` makes every query miss until the first `compute_fov`.
+    FovGrid { origin: (0, 0), r: -1, visible: [false; FOV_CELLS] }
   }
 
   pub fn is_visible(&self, x: usize, y: usize) -> bool {
-    x < self.width && y < self.height && self.visible[y][x]
+    let dx = x as i32 - self.origin.0;
+    let dy = y as i32 - self.origin.1;
+    dx.abs() <= self.r && dy.abs() <= self.r && self.visible[fov_idx(dx, dy)]
+  }
+}
+
+impl Default for FovGrid {
+  fn default() -> Self {
+    Self::new()
   }
 }
 
@@ -391,15 +400,15 @@ pub fn compute_fov(
   radius: i32,
   mut blocks_sight: impl FnMut(i32, i32) -> bool
 ) {
-  fov.clear_visible();
-  if cx >= 0 && cy >= 0 && (cx as usize) < fov.width && (cy as usize) < fov.height {
-    let max_dist =
-      cx.max((fov.width as i32) - 1 - cx).max(cy.max((fov.height as i32) - 1 - cy));
-    let r = radius.min(max_dist);
-    let size = (2 * r + 1) as usize;
-    // 0 = unvisited, positive = propagation depth, -1 = opaque (visible but blocks)
-    let mut vis2 = vec![0i32; size * size];
-    let mut vis = vec![0i32; size * size];
+  let r = radius.min(FOV_MAX_RADIUS);
+  fov.origin = (cx, cy);
+  fov.r = r;
+  fov.visible.fill(false);
+  {
+    // 0 = unvisited, positive = propagation depth, -1 = opaque (visible but blocks).
+    // Fixed-size stack scratch over the local window — no allocation.
+    let mut vis2 = [0i32; FOV_CELLS];
+    let mut vis = [0i32; FOV_CELLS];
 
     let mut is_opaque = |dx: i32, dy: i32| -> bool {
       (dx, dy) != (0, 0) && {
@@ -411,7 +420,7 @@ pub fn compute_fov(
       }
     };
 
-    let idx = |dx: i32, dy: i32| (dy + r) as usize * size + (dx + r) as usize;
+    let idx = fov_idx;
 
     fn chebyshev_ring(d: i32, mut f: impl FnMut(i32, i32)) {
       for dx in -d..=d {
@@ -518,11 +527,11 @@ pub fn compute_fov(
       }
     }
 
-    // Transfer to FovGrid
+    // Transfer to the window
     for dx in -r..=r {
       for dy in -r..=r {
         if vis[idx(dx, dy)] != 0 {
-          fov.mark_visible((cx + dx) as usize, (cy + dy) as usize);
+          fov.visible[idx(dx, dy)] = true;
         }
       }
     }
@@ -574,7 +583,7 @@ mod fov_tests {
     // door at (4,2) is floor (open)
 
     let (px, py) = (6, 2);
-    let mut fov = FovGrid::new(7, 5);
+    let mut fov = FovGrid::new();
     compute_fov(&mut fov, &level, px, py, 20, |_, _| false);
 
     let map = render_fov(&fov, &level, px, py);
@@ -610,7 +619,7 @@ mod fov_tests {
       level.set(9, 5, Tile::StationFloor); // doorway gap
 
       let (py, door) = (5, (9i32, 5i32));
-      let mut fov = FovGrid::new(w, h);
+      let mut fov = FovGrid::new();
       compute_fov(&mut fov, &level, px as i32, py, 18, |x, y| (x, y) == door);
 
       let leaked: Vec<(usize, usize)> = (1..=8)
@@ -644,7 +653,7 @@ mod fov_tests {
     level.set(4, 4, Tile::StationWall);
 
     let (px, py) = (6, 2);
-    let mut fov = FovGrid::new(7, 5);
+    let mut fov = FovGrid::new();
     // door at (4,2) blocks sight when closed
     compute_fov(&mut fov, &level, px, py, 20, |x, y| x == 4 && y == 2);
 
@@ -659,6 +668,41 @@ mod fov_tests {
           !fov.is_visible(x, y),
           "({x},{y}) should be hidden with door closed\n{map}"
         );
+      }
+    }
+  }
+
+  #[test]
+  fn recompute_in_place_clears_stale_visibility() {
+    // A wide-open room wider than the FOV window: moving the eye and recomputing on the *same*
+    // grid must agree with a fresh grid everywhere — i.e. re-centering the window leaves no stale
+    // visibility, and tiles beyond the window read as not-visible (black).
+    let mut level = Level::new(40, 9, Tile::StationFloor);
+    for x in 0..40 {
+      level.set(x, 0, Tile::StationWall);
+      level.set(x, 8, Tile::StationWall);
+    }
+    for y in 0..9 {
+      level.set(0, y, Tile::StationWall);
+      level.set(39, y, Tile::StationWall);
+    }
+
+    let mut reused = FovGrid::new();
+    for &(px, py) in &[(5, 4), (34, 4), (20, 4)] {
+      compute_fov(&mut reused, &level, px, py, 18, |_, _| false);
+      let mut fresh = FovGrid::new();
+      compute_fov(&mut fresh, &level, px, py, 18, |_, _| false);
+      for y in 0..9 {
+        for x in 0..40 {
+          assert_eq!(
+            reused.is_visible(x, y),
+            fresh.is_visible(x, y),
+            "({x},{y}) at eye ({px},{py}): reused grid disagrees with fresh grid\n\
+             reused:\n{}\nfresh:\n{}",
+            render_fov(&reused, &level, px as i32, py as i32),
+            render_fov(&fresh, &level, px as i32, py as i32)
+          );
+        }
       }
     }
   }

@@ -98,34 +98,53 @@ fn chebyshev(a: (i32, i32), b: (i32, i32)) -> i32 {
 /// BFS flow field from `origin` outward. Each reachable tile maps to the adjacent tile
 /// one step closer to `origin`, so enemies can look up their next move in O(1).
 const FLOW_FIELD_RADIUS: i32 = 26;
+const FLOW_SIDE: i32 = FLOW_FIELD_RADIUS * 2 + 1;
 
-fn bfs_flow_field(origin: (i32, i32), level: &crate::level::Level) -> HashMap<(i32, i32), (i32, i32)> {
-  let mut came_from: HashMap<(i32, i32), (i32, i32)> = HashMap::new();
+/// Local-offset index into the dense grid for a world tile, or None if outside the
+/// [origin ± RADIUS] window. The window is a square of half-side RADIUS, so being in
+/// bounds is exactly Chebyshev distance <= RADIUS.
+fn flow_idx(origin: (i32, i32), x: i32, y: i32) -> Option<usize> {
+  let lx = x - origin.0 + FLOW_FIELD_RADIUS;
+  let ly = y - origin.1 + FLOW_FIELD_RADIUS;
+  (lx >= 0 && lx < FLOW_SIDE && ly >= 0 && ly < FLOW_SIDE).then(|| (ly * FLOW_SIDE + lx) as usize)
+}
+
+fn bfs_flow_field(origin: (i32, i32), level: &crate::level::Level) -> Vec<Option<(i32, i32)>> {
+  let mut field: Vec<Option<(i32, i32)>> = vec![None; (FLOW_SIDE * FLOW_SIDE) as usize];
   let mut queue: VecDeque<(i32, i32)> = VecDeque::new();
-  came_from.insert(origin, origin);
+  // Origin points to itself (consumers filter out the self-step), doubling as the visited mark.
+  field[flow_idx(origin, origin.0, origin.1).unwrap()] = Some(origin);
   queue.push_back(origin);
   while let Some((x, y)) = queue.pop_front() {
     for &(dx, dy) in &NEIGHBOR_DIRS {
       let (nx, ny) = (x + dx, y + dy);
-      if (nx - origin.0).abs().max((ny - origin.1).abs()) <= FLOW_FIELD_RADIUS
-          && !came_from.contains_key(&(nx, ny))
-          && level.walkable(nx, ny)
-          && (dx == 0 || dy == 0 || level.walkable(x + dx, y) || level.walkable(x, y + dy))
+      if let Some(i) = flow_idx(origin, nx, ny)
+        && field[i].is_none()
+        && level.walkable(nx, ny)
+        && (dx == 0 || dy == 0 || level.walkable(x + dx, y) || level.walkable(x, y + dy))
       {
-        came_from.insert((nx, ny), (x, y));
+        field[i] = Some((x, y));
         queue.push_back((nx, ny));
       }
     }
   }
-  came_from
+  field
 }
 
 /// Cached BFS flow field from the player's position. Recomputed whenever the player moves.
-/// `field[tile]` = the adjacent tile one step closer to the player.
+/// A dense grid over the [origin ± RADIUS] window; each cell holds the adjacent tile one
+/// step closer to the player. Indexed by local offset so lookups need no hashing.
 #[derive(Resource, Default)]
 pub struct FlowField {
-  field: HashMap<(i32, i32), (i32, i32)>,
+  origin: (i32, i32),
+  field: Vec<Option<(i32, i32)>>,
   computed_for: Option<(i32, i32, usize)>,
+}
+
+impl FlowField {
+  pub fn next_step(&self, x: i32, y: i32) -> Option<(i32, i32)> {
+    flow_idx(self.origin, x, y).and_then(|i| self.field[i])
+  }
 }
 
 pub fn compute_flow_field(
@@ -136,6 +155,7 @@ pub fn compute_flow_field(
   let &Location::Coords { x, y, z, .. } = &*player.into_inner() else { unreachable!() };
   let key = (x, y, z);
   if flow.computed_for != Some(key) {
+    flow.origin = (x, y);
     flow.field = bfs_flow_field((x, y), current.0.level(z));
     flow.computed_for = Some(key);
   }
@@ -380,7 +400,7 @@ pub fn enemy_ai(
             .then_some((nx, ny))
           })
         } else {
-          flow.field.get(&(ex, ey)).copied().filter(|&step| step != (ex, ey)
+          flow.next_step(ex, ey).filter(|&step| step != (ex, ey)
             && step != (px, py)
             && !tile_blocked(level, step.0, step.1, ez, &index, &collidable_q)
             && !claimed.contains(&step))

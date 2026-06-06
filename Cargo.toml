@@ -12,6 +12,15 @@ path = "src/main.rs"
 name = "editor"
 path = "src/editor.rs"
 
+[features]
+# Per-system timing. Enabling any of these instruments every Bevy system with a
+# tracing span. Pick a backend:
+#   trace_chrome -> writes trace-<timestamp>.json (open in chrome://tracing or ui.perfetto.dev)
+#   trace_tracy  -> streams to the Tracy live profiler
+trace = ["bevy/trace"]
+trace_chrome = ["bevy/trace", "bevy/trace_chrome"]
+trace_tracy = ["bevy/trace", "bevy/trace_tracy"]
+
 [dependencies]
 bevy = { version = "0.18.1" }
 bevy_hanabi = "0.18"
@@ -32,8 +41,12 @@ ghx_proc_gen = "0.8.0"
 
 # Optimize dependencies at opt-level 3 even in debug builds; game code stays
 # unoptimized so recompiles stay fast but Bevy/rendering is not a bottleneck.
+[profile.dev]
+force-frame-pointers = true
+
 [profile.dev.package."*"]
 opt-level = 3
+force-frame-pointers = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 bevy = { version = "0.18.1", features = ["webgpu"] }
