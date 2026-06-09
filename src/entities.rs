@@ -1,6 +1,6 @@
 //! Entity types and spawnable definitions for the game.
 
-use {crate::{faction::Faction, quest},
+use {crate::{faction::Faction, level::Item, quest},
      bevy::prelude::*,
      std::{borrow::Cow, collections::VecDeque, sync::Arc}};
 
@@ -16,7 +16,11 @@ impl DialogueTree {
     self.nodes.iter().find(|n| n.name == name).unwrap_or(&self.nodes[0])
   }
 
-  pub fn visible_choices(&self, node_name: &str, quests: &quest::QuestLog) -> Vec<&DialogueChoice> {
+  pub fn visible_choices(
+    &self,
+    node_name: &str,
+    quests: &quest::QuestLog
+  ) -> Vec<&DialogueChoice> {
     self.find(node_name).choices.iter().filter(|c| c.condition.check(quests)).collect()
   }
 }
@@ -33,13 +37,13 @@ pub struct DialogueChoice {
   pub text: &'static str,
   pub next: Option<&'static str>,
   pub on_select: &'static [QuestAction],
-  pub condition: DialogueCondition,
+  pub condition: DialogueCondition
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum QuestAction {
   Start(quest::QuestId),
-  SetStage(quest::QuestId, quest::StageId),
+  SetStage(quest::QuestId, quest::StageId)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -48,7 +52,7 @@ pub enum DialogueCondition {
   QuestInactive(quest::QuestId),
   QuestActive(quest::QuestId),
   QuestStageAtLeast(quest::QuestId, quest::StageId),
-  QuestCompleted(quest::QuestId),
+  QuestCompleted(quest::QuestId)
 }
 
 impl DialogueCondition {
@@ -58,7 +62,7 @@ impl DialogueCondition {
       DialogueCondition::QuestInactive(id) => quests.stage(id).is_none(),
       DialogueCondition::QuestActive(id) => quests.is_active(id),
       DialogueCondition::QuestStageAtLeast(id, min) => quests.stage_at_least(id, min),
-      DialogueCondition::QuestCompleted(id) => quests.is_completed(id),
+      DialogueCondition::QuestCompleted(id) => quests.is_completed(id)
     }
   }
 }
@@ -79,11 +83,21 @@ pub const fn node(
 }
 
 pub const fn go(text: &'static str, next: &'static str) -> DialogueChoice {
-  DialogueChoice { text, next: Some(next), on_select: &[], condition: DialogueCondition::Always }
+  DialogueChoice {
+    text,
+    next: Some(next),
+    on_select: &[],
+    condition: DialogueCondition::Always
+  }
 }
 
 pub const fn end(text: &'static str) -> DialogueChoice {
-  DialogueChoice { text, next: None, on_select: &[], condition: DialogueCondition::Always }
+  DialogueChoice {
+    text,
+    next: None,
+    on_select: &[],
+    condition: DialogueCondition::Always
+  }
 }
 
 // ============ LOCATION ============
@@ -100,15 +114,14 @@ pub enum Location {
 }
 
 impl Location {
-  pub fn xyz(x: i32, y: i32, z: usize) -> Self {
-    Location::Coords { x, y, z }
-  }
+  pub fn xyz(x: i32, y: i32, z: usize) -> Self { Location::Coords { x, y, z } }
 
   /// World-space tile coordinates as Vec2 (for interpolation). Returns None for non-Coords.
   pub fn as_vec2(&self) -> Option<Vec2> {
-    match self {
-      Location::Coords { x, y, .. } => Some(Vec2::new(*x as f32, *y as f32)),
-      _ => None
+    if let Location::Coords { x, y, .. } = *self {
+      Some(Vec2::new(x as f32, y as f32))
+    } else {
+      None
     }
   }
 }
@@ -117,11 +130,11 @@ impl Location {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Gear {
-  Weapon(crate::level::Item),
-  Armor(crate::level::Item),
-  Grenade(crate::level::Item),
-  Device(crate::level::Item),
-  Loot(crate::level::Item),
+  Weapon(Item),
+  Armor(Item),
+  Grenade(Item),
+  Device(Item),
+  Loot(Item),
   InnateGun { damage: i32 },
   InnateGrenadeThrow { min_range: i32 },
   InnateSporeEmit,
@@ -158,12 +171,12 @@ pub struct GearSlot {
 }
 
 impl GearSlot {
-  pub const fn passive(gear: Gear) -> Self { Self { gear, count: 1, cooldown: 0, timer: 0 } }
-
+  pub const fn passive(gear: Gear) -> Self {
+    Self { gear, count: 1, cooldown: 0, timer: 0 }
+  }
   pub const fn ability(gear: Gear, cooldown: u32) -> Self {
     Self { gear, count: 1, cooldown, timer: 0 }
   }
-
   pub const fn stacked(gear: Gear, count: u32) -> Self {
     Self { gear, count, cooldown: 0, timer: 0 }
   }
@@ -173,30 +186,28 @@ impl GearSlot {
 pub struct Loadout {
   pub gear: Cow<'static, [GearSlot]>
 }
-
 impl Loadout {
-  pub fn new(gear: impl Into<Cow<'static, [GearSlot]>>) -> Self { Self { gear: gear.into() } }
-
-  pub const fn from_gear(gear: &'static [GearSlot]) -> Self { Self { gear: Cow::Borrowed(gear) } }
-
-  pub fn weapon(&self) -> Option<crate::level::Item> {
+  pub fn new(gear: impl Into<Cow<'static, [GearSlot]>>) -> Self {
+    Self { gear: gear.into() }
+  }
+  pub const fn from_gear(gear: &'static [GearSlot]) -> Self {
+    Self { gear: Cow::Borrowed(gear) }
+  }
+  pub fn weapon(&self) -> Option<Item> {
     self.gear.iter().find_map(|s| match s.gear {
       Gear::Weapon(item) => Some(item),
       _ => None
     })
   }
-
   pub fn weapon_attack_bonus(&self) -> i32 {
     self.weapon().map(|w| w.attack_bonus()).unwrap_or(0)
   }
-
-  pub fn armor_item(&self) -> Option<crate::level::Item> {
+  pub fn armor_item(&self) -> Option<Item> {
     self.gear.iter().find_map(|s| match s.gear {
       Gear::Armor(item) => Some(item),
       _ => None
     })
   }
-
   pub fn armor_dr(&self) -> i32 {
     self
       .gear
@@ -209,7 +220,7 @@ impl Loadout {
       .sum()
   }
 
-  pub fn grenade_slots(&self) -> Vec<(usize, crate::level::Item)> {
+  pub fn grenade_slots(&self) -> Vec<(usize, Item)> {
     self
       .gear
       .iter()
@@ -221,11 +232,11 @@ impl Loadout {
       .collect()
   }
 
-  pub fn grenade_at(&self, idx: usize) -> Option<crate::level::Item> {
+  pub fn grenade_at(&self, idx: usize) -> Option<Item> {
     self.grenade_slots().get(idx).map(|&(_, item)| item)
   }
 
-  pub fn device_slots(&self) -> Vec<(usize, crate::level::Item)> {
+  pub fn device_slots(&self) -> Vec<(usize, Item)> {
     self
       .gear
       .iter()
@@ -295,31 +306,31 @@ impl Loadout {
     }
   }
 
-  pub fn equip_weapon(&mut self, item: crate::level::Item) {
+  pub fn equip_weapon(&mut self, item: Item) {
     self.gear.to_mut().push(GearSlot::passive(Gear::Weapon(item)));
   }
 
-  pub fn unequip_weapon(&mut self) -> Option<crate::level::Item> {
+  pub fn unequip_weapon(&mut self) -> Option<Item> {
     let w = self.weapon();
     self.gear.to_mut().retain(|s| !s.gear.is_weapon());
     w
   }
 
-  pub fn equip_armor(&mut self, item: crate::level::Item) {
+  pub fn equip_armor(&mut self, item: Item) {
     self.gear.to_mut().push(GearSlot::passive(Gear::Armor(item)));
   }
 
-  pub fn unequip_armor(&mut self) -> Option<crate::level::Item> {
+  pub fn unequip_armor(&mut self) -> Option<Item> {
     let a = self.armor_item();
     self.gear.to_mut().retain(|s| !matches!(s.gear, Gear::Armor(_)));
     a
   }
 
-  pub fn equip_grenade(&mut self, item: crate::level::Item) {
+  pub fn equip_grenade(&mut self, item: Item) {
     self.gear.to_mut().push(GearSlot::passive(Gear::Grenade(item)));
   }
 
-  pub fn unequip_grenade_at(&mut self, slot_idx: usize) -> Option<crate::level::Item> {
+  pub fn unequip_grenade_at(&mut self, slot_idx: usize) -> Option<Item> {
     let slots: Vec<usize> = self
       .gear
       .iter()
@@ -338,11 +349,11 @@ impl Loadout {
     })
   }
 
-  pub fn equip_device(&mut self, item: crate::level::Item) {
+  pub fn equip_device(&mut self, item: Item) {
     self.gear.to_mut().push(GearSlot::stacked(Gear::Device(item), 1));
   }
 
-  pub fn unequip_device_at(&mut self, slot_idx: usize) -> Option<crate::level::Item> {
+  pub fn unequip_device_at(&mut self, slot_idx: usize) -> Option<Item> {
     let slots: Vec<usize> = self
       .gear
       .iter()
@@ -361,13 +372,13 @@ impl Loadout {
     })
   }
 
-  pub fn remove_grenade_by_item(&mut self, item: crate::level::Item) {
+  pub fn remove_grenade_by_item(&mut self, item: Item) {
     if let Some(idx) = self.gear.iter().position(|s| s.gear == Gear::Grenade(item)) {
       self.gear.to_mut().remove(idx);
     }
   }
 
-  pub fn remove_device_by_item(&mut self, item: crate::level::Item) {
+  pub fn remove_device_by_item(&mut self, item: Item) {
     if let Some(idx) = self.gear.iter().position(|s| s.gear == Gear::Device(item)) {
       self.gear.to_mut().remove(idx);
     }
@@ -377,7 +388,7 @@ impl Loadout {
     self.gear.to_mut().retain(keep);
   }
 
-  pub fn lootable_items(&self) -> Vec<(crate::level::Item, u32)> {
+  pub fn lootable_items(&self) -> Vec<(Item, u32)> {
     self
       .gear
       .iter()
@@ -415,7 +426,7 @@ pub struct LightSource {
 
 /// An item sitting on the ground.
 #[derive(Component, Clone, Copy)]
-pub struct GroundItem(pub crate::level::Item);
+pub struct GroundItem(pub Item);
 
 /// A door that can be opened/closed.
 #[derive(Component, Clone)]
@@ -458,13 +469,13 @@ pub enum CreatureKind {
   Alien,
   Rat,
   Robot,
-  Human,
+  Human
 }
 
 /// A dead creature whose inventory can be looted.
 #[derive(Component, Clone, Debug)]
 pub struct Corpse {
-  pub loot: Vec<(crate::level::Item, u32)>,
+  pub loot: Vec<(Item, u32)>,
   pub looted: bool
 }
 
@@ -492,7 +503,7 @@ pub struct LootChest {
 
 /// Optional override for a [`LootChest`]: gives exactly these items instead of proc-gen loot.
 #[derive(Component, Clone, Debug)]
-pub struct FixedChestLoot(pub &'static [(crate::level::Item, u32)]);
+pub struct FixedChestLoot(pub &'static [(Item, u32)]);
 
 /// Entity occupies its tile for line-of-sight (like an opaque tile) but need not block movement.
 #[derive(Component, Clone, Copy)]
@@ -828,7 +839,7 @@ pub struct Object {
 impl Object {
   pub const EMPTY: Self = Self { data: ObjectData::EMPTY, extras: None };
 
-  pub const fn with<T: ~const FieldOf<ObjectData>>(self, val: T) -> Self {
+  pub const fn with<T: [const] FieldOf<ObjectData>>(self, val: T) -> Self {
     let Self { data, extras } = self;
     Self { data: data.with(val), extras }
   }
@@ -838,7 +849,9 @@ impl Object {
     Self {
       data: self.data,
       extras: Some(Arc::new(move |e: &mut EntityCommands| {
-        if let Some(p) = &prev { p(e); }
+        if let Some(p) = &prev {
+          p(e);
+        }
         e.insert(bundle.clone());
       }))
     }
@@ -851,7 +864,9 @@ impl Object {
 
   pub fn insert_into(&self, e: &mut EntityCommands) {
     self.data.insert_into(e);
-    if let Some(extras) = &self.extras { extras(e); }
+    if let Some(extras) = &self.extras {
+      extras(e);
+    }
     if Has::<Enemy>::get(&self.data).is_some() {
       e.insert(Path::default());
     }
@@ -871,7 +886,10 @@ impl Object {
   }
 }
 
-impl<T> Has<T> for Object where ObjectData: Has<T> {
+impl<T> Has<T> for Object
+where
+  ObjectData: Has<T>
+{
   fn get(&self) -> Option<&T> { self.data.get() }
   fn get_mut(&mut self) -> Option<&mut T> { self.data.get_mut() }
   fn set(&mut self, val: T) { self.data.set(val); }
@@ -914,8 +932,8 @@ impl Object {
       Color::srgb(0.72, 0.48, 0.28), Color::srgb(0.95, 0.78, 0.55),
     ))
     .with(Loadout::from_gear(&[
-      GearSlot::passive(Gear::Weapon(crate::level::Item::CombatSpear)),
-      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 2),
+      GearSlot::passive(Gear::Weapon(Item::CombatSpear)),
+      GearSlot::stacked(Gear::Loot(Item::GoldCoin), 2),
     ]));
 
   pub const ARMORED_RAT_SOLDIER: Self = Self::ENEMY_BASE
@@ -930,9 +948,9 @@ impl Object {
       Color::srgb(0.55, 0.42, 0.28), Color::srgb(0.82, 0.68, 0.45),
     ))
     .with(Loadout::from_gear(&[
-      GearSlot::passive(Gear::Weapon(crate::level::Item::CombatSpear)),
+      GearSlot::passive(Gear::Weapon(Item::CombatSpear)),
       GearSlot::passive(Gear::NaturalArmor { dr: 1 }),
-      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 3),
+      GearSlot::stacked(Gear::Loot(Item::GoldCoin), 3),
     ]));
 
   pub const ROBOT: Self = Self::ENEMY_BASE
@@ -947,7 +965,7 @@ impl Object {
       Color::srgb(0.28, 0.52, 0.58), Color::srgb(0.55, 0.82, 0.88),
     ))
     .with(Loadout::from_gear(&[
-      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 4),
+      GearSlot::stacked(Gear::Loot(Item::GoldCoin), 4),
     ]));
 
   pub const WACK_ROBOT: Self = Self::ENEMY_BASE
@@ -962,7 +980,7 @@ impl Object {
       Color::srgb(0.62, 0.38, 0.18), Color::srgb(0.88, 0.68, 0.32),
     ))
     .with(Loadout::from_gear(&[
-      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 2),
+      GearSlot::stacked(Gear::Loot(Item::GoldCoin), 2),
     ]));
 
   pub const ALIEN_RUNNER: Self = Self::ENEMY_BASE
@@ -978,8 +996,8 @@ impl Object {
       Color::srgb(0.18, 0.72, 0.22), Color::srgb(0.92, 0.82, 0.18),
     ))
     .with(Loadout::from_gear(&[
-      GearSlot::stacked(Gear::Device(crate::level::Item::StealthDevice), 1),
-      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 1),
+      GearSlot::stacked(Gear::Device(Item::StealthDevice), 1),
+      GearSlot::stacked(Gear::Loot(Item::GoldCoin), 1),
     ]))
     .with(WalkAnim {
       idle: "textures/space_qud/alien1.png",
@@ -1005,7 +1023,7 @@ impl Object {
     .with(Loadout::from_gear(&[
       GearSlot::ability(Gear::InnateGrab, 8),
       GearSlot::passive(Gear::NaturalArmor { dr: 3 }),
-      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 3),
+      GearSlot::stacked(Gear::Loot(Item::GoldCoin), 3),
     ]));
 
   pub const MANTIS_ALIEN: Self = Self::ENEMY_BASE
@@ -1021,8 +1039,8 @@ impl Object {
       Color::srgb(0.65, 0.90, 0.95), Color::srgb(0.20, 0.55, 0.70),
     ))
     .with(Loadout::from_gear(&[
-      GearSlot::stacked(Gear::Device(crate::level::Item::StealthDevice), 1),
-      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 2),
+      GearSlot::stacked(Gear::Device(Item::StealthDevice), 1),
+      GearSlot::stacked(Gear::Loot(Item::GoldCoin), 2),
     ]))
     .with(WalkAnim {
       idle: "textures/space_qud/mantis alien.png",
@@ -1048,7 +1066,7 @@ impl Object {
     .with(Loadout::from_gear(&[
       GearSlot::ability(Gear::InnateGrab, 8),
       GearSlot::passive(Gear::NaturalArmor { dr: 1 }),
-      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 2),
+      GearSlot::stacked(Gear::Loot(Item::GoldCoin), 2),
     ]));
 
   pub const MUSHROOM_CREATURE: Self = Self::ENEMY_BASE
@@ -1064,55 +1082,61 @@ impl Object {
     ))
     .with(Loadout::from_gear(&[
       GearSlot::ability(Gear::InnateSporeEmit, 40),
-      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 1),
+      GearSlot::stacked(Gear::Loot(Item::GoldCoin), 1),
     ]));
 
   pub const GRENADE_THROWER: Self = Self::ENEMY_BASE
     .with(CreatureKind::Human)
     .with(Named {
       name: "Grenadier",
-      flavor: "A wiry soldier bristling with grenades. Keeps its distance.",
+      flavor: "A wiry soldier bristling with grenades. Keeps its distance."
     })
     .with(Stats { hp: 8, max_hp: 8, attack: 2, move_speed: 2.0, attack_speed: 0.8 })
     .with(Glyph::recolor_sprite(
-      "textures/space_qud/gunman .png", 'g',
-      Color::srgb(0.22, 0.48, 0.22), Color::srgb(0.60, 0.78, 0.42),
+      "textures/space_qud/gunman .png",
+      'g',
+      Color::srgb(0.22, 0.48, 0.22),
+      Color::srgb(0.60, 0.78, 0.42)
     ))
     .with(Loadout::from_gear(&[
       GearSlot::ability(Gear::InnateGrenadeThrow { min_range: 3 }, 25),
-      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 3),
+      GearSlot::stacked(Gear::Loot(Item::GoldCoin), 3)
     ]));
 
   pub const GUNMAN: Self = Self::ENEMY_BASE
     .with(CreatureKind::Human)
     .with(Named {
       name: "Gunman",
-      flavor: "A sharp-eyed mercenary with a revolver. Shoots first.",
+      flavor: "A sharp-eyed mercenary with a revolver. Shoots first."
     })
     .with(Stats { hp: 8, max_hp: 8, attack: 3, move_speed: 2.0, attack_speed: 1.0 })
     .with(Glyph::recolor_sprite(
-      "textures/space_qud/gunman .png", 'g',
-      Color::srgb(0.42, 0.52, 0.68), Color::srgb(0.72, 0.82, 0.92),
+      "textures/space_qud/gunman .png",
+      'g',
+      Color::srgb(0.42, 0.52, 0.68),
+      Color::srgb(0.72, 0.82, 0.92)
     ))
     .with(Loadout::from_gear(&[
       GearSlot::ability(Gear::InnateGun { damage: 4 }, 15),
-      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 4),
+      GearSlot::stacked(Gear::Loot(Item::GoldCoin), 4)
     ]));
 
   pub const ROBOT_DOG: Self = Self::ENEMY_BASE
     .with(CreatureKind::Robot)
     .with(Named {
       name: "Guard Dog",
-      flavor: "A battered patrol drone on four legs. Its mounted gun tracks movement.",
+      flavor: "A battered patrol drone on four legs. Its mounted gun tracks movement."
     })
     .with(Stats { hp: 10, max_hp: 10, attack: 2, move_speed: 3.0, attack_speed: 1.0 })
     .with(Glyph::recolor_sprite(
-      "textures/space_qud/robot dog with gun.png", 'd',
-      Color::srgb(0.42, 0.44, 0.48), Color::srgb(0.85, 0.75, 0.15),
+      "textures/space_qud/robot dog with gun.png",
+      'd',
+      Color::srgb(0.42, 0.44, 0.48),
+      Color::srgb(0.85, 0.75, 0.15)
     ))
     .with(Loadout::from_gear(&[
       GearSlot::ability(Gear::InnateGun { damage: 3 }, 12),
-      GearSlot::stacked(Gear::Loot(crate::level::Item::GoldCoin), 3),
+      GearSlot::stacked(Gear::Loot(Item::GoldCoin), 3)
     ]));
 
   pub const TURRET: Self = Self::ENEMY_BASE
@@ -1141,82 +1165,129 @@ impl Object {
 
   pub const SPACE_CAT: Self = Self::STRUCTURE_PASSABLE
     .with(Glyph::recolor_sprite(
-      "textures/space_qud/space cat.png", 'c',
-      Color::srgb(0.92, 0.82, 0.62), Color::srgb(0.52, 0.36, 0.26),
+      "textures/space_qud/space cat.png",
+      'c',
+      Color::srgb(0.92, 0.82, 0.62),
+      Color::srgb(0.52, 0.36, 0.26)
     ))
-    .with(Named { name: "Space cat", flavor: "Judges your piloting from a warm bulkhead. Offers no corrections." });
+    .with(Named {
+      name: "Space cat",
+      flavor: "Judges your piloting from a warm bulkhead. Offers no corrections."
+    });
 
   pub const BOULDER: Self = Self::STRUCTURE
     .with(Glyph::recolor_sprite(
-      "textures/space_qud/rock.png", 'o',
-      Color::srgb(0.32, 0.30, 0.28), Color::srgb(0.58, 0.55, 0.50),
+      "textures/space_qud/rock.png",
+      'o',
+      Color::srgb(0.32, 0.30, 0.28),
+      Color::srgb(0.58, 0.55, 0.50)
     ))
     .with(Named { name: "Boulder", flavor: "A massive rock. Immovable." });
 
   pub const THRUSTER: Self = Self::STRUCTURE
     .with(Glyph::recolor_sprite(
-      "textures/space_qud/thruster.png", '>',
-      Color::srgb(0.72, 0.38, 0.08), Color::srgb(0.75, 0.75, 0.72),
+      "textures/space_qud/thruster.png",
+      '>',
+      Color::srgb(0.72, 0.38, 0.08),
+      Color::srgb(0.75, 0.75, 0.72)
     ))
-    .with(Named { name: "Thruster", flavor: "A directional thruster assembly. Keeps the ship moving." });
+    .with(Named {
+      name: "Thruster",
+      flavor: "A directional thruster assembly. Keeps the ship moving."
+    });
 
   pub const SPORE_CLOUD: Self = Self::EMPTY
     .with(Collidable(false))
     .with(Glyph::recolor_sprite(
-      "textures/space_qud/checkerboard pattern.png", '*',
-      Color::srgb(0.30, 0.72, 0.22), Color::srgb(0.18, 0.48, 0.12),
+      "textures/space_qud/checkerboard pattern.png",
+      '*',
+      Color::srgb(0.30, 0.72, 0.22),
+      Color::srgb(0.18, 0.48, 0.12)
     ))
-    .with(Named { name: "Spore Cloud", flavor: "A drifting cloud of toxic fungal spores." })
-    .with(DamageCloud { damage_per_tick: 1, ticks_remaining: 4, tick_interval: 5, tick_timer: 0 });
+    .with(Named {
+      name: "Spore Cloud",
+      flavor: "A drifting cloud of toxic fungal spores."
+    })
+    .with(DamageCloud {
+      damage_per_tick: 1,
+      ticks_remaining: 4,
+      tick_interval: 5,
+      tick_timer: 0
+    });
 
   pub const EXPLOSION_CLOUD: Self = Self::EMPTY
     .with(Collidable(false))
     .with(Glyph::recolor_sprite(
-      "textures/space_qud/checkerboard pattern.png", '*',
-      Color::srgb(0.95, 0.55, 0.10), Color::srgb(0.72, 0.22, 0.06),
+      "textures/space_qud/checkerboard pattern.png",
+      '*',
+      Color::srgb(0.95, 0.55, 0.10),
+      Color::srgb(0.72, 0.22, 0.06)
     ))
     .with(Named { name: "Explosion", flavor: "Roiling flame and shrapnel." })
-    .with(DamageCloud { damage_per_tick: 3, ticks_remaining: 2, tick_interval: 2, tick_timer: 0 });
+    .with(DamageCloud {
+      damage_per_tick: 3,
+      ticks_remaining: 2,
+      tick_interval: 2,
+      tick_timer: 0
+    });
 
   pub const LASER_SWORD: Self = Self::STRUCTURE_PASSABLE
     .with(Glyph::recolor_sprite(
-      "textures/space_qud/laser sword.png", '/',
-      Color::srgb(0.18, 0.08, 0.52), Color::srgb(0.42, 0.82, 0.98),
+      "textures/space_qud/laser sword.png",
+      '/',
+      Color::srgb(0.18, 0.08, 0.52),
+      Color::srgb(0.42, 0.82, 0.98)
     ))
-    .with(Named { name: "Laser Sword", flavor: "An energy blade, dormant. Still hums faintly." });
+    .with(Named {
+      name: "Laser Sword",
+      flavor: "An energy blade, dormant. Still hums faintly."
+    });
 
   pub const TABLE: Self = Self::STRUCTURE
     .with(Glyph::recolor_sprite(
-      "textures/space_qud/table.png", 't',
-      Color::srgb(0.48, 0.34, 0.18), Color::srgb(0.72, 0.58, 0.36),
+      "textures/space_qud/table.png",
+      't',
+      Color::srgb(0.48, 0.34, 0.18),
+      Color::srgb(0.72, 0.58, 0.36)
     ))
     .with(Named { name: "Table", flavor: "A sturdy table." });
 
   pub const CHAIR: Self = Self::STRUCTURE_PASSABLE
     .with(Glyph::recolor_sprite(
-      "textures/space_qud/chair (1).png", 'h',
-      Color::srgb(0.60, 0.62, 0.65), Color::srgb(0.72, 0.18, 0.14),
+      "textures/space_qud/chair (1).png",
+      'h',
+      Color::srgb(0.60, 0.62, 0.65),
+      Color::srgb(0.72, 0.18, 0.14)
     ))
     .with(Named { name: "Chair", flavor: "A chair. Something to sit on." });
 
   pub const LOCKER: Self = Self::STRUCTURE
     .with(Glyph::recolor_sprite(
-      "textures/space_qud/locker (2).png", 'l',
-      Color::srgb(0.32, 0.38, 0.42), Color::srgb(0.62, 0.68, 0.72),
+      "textures/space_qud/locker (2).png",
+      'l',
+      Color::srgb(0.32, 0.38, 0.42),
+      Color::srgb(0.62, 0.68, 0.72)
     ))
-    .with(Named { name: "Locker", flavor: "A metal locker. Whatever was inside is long gone." });
+    .with(Named {
+      name: "Locker",
+      flavor: "A metal locker. Whatever was inside is long gone."
+    });
 
   pub const CRATE_OBJ: Self = Self::STRUCTURE
     .with(Glyph::recolor_sprite(
-      "textures/space_qud/crate.png", 'c',
-      Color::srgb(0.42, 0.32, 0.18), Color::srgb(0.72, 0.60, 0.38),
+      "textures/space_qud/crate.png",
+      'c',
+      Color::srgb(0.42, 0.32, 0.18),
+      Color::srgb(0.72, 0.60, 0.38)
     ))
     .with(Named { name: "Crate", flavor: "A battered storage crate. Probably empty." });
 
   pub const DOOR: Self = Self::STRUCTURE
     .with(Glyph::recolor_sprite(
-      "textures/space_qud/door closed (1).png", '+',
-      DOOR_CLOSED_PRI, DOOR_CLOSED_SEC,
+      "textures/space_qud/door closed (1).png",
+      '+',
+      DOOR_CLOSED_PRI,
+      DOOR_CLOSED_SEC
     ))
     .with(Named { name: "Door", flavor: "Press Space to open." })
     .with(BlocksSight)
@@ -1224,62 +1295,89 @@ impl Object {
 
   pub const AIRLOCK_DOOR: Self = Self::DOOR
     .with(Glyph::recolor_sprite(
-      "textures/space_qud/airlock closed.png", '+',
-      AIRLOCK_PRI, AIRLOCK_SEC,
+      "textures/space_qud/airlock closed.png",
+      '+',
+      AIRLOCK_PRI,
+      AIRLOCK_SEC
     ))
     .with(AirlockDoor { opened_at_sim_time: None });
 
   pub const FLIGHT_CONSOLE: Self = Self::STRUCTURE
     .with(Glyph::recolor_sprite(
-      "textures/space_qud/computer .png", 'C',
-      Color::srgb(0.18, 0.34, 0.52), Color::srgb(0.32, 0.88, 0.45),
+      "textures/space_qud/computer .png",
+      'C',
+      Color::srgb(0.18, 0.34, 0.52),
+      Color::srgb(0.32, 0.88, 0.45)
     ))
-    .with(Named { name: "Flight Console", flavor: "Navigation computer. Plot a course to a destination." })
+    .with(Named {
+      name: "Flight Console",
+      flavor: "Navigation computer. Plot a course to a destination."
+    })
     .with(FlightConsole);
 
   pub const LOADOUT_CONSOLE: Self = Self::STRUCTURE
     .with(Glyph::recolor_sprite(
-      "textures/space_qud/locker (1).png", 'Q',
-      Color::srgb(0.25, 0.38, 0.52), Color::srgb(0.55, 0.75, 0.88),
+      "textures/space_qud/locker (1).png",
+      'Q',
+      Color::srgb(0.25, 0.38, 0.52),
+      Color::srgb(0.55, 0.75, 0.88)
     ))
-    .with(Named { name: "Loadout Console", flavor: "Manage your equipped weapon and armor from your collected gear." })
+    .with(Named {
+      name: "Loadout Console",
+      flavor: "Manage your equipped weapon and armor from your collected gear."
+    })
     .with(LoadoutConsole);
 
   pub const LOOT_CHEST: Self = Self::STRUCTURE
     .with(Glyph::recolor_sprite(
-      "textures/space_qud/crate.png", '&',
-      Color::srgb(0.72, 0.52, 0.28), Color::srgb(0.42, 0.32, 0.22),
+      "textures/space_qud/crate.png",
+      '&',
+      Color::srgb(0.72, 0.52, 0.28),
+      Color::srgb(0.42, 0.32, 0.22)
     ))
     .with(Named { name: "Chest", flavor: "Someone stashed supplies here." })
     .with(LootChest { opened: false });
 
   pub const BED: Self = Self::STRUCTURE
     .with(Glyph::recolor_sprite(
-      "textures/space_qud/bed.png", 'b',
-      Color::srgb(0.52, 0.38, 0.22), Color::srgb(0.88, 0.84, 0.72),
+      "textures/space_qud/bed.png",
+      'b',
+      Color::srgb(0.52, 0.38, 0.22),
+      Color::srgb(0.88, 0.84, 0.72)
     ))
-    .with(Named { name: "Bed", flavor: "A place to sleep. Looks like it hasn't been used in a while." })
+    .with(Named {
+      name: "Bed",
+      flavor: "A place to sleep. Looks like it hasn't been used in a while."
+    })
     .with(Bed);
 
   pub const CRAFTING_TABLE: Self = Self::STRUCTURE
     .with(Glyph::recolor_sprite(
-      "textures/space_qud/crafting table.png", 'C',
-      Color::srgb(0.38, 0.42, 0.48), Color::srgb(0.62, 0.62, 0.62),
+      "textures/space_qud/crafting table.png",
+      'C',
+      Color::srgb(0.38, 0.42, 0.48),
+      Color::srgb(0.62, 0.62, 0.62)
     ))
-    .with(Named { name: "Crafting Table", flavor: "A workbench for assembling equipment from salvaged parts." })
+    .with(Named {
+      name: "Crafting Table",
+      flavor: "A workbench for assembling equipment from salvaged parts."
+    })
     .with(CraftingTable);
 
   // ---- const fn factories (take args, only .with()) ----
 
   pub const fn mushroom(primary: Color, secondary: Color, name: &'static str) -> Self {
     Self::STRUCTURE_PASSABLE
-      .with(Glyph::recolor_sprite("textures/space_qud/mushroom.png", 'm', primary, secondary))
+      .with(Glyph::recolor_sprite(
+        "textures/space_qud/mushroom.png",
+        'm',
+        primary,
+        secondary
+      ))
       .with(Named { name, flavor: "A large fungal growth rooted in the alien soil." })
   }
 
-  pub const fn torch(radius: u32) -> Self {
-    Self::EMPTY.with(LightSource { radius })
-  }
+  pub const fn torch(radius: u32) -> Self { Self::EMPTY.with(LightSource { radius }) }
 
   pub const fn wall(material: Material) -> Self {
     Self::STRUCTURE.with(WallComp { material })
@@ -1307,14 +1405,19 @@ impl Object {
       .with(Path { steps: VecDeque::new(), cached_goal: None })
   }
 
-  pub const fn supply_cache(contents: &'static [(crate::level::Item, u32)]) -> Self {
+  pub const fn supply_cache(contents: &'static [(Item, u32)]) -> Self {
     Self::EMPTY
       .with(Collidable(true))
       .with(Glyph::recolor_sprite(
-        "textures/space_qud/crate.png", 'S',
-        Color::srgb(0.28, 0.42, 0.52), Color::srgb(0.52, 0.75, 0.88),
+        "textures/space_qud/crate.png",
+        'S',
+        Color::srgb(0.28, 0.42, 0.52),
+        Color::srgb(0.52, 0.75, 0.88)
       ))
-      .with(Named { name: "Supply Cache", flavor: "A sealed cache. Whoever left this behind had plans they didn't finish." })
+      .with(Named {
+        name: "Supply Cache",
+        flavor: "A sealed cache. Whoever left this behind had plans they didn't finish."
+      })
       .with(LootChest { opened: false })
       .with(FixedChestLoot(contents))
   }
@@ -1323,8 +1426,10 @@ impl Object {
 
   pub const TREE: Self = Self::STRUCTURE_PASSABLE
     .with(Glyph::recolor_sprite(
-      "textures/space_qud/tree.png", 'T',
-      Color::srgb(0.14, 0.42, 0.16), Color::srgb(0.38, 0.62, 0.24),
+      "textures/space_qud/tree.png",
+      'T',
+      Color::srgb(0.14, 0.42, 0.16),
+      Color::srgb(0.38, 0.62, 0.24)
     ))
     .with(Named { name: "Tree", flavor: "A sturdy tree. Could be chopped for wood." })
     .with(BlocksSight)
@@ -1332,8 +1437,10 @@ impl Object {
 
   pub const TREE2: Self = Self::STRUCTURE_PASSABLE
     .with(Glyph::recolor_sprite(
-      "textures/space_qud/tree2.png", 'T',
-      Color::srgb(0.14, 0.42, 0.16), Color::srgb(0.38, 0.62, 0.24),
+      "textures/space_qud/tree2.png",
+      'T',
+      Color::srgb(0.14, 0.42, 0.16),
+      Color::srgb(0.38, 0.62, 0.24)
     ))
     .with(Named { name: "Tree", flavor: "A sturdy tree. Could be chopped for wood." })
     .with(BlocksSight)
@@ -1346,8 +1453,10 @@ impl Object {
   pub fn elevator(current_z: usize, floors: Vec<(usize, i32, i32)>) -> Self {
     Self::STRUCTURE
       .with(Glyph::recolor_sprite(
-        "textures/space_qud/elevator.png", 'E',
-        Color::srgb(0.42, 0.46, 0.50), Color::srgb(1.0, 0.85, 0.10),
+        "textures/space_qud/elevator.png",
+        'E',
+        Color::srgb(0.42, 0.46, 0.50),
+        Color::srgb(1.0, 0.85, 0.10)
       ))
       .with(Named { name: "Elevator", flavor: "Vertical transport. Choose a deck." })
       .with(Elevator { current_z, floors: Cow::Owned(floors) })
@@ -1356,8 +1465,10 @@ impl Object {
   pub fn cave_entrance(surface_x: i32, surface_y: i32, cave_x: i32, cave_y: i32) -> Self {
     Self::STRUCTURE_PASSABLE
       .with(Glyph::recolor_sprite(
-        "textures/space_qud/stairs.png", '>',
-        Color::srgb(0.35, 0.32, 0.28), Color::srgb(0.55, 0.50, 0.40),
+        "textures/space_qud/stairs.png",
+        '>',
+        Color::srgb(0.35, 0.32, 0.28),
+        Color::srgb(0.55, 0.50, 0.40)
       ))
       .with(Named { name: "Cave Entrance", flavor: "A dark opening leads underground." })
       .with(Elevator {
@@ -1369,8 +1480,10 @@ impl Object {
   pub fn cave_exit(surface_x: i32, surface_y: i32, cave_x: i32, cave_y: i32) -> Self {
     Self::STRUCTURE_PASSABLE
       .with(Glyph::recolor_sprite(
-        "textures/space_qud/stairs up.png", '<',
-        Color::srgb(0.55, 0.50, 0.40), Color::srgb(0.35, 0.32, 0.28),
+        "textures/space_qud/stairs up.png",
+        '<',
+        Color::srgb(0.55, 0.50, 0.40),
+        Color::srgb(0.35, 0.32, 0.28)
       ))
       .with(Named { name: "Cave Exit", flavor: "Daylight filters in from above." })
       .with(Elevator {
@@ -1379,7 +1492,7 @@ impl Object {
       })
   }
 
-  pub const fn ground_item(item: crate::level::Item) -> Self {
+  pub const fn ground_item(item: Item) -> Self {
     let (primary, secondary) = item.loot_colors();
     Self::EMPTY
       .with(Glyph::recolor_sprite(item.loot_texture(), '*', primary, secondary))

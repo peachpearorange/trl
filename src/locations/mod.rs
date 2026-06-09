@@ -4,6 +4,7 @@ pub mod island;
 pub mod lava_planet;
 pub mod meridian_station;
 pub mod mushroom_planet;
+pub mod natural_planet;
 pub mod planet_gen;
 pub mod starter_planet;
 pub mod station_gen;

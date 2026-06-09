@@ -719,6 +719,18 @@ fn main() {
   for (id, name) in locations::planet_gen::all_ids() {
     galaxy.register_deferred(id, name, |id| locations::planet_gen::generate_by_id(id));
   }
+  // Experimental: layered-noise naturalistic planet (see locations::natural_planet).
+  let natural_id: galaxy::LocationId = (13, 0, 0);
+  galaxy.register_deferred(natural_id, "Vera Spera", |_id| {
+    Some(locations::natural_planet::generate_natural_planet(
+      &locations::natural_planet::NaturalParams {
+        name: "Vera Spera",
+        seed: locations::natural_planet::SEED,
+        breathable: true,
+        tree_density: 0.6
+      }
+    ))
+  });
   for (id, loc) in locations::station_gen::all() {
     galaxy.insert(id, loc);
   }

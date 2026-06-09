@@ -112,7 +112,7 @@ pub enum Tile {
   Grass,
   #[assoc(glyph = ",", color = [0.8, 0.7, 0.4], walkable = true, name = "Sand", render_mode = TileRenderMode::Sprite("textures/space_qud/wavy.png", [0.72, 0.62, 0.38], [0.92, 0.86, 0.62]))]
   Sand,
-  #[assoc(glyph = "\"", color = [0.25, 0.65, 0.25], walkable = true, name = "Tall Grass", render_mode = TileRenderMode::Sprite("textures/space_qud/grass.png", [0.22, 0.48, 0.18], [0.52, 0.72, 0.28]))]
+  #[assoc(glyph = "\"", color = [0.25, 0.65, 0.25], walkable = true, name = "Tall Grass", render_mode = TileRenderMode::Sprite("textures/space_qud/tallgrass.png", [0.22, 0.48, 0.18], [0.52, 0.72, 0.28]))]
   TallGrass,
   #[assoc(glyph = ".", color = [0.55, 0.53, 0.5], walkable = true, name = "Ash", render_mode = TileRenderMode::SpritePackRandom(&["textures/space_qud/ground.png"], [0.32, 0.30, 0.28], [0.55, 0.53, 0.50]))]
   Ash,
@@ -152,6 +152,8 @@ pub enum Tile {
   CaveWall,
   #[assoc(glyph = "#", color = [0.4, 0.35, 0.3], walkable = false, opaque = true, name = "Asteroid Rock", render_mode = TileRenderMode::Sprite("textures/space_qud/cobble tile.png", [0.28, 0.26, 0.24], [0.48, 0.46, 0.42]))]
   AsteroidRock,
+  #[assoc(glyph = "#", color = [0.5, 0.5, 0.5], walkable = true, name = "Small Rocks", render_mode = TileRenderMode::Sprite("textures/space_qud/smallrocks1.png", [0.40, 0.40, 0.40], [0.50, 0.50, 0.50]))]
+  SmallRocks,
   #[assoc(glyph = "#", color = [0.5, 0.55, 0.7], walkable = false, opaque = true, name = "Ice Wall")]
   IceWall,
   #[assoc(glyph = "#", color = [0.72, 0.76, 0.82], walkable = false, opaque = true, name = "Bright Cobble Wall", render_mode = TileRenderMode::Sprite("textures/space_qud/cobble tile.png", [0.68, 0.72, 0.78], [0.88, 0.92, 0.96]))]

@@ -70,8 +70,14 @@ Most orchestration lives in `src/main.rs`:
 ## Content Generation and Locations
 
 - Procedural:
-  - planets: `src/locations/planet_gen.rs`
+  - planets: `src/locations/planet_gen.rs` (WFC in `build.rs` + editor-exported grids)
   - stations: `src/locations/station_gen.rs`
+  - experimental layered-noise planet: `src/locations/natural_planet.rs`
+    (elevation + moisture + detail noise fields, water-fragmentation pass,
+    smoothstep tree density, long rock-wall ridges that limit movement,
+    Tile::Ground dirt patches and rock skirts, starting-zone seed,
+    biome-scoped creature scatter with alien-weighted fauna, registered as
+    LocationId `(13, 0, 0)` = "Vera Spera" in `main.rs`)
 - Hand-authored locations:
   - `src/locations/starter_planet.rs`
   - `src/locations/meridian_station.rs`

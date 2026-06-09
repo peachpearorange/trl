@@ -1,5 +1,13 @@
 #![feature(const_trait_impl)]
 #![feature(const_precise_live_drops)]
+#[path = "entities.rs"]
+mod entities;
+#[path = "faction.rs"]
+mod faction;
+#[path = "level.rs"]
+mod level;
+#[path = "quest.rs"]
+pub mod quest;
 #[path = "sprites.rs"]
 #[allow(dead_code)]
 mod sprites;
@@ -7,18 +15,12 @@ mod sprites;
 pub mod tiles;
 #[path = "utils.rs"]
 mod utils;
-#[path = "faction.rs"]
-mod faction;
-#[path = "level.rs"]
-mod level;
-#[path = "quest.rs"]
-pub mod quest;
-#[path = "entities.rs"]
-mod entities;
 
 pub const SPRITE_TEXELS: f32 = 20.0;
 
-use {bevy::{input::{keyboard::{Key, KeyboardInput}, mouse::AccumulatedMouseScroll},
+use {crate::entities::Object,
+     bevy::{input::{keyboard::{Key, KeyboardInput},
+                    mouse::AccumulatedMouseScroll},
             prelude::*,
             sprite_render::{AlphaMode2d, TileData, TilemapChunk, TilemapChunkTileData}},
      enum_assoc::Assoc,
@@ -51,68 +53,68 @@ const DEFAULT_PATTERN_SIZE: u32 = 5;
 #[derive(Assoc, Clone, Copy, PartialEq, Eq, Debug, TryFromPrimitive)]
 #[repr(u8)]
 #[func(pub fn label(&self) -> &'static str)]
-#[func(pub fn object(&self) -> entities::Object)]
+#[func(pub fn object(&self) -> Object)]
 pub enum ObjectTemplate {
-  #[assoc(label = "tree", object = entities::Object::TREE)]
+  #[assoc(label = "tree", object = Object::TREE)]
   Tree,
-  #[assoc(label = "tree2", object = entities::Object::TREE2)]
+  #[assoc(label = "tree2", object = Object::TREE2)]
   Tree2,
-  #[assoc(label = "boulder", object = entities::Object::BOULDER)]
+  #[assoc(label = "boulder", object = Object::BOULDER)]
   Boulder,
-  #[assoc(label = "door", object = entities::Object::DOOR)]
+  #[assoc(label = "door", object = Object::DOOR)]
   Door,
-  #[assoc(label = "airlock_door", object = entities::Object::AIRLOCK_DOOR)]
+  #[assoc(label = "airlock_door", object = Object::AIRLOCK_DOOR)]
   AirlockDoor,
-  #[assoc(label = "bed", object = entities::Object::BED)]
+  #[assoc(label = "bed", object = Object::BED)]
   Bed,
-  #[assoc(label = "table", object = entities::Object::TABLE)]
+  #[assoc(label = "table", object = Object::TABLE)]
   Table,
-  #[assoc(label = "chair", object = entities::Object::CHAIR)]
+  #[assoc(label = "chair", object = Object::CHAIR)]
   Chair,
-  #[assoc(label = "crafting_table", object = entities::Object::CRAFTING_TABLE)]
+  #[assoc(label = "crafting_table", object = Object::CRAFTING_TABLE)]
   CraftingTable,
-  #[assoc(label = "locker", object = entities::Object::LOCKER)]
+  #[assoc(label = "locker", object = Object::LOCKER)]
   Locker,
-  #[assoc(label = "crate", object = entities::Object::CRATE_OBJ)]
+  #[assoc(label = "crate", object = Object::CRATE_OBJ)]
   Crate,
-  #[assoc(label = "loot_chest", object = entities::Object::LOOT_CHEST)]
+  #[assoc(label = "loot_chest", object = Object::LOOT_CHEST)]
   LootChest,
-  #[assoc(label = "flight_console", object = entities::Object::FLIGHT_CONSOLE)]
+  #[assoc(label = "flight_console", object = Object::FLIGHT_CONSOLE)]
   FlightConsole,
-  #[assoc(label = "loadout_console", object = entities::Object::LOADOUT_CONSOLE)]
+  #[assoc(label = "loadout_console", object = Object::LOADOUT_CONSOLE)]
   LoadoutConsole,
-  #[assoc(label = "space_cat", object = entities::Object::SPACE_CAT)]
+  #[assoc(label = "space_cat", object = Object::SPACE_CAT)]
   SpaceCat,
-  #[assoc(label = "thruster", object = entities::Object::THRUSTER)]
+  #[assoc(label = "thruster", object = Object::THRUSTER)]
   Thruster,
-  #[assoc(label = "rat_soldier", object = entities::Object::RAT_SOLDIER)]
+  #[assoc(label = "rat_soldier", object = Object::RAT_SOLDIER)]
   RatSoldier,
-  #[assoc(label = "armored_rat_soldier", object = entities::Object::ARMORED_RAT_SOLDIER)]
+  #[assoc(label = "armored_rat_soldier", object = Object::ARMORED_RAT_SOLDIER)]
   ArmoredRatSoldier,
-  #[assoc(label = "robot", object = entities::Object::ROBOT)]
+  #[assoc(label = "robot", object = Object::ROBOT)]
   Robot,
-  #[assoc(label = "wack_robot", object = entities::Object::WACK_ROBOT)]
+  #[assoc(label = "wack_robot", object = Object::WACK_ROBOT)]
   WackRobot,
-  #[assoc(label = "alien_runner", object = entities::Object::ALIEN_RUNNER)]
+  #[assoc(label = "alien_runner", object = Object::ALIEN_RUNNER)]
   AlienRunner,
-  #[assoc(label = "lava_crab", object = entities::Object::LAVA_CRAB)]
+  #[assoc(label = "lava_crab", object = Object::LAVA_CRAB)]
   LavaCrab,
-  #[assoc(label = "mantis_alien", object = entities::Object::MANTIS_ALIEN)]
+  #[assoc(label = "mantis_alien", object = Object::MANTIS_ALIEN)]
   MantisAlien,
-  #[assoc(label = "crab_alien", object = entities::Object::CRAB_ALIEN)]
+  #[assoc(label = "crab_alien", object = Object::CRAB_ALIEN)]
   CrabAlien,
-  #[assoc(label = "mushroom_creature", object = entities::Object::MUSHROOM_CREATURE)]
+  #[assoc(label = "mushroom_creature", object = Object::MUSHROOM_CREATURE)]
   MushroomCreature,
-  #[assoc(label = "grenade_thrower", object = entities::Object::GRENADE_THROWER)]
+  #[assoc(label = "grenade_thrower", object = Object::GRENADE_THROWER)]
   GrenadeThrower,
-  #[assoc(label = "gunman", object = entities::Object::GUNMAN)]
+  #[assoc(label = "gunman", object = Object::GUNMAN)]
   Gunman,
-  #[assoc(label = "laser_sword", object = entities::Object::LASER_SWORD)]
+  #[assoc(label = "laser_sword", object = Object::LASER_SWORD)]
   LaserSword,
-  #[assoc(label = "robot_dog", object = entities::Object::ROBOT_DOG)]
+  #[assoc(label = "robot_dog", object = Object::ROBOT_DOG)]
   RobotDog,
-  #[assoc(label = "turret", object = entities::Object::TURRET)]
-  Turret,
+  #[assoc(label = "turret", object = Object::TURRET)]
+  Turret
 }
 
 impl ObjectTemplate {
@@ -120,16 +122,18 @@ impl ObjectTemplate {
     (0u8..).map_while(|i| ObjectTemplate::try_from(i).ok())
   }
 
-  fn from_save(s: &str) -> Option<Self> {
-    Self::all().find(|t| format!("{t:?}") == s)
-  }
+  fn from_save(s: &str) -> Option<Self> { Self::all().find(|t| format!("{t:?}") == s) }
 
   pub fn sprite_spec(self) -> (&'static str, [f32; 3], [f32; 3]) {
     let obj = self.object();
-    let glyph = entities::Has::<entities::Glyph>::get(&obj).expect("ObjectTemplate missing Glyph");
+    let glyph =
+      entities::Has::<entities::Glyph>::get(&obj).expect("ObjectTemplate missing Glyph");
     let path = glyph.texture.expect("ObjectTemplate missing texture");
     let (pri, sec) = glyph.sprite_palette.expect("ObjectTemplate missing palette");
-    let to_arr = |c: Color| { let s = c.to_srgba(); [s.red, s.green, s.blue] };
+    let to_arr = |c: Color| {
+      let s = c.to_srgba();
+      [s.red, s.green, s.blue]
+    };
     (path, to_arr(pri), to_arr(sec))
   }
 }
@@ -448,7 +452,10 @@ struct MarkerListState {
 fn canvas_origin() -> (f32, f32) { (CANVAS_ORIGIN_X, CANVAS_ORIGIN_Y) }
 
 fn abbreviate_marker(name: &str) -> String {
-  name.chars().filter(|c| !matches!(c, 'a' | 'e' | 'i' | 'o' | 'u' | 'A' | 'E' | 'I' | 'O' | 'U')).collect()
+  name
+    .chars()
+    .filter(|c| !matches!(c, 'a' | 'e' | 'i' | 'o' | 'u' | 'A' | 'E' | 'I' | 'O' | 'U'))
+    .collect()
 }
 
 fn marker_color(name: &str) -> Color {
@@ -464,7 +471,7 @@ fn marker_color(name: &str) -> Color {
     2 => (0.0, c, x),
     3 => (0.0, x, c),
     4 => (x, 0.0, c),
-    _ => (c, 0.0, x),
+    _ => (c, 0.0, x)
   };
   Color::srgb(r + m, g + m, b + m)
 }
@@ -474,11 +481,15 @@ impl EditorCanvas {
     self.levels.values().next().and_then(|l| l.tiles.first().map(Vec::len)).unwrap_or(0)
   }
 
-  fn height(&self) -> usize { self.levels.values().next().map(|l| l.tiles.len()).unwrap_or(0) }
+  fn height(&self) -> usize {
+    self.levels.values().next().map(|l| l.tiles.len()).unwrap_or(0)
+  }
 
   fn z_range(&self) -> Option<(i32, i32)> {
-    self.levels.first_key_value().and_then(|(min, _)|
-      self.levels.last_key_value().map(|(max, _)| (*min, *max)))
+    self
+      .levels
+      .first_key_value()
+      .and_then(|(min, _)| self.levels.last_key_value().map(|(max, _)| (*min, *max)))
   }
 
   fn ensure_z(&mut self, z: i32) {
@@ -495,9 +506,15 @@ impl EditorCanvas {
     for lvl in self.levels.values_mut() {
       let fill = lvl.default_tile;
       if target_width > width {
-        for row in &mut lvl.tiles { row.resize(target_width, fill); }
-        for row in &mut lvl.objects { row.resize(target_width, None); }
-        for row in &mut lvl.markers { row.resize(target_width, None); }
+        for row in &mut lvl.tiles {
+          row.resize(target_width, fill);
+        }
+        for row in &mut lvl.objects {
+          row.resize(target_width, None);
+        }
+        for row in &mut lvl.markers {
+          row.resize(target_width, None);
+        }
       }
       if target_height > height {
         lvl.tiles.resize_with(target_height, || vec![fill; target_width]);
@@ -518,9 +535,15 @@ impl EditorCanvas {
       lvl.tiles.resize_with(target_height, Vec::new);
       lvl.objects.resize_with(target_height, Vec::new);
       lvl.markers.resize_with(target_height, Vec::new);
-      for row in &mut lvl.tiles { row.resize(target_width, fill); }
-      for row in &mut lvl.objects { row.resize(target_width, None); }
-      for row in &mut lvl.markers { row.resize(target_width, None); }
+      for row in &mut lvl.tiles {
+        row.resize(target_width, fill);
+      }
+      for row in &mut lvl.objects {
+        row.resize(target_width, None);
+      }
+      for row in &mut lvl.markers {
+        row.resize(target_width, None);
+      }
     }
   }
 
@@ -538,14 +561,26 @@ impl EditorCanvas {
       let fill = lvl.default_tile;
       match (side, action) {
         (EdgeSide::Left, EdgeAction::Expand) => {
-          for row in &mut lvl.tiles { row.insert(0, fill); }
-          for row in &mut lvl.objects { row.insert(0, None); }
-          for row in &mut lvl.markers { row.insert(0, None); }
+          for row in &mut lvl.tiles {
+            row.insert(0, fill);
+          }
+          for row in &mut lvl.objects {
+            row.insert(0, None);
+          }
+          for row in &mut lvl.markers {
+            row.insert(0, None);
+          }
         }
         (EdgeSide::Right, EdgeAction::Expand) => {
-          for row in &mut lvl.tiles { row.push(fill); }
-          for row in &mut lvl.objects { row.push(None); }
-          for row in &mut lvl.markers { row.push(None); }
+          for row in &mut lvl.tiles {
+            row.push(fill);
+          }
+          for row in &mut lvl.objects {
+            row.push(None);
+          }
+          for row in &mut lvl.markers {
+            row.push(None);
+          }
         }
         (EdgeSide::Top, EdgeAction::Expand) => {
           lvl.tiles.insert(0, vec![fill; width]);
@@ -558,14 +593,26 @@ impl EditorCanvas {
           lvl.markers.push(vec![None; width]);
         }
         (EdgeSide::Left, EdgeAction::Contract) if can_contract_x => {
-          for row in &mut lvl.tiles { row.remove(0); }
-          for row in &mut lvl.objects { row.remove(0); }
-          for row in &mut lvl.markers { row.remove(0); }
+          for row in &mut lvl.tiles {
+            row.remove(0);
+          }
+          for row in &mut lvl.objects {
+            row.remove(0);
+          }
+          for row in &mut lvl.markers {
+            row.remove(0);
+          }
         }
         (EdgeSide::Right, EdgeAction::Contract) if can_contract_x => {
-          for row in &mut lvl.tiles { row.pop(); }
-          for row in &mut lvl.objects { row.pop(); }
-          for row in &mut lvl.markers { row.pop(); }
+          for row in &mut lvl.tiles {
+            row.pop();
+          }
+          for row in &mut lvl.objects {
+            row.pop();
+          }
+          for row in &mut lvl.markers {
+            row.pop();
+          }
         }
         (EdgeSide::Top, EdgeAction::Contract) if can_contract_y => {
           lvl.tiles.remove(0);
@@ -589,7 +636,15 @@ impl EditorCanvas {
     }
   }
 
-  fn place_tile(&mut self, x: usize, y: usize, z: i32, tile: Tile, obj: Option<ObjectTemplate>, marker: Option<String>) {
+  fn place_tile(
+    &mut self,
+    x: usize,
+    y: usize,
+    z: i32,
+    tile: Tile,
+    obj: Option<ObjectTemplate>,
+    marker: Option<String>
+  ) {
     self.ensure_z(z);
     let width = self.width();
     let height = self.height();
@@ -861,10 +916,12 @@ fn spawn_canvas_cells(
         .map(|visual| visual.text_color)
         .unwrap_or(default_text_color);
       let object_text_visible = !object_text.is_empty();
-      let marker_name = lvl
-        .and_then(|l| l.markers.get(y).and_then(|row| row.get(x)).and_then(|m| m.as_deref()));
+      let marker_name = lvl.and_then(|l| {
+        l.markers.get(y).and_then(|row| row.get(x)).and_then(|m| m.as_deref())
+      });
       let marker_abbrev = marker_name.map(abbreviate_marker).unwrap_or_default();
-      let marker_col = marker_name.map(marker_color).unwrap_or(Color::srgb(0.3, 0.9, 1.0));
+      let marker_col =
+        marker_name.map(marker_color).unwrap_or(Color::srgb(0.3, 0.9, 1.0));
       let has_marker = marker_name.is_some();
       commands
         .spawn((
@@ -933,7 +990,11 @@ fn edge_btn(side: EdgeSide, action: EdgeAction) -> El<Node> {
     .background_color(BackgroundColor(color))
     .insert(Button)
     .insert(EdgeResizeButton { side, action })
-    .child(static_text(edge_button_label(side, action), 12.0, Color::srgb(0.95, 0.95, 0.95)))
+    .child(static_text(
+      edge_button_label(side, action),
+      12.0,
+      Color::srgb(0.95, 0.95, 0.95)
+    ))
 }
 
 fn edge_row(label: &str, side: EdgeSide) -> Row<Node> {
@@ -968,7 +1029,9 @@ fn save_load_section() -> Column<Node> {
     )
     .item(
       Row::<Node>::new()
-        .with_node(|mut n| { n.column_gap = Val::Px(4.0); })
+        .with_node(|mut n| {
+          n.column_gap = Val::Px(4.0);
+        })
         .item(
           El::<Node>::new()
             .with_node(|mut n| {
@@ -1071,7 +1134,9 @@ fn marker_list_panel_el() -> Column<Node> {
     .item(static_text("Markers [K]", 11.0, Color::srgb(0.3, 0.9, 1.0)))
     .item(
       Column::<Node>::new()
-        .with_node(|mut n| { n.row_gap = Val::Px(2.0); })
+        .with_node(|mut n| {
+          n.row_gap = Val::Px(2.0);
+        })
         .insert(MarkerListContent)
     )
 }
@@ -1119,7 +1184,9 @@ fn object_palette_btn(obj: Option<ObjectTemplate>) -> El<Node> {
 
 fn mode_bar_btn(mode: ToolMode, label: &str) -> El<Node> {
   El::<Node>::new()
-    .with_node(|mut n| { n.padding = UiRect::axes(Val::Px(10.0), Val::Px(4.0)); })
+    .with_node(|mut n| {
+      n.padding = UiRect::axes(Val::Px(10.0), Val::Px(4.0));
+    })
     .background_color(BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 0.9)))
     .insert(ModeBarBtn(mode))
     .child(
@@ -1130,9 +1197,8 @@ fn mode_bar_btn(mode: ToolMode, label: &str) -> El<Node> {
 
 fn sidebar_el(tile_cache: &TileImageCache) -> Column<Node> {
   let tile_btns: Vec<_> = Tile::all().map(|t| tile_palette_btn(t, tile_cache)).collect();
-  let obj_entries: Vec<_> = std::iter::once(None)
-    .chain(ObjectTemplate::all().map(Some))
-    .collect();
+  let obj_entries: Vec<_> =
+    std::iter::once(None).chain(ObjectTemplate::all().map(Some)).collect();
 
   Column::<Node>::new()
     .with_node(|mut n| {
@@ -1141,27 +1207,23 @@ fn sidebar_el(tile_cache: &TileImageCache) -> Column<Node> {
       n.padding = UiRect::all(Val::Px(4.0));
       n.overflow = Overflow::scroll_y();
     })
-    .item(
-      static_text("Tiles", 12.0, Color::srgb(0.9, 0.9, 0.5))
-        .with_node(|mut n| { n.margin = UiRect::bottom(Val::Px(4.0)); })
-    )
+    .item(static_text("Tiles", 12.0, Color::srgb(0.9, 0.9, 0.5)).with_node(|mut n| {
+      n.margin = UiRect::bottom(Val::Px(4.0));
+    }))
     .item(
       Row::<Node>::new()
-        .with_node(|mut n| { n.flex_wrap = FlexWrap::Wrap; })
+        .with_node(|mut n| {
+          n.flex_wrap = FlexWrap::Wrap;
+        })
         .items(tile_btns)
     )
-    .item(
-      static_text("Objects", 12.0, Color::srgb(0.5, 0.9, 0.5))
-        .with_node(|mut n| { n.margin = UiRect::vertical(Val::Px(6.0)); })
-    )
-    .item(
-      Column::<Node>::new()
-        .items(obj_entries.into_iter().map(object_palette_btn))
-    )
-    .item(
-      static_text("Markers", 12.0, Color::srgb(0.3, 0.9, 1.0))
-        .with_node(|mut n| { n.margin = UiRect::vertical(Val::Px(6.0)); })
-    )
+    .item(static_text("Objects", 12.0, Color::srgb(0.5, 0.9, 0.5)).with_node(|mut n| {
+      n.margin = UiRect::vertical(Val::Px(6.0));
+    }))
+    .item(Column::<Node>::new().items(obj_entries.into_iter().map(object_palette_btn)))
+    .item(static_text("Markers", 12.0, Color::srgb(0.3, 0.9, 1.0)).with_node(|mut n| {
+      n.margin = UiRect::vertical(Val::Px(6.0));
+    }))
     .item(
       El::<Node>::new()
         .with_node(|mut n| {
@@ -1201,7 +1263,9 @@ fn tile_preview_popup_el() -> Column<Node> {
     )
     .item(
       static_text("", 18.0, Color::srgb(0.9, 0.9, 0.9))
-        .with_node(|mut n| { n.margin = UiRect::top(Val::Px(6.0)); })
+        .with_node(|mut n| {
+          n.margin = UiRect::top(Val::Px(6.0));
+        })
         .insert(TilePreviewText)
     )
 }
@@ -1214,7 +1278,7 @@ fn mode_bar_el() -> Row<Node> {
     (ToolMode::RectFill, "[F]ill"),
     (ToolMode::Copy, "[C]opy"),
     (ToolMode::Move, "[M]ove"),
-    (ToolMode::Paste, "[Paste]"),
+    (ToolMode::Paste, "[Paste]")
   ];
   Row::<Node>::new()
     .with_node(|mut n| {
@@ -1228,11 +1292,10 @@ fn mode_bar_el() -> Row<Node> {
       n.column_gap = Val::Px(4.0);
     })
     .items(modes.map(|(mode, label)| mode_bar_btn(mode, label)))
-    .item(El::<Node>::new().with_node(|mut n| { n.width = Val::Px(20.0); }))
-    .item(
-      static_text("", 13.0, Color::srgb(0.6, 0.6, 0.5))
-        .insert(ControlsLabel)
-    )
+    .item(El::<Node>::new().with_node(|mut n| {
+      n.width = Val::Px(20.0);
+    }))
+    .item(static_text("", 13.0, Color::srgb(0.6, 0.6, 0.5)).insert(ControlsLabel))
 }
 
 fn build_editor_ui(tile_cache: &TileImageCache) -> impl Element {
@@ -1335,9 +1398,8 @@ fn camera_zoom(
       current_z.0 = new_z;
     } else {
       let (cam, cam_gt, ref mut tf) = *camera_q;
-      let cursor_world = window
-        .cursor_position()
-        .and_then(|p| cam.viewport_to_world_2d(cam_gt, p).ok());
+      let cursor_world =
+        window.cursor_position().and_then(|p| cam.viewport_to_world_2d(cam_gt, p).ok());
 
       let old_zoom = zoom.0;
       let delta = scroll.delta.y * 0.1;
@@ -1446,7 +1508,11 @@ fn update_mode_bar(
   mut label_q: Query<&mut TextColor, With<ModeBarLabel>>,
   mut status_text: Single<&mut Text, With<ControlsLabel>>
 ) {
-  if state.is_changed() || marker_input.is_changed() || current_z.is_changed() || canvas.is_changed() {
+  if state.is_changed()
+    || marker_input.is_changed()
+    || current_z.is_changed()
+    || canvas.is_changed()
+  {
     for (btn, children) in &btn_q {
       for child in children.iter() {
         if let Ok(mut color) = label_q.get_mut(child) {
@@ -1458,10 +1524,13 @@ fn update_mode_bar(
         }
       }
     }
-    let obj_name =
-      state.selected_object.map(|t| t.label()).unwrap_or("none");
-    let marker_str = if marker_input.text.is_empty() { "none" } else { &marker_input.text };
-    let range_str = canvas.z_range().map(|(lo, hi)| format!("{lo}..{hi}")).unwrap_or_else(|| "-".into());
+    let obj_name = state.selected_object.map(|t| t.label()).unwrap_or("none");
+    let marker_str =
+      if marker_input.text.is_empty() { "none" } else { &marker_input.text };
+    let range_str = canvas
+      .z_range()
+      .map(|(lo, hi)| format!("{lo}..{hi}"))
+      .unwrap_or_else(|| "-".into());
     status_text.0 = format!(
       "z:{} ({})  tile:{}  obj:{}  marker:{}  pat:{}  |  RMB+wheel:z U:undo G:gen K:markers [,./]:pat Ctrl+S/O:save/load",
       current_z.0,
@@ -1478,7 +1547,12 @@ fn update_mode_bar(
 // Tool switching & object cycling
 // ---------------------------------------------------------------------------
 
-fn tool_keys(keys: Res<ButtonInput<KeyCode>>, mut state: ResMut<EditorState>, save_name: Res<SaveNameInput>, marker_input: Res<MarkerInput>) {
+fn tool_keys(
+  keys: Res<ButtonInput<KeyCode>>,
+  mut state: ResMut<EditorState>,
+  save_name: Res<SaveNameInput>,
+  marker_input: Res<MarkerInput>
+) {
   if !save_name.focused && !marker_input.focused {
     if keys.just_pressed(KeyCode::KeyD) {
       state.tool = ToolMode::Draw;
@@ -1549,7 +1623,8 @@ fn canvas_interact(
     && let Some(cursor) = cursor_world(&windows, &camera_q)
   {
     let grid_pos = world_to_grid(cursor, &canvas, *origin);
-    let grid_coord = grid_pos.map(|(x, y)| (origin.x + x as i32, origin.y + y as i32, current_z.0));
+    let grid_coord =
+      grid_pos.map(|(x, y)| (origin.x + x as i32, origin.y + y as i32, current_z.0));
     let width = canvas.width();
     let height = canvas.height();
     let z = current_z.0;
@@ -1563,14 +1638,22 @@ fn canvas_interact(
           if mouse.just_pressed(MouseButton::Left) {
             push_undo(&canvas, *origin, &mut undo);
           }
-          canvas.place_tile(gx, gy, z, state.selected_tile, state.selected_object, paint_marker.clone());
+          canvas.place_tile(
+            gx,
+            gy,
+            z,
+            state.selected_tile,
+            state.selected_object,
+            paint_marker.clone()
+          );
         }
       }
       ToolMode::Bucket => {
         if mouse.just_pressed(MouseButton::Left)
           && let Some((gx, gy)) = grid_pos
         {
-          let target = canvas.levels.get(&z).map(|l| l.tiles[gy][gx]).unwrap_or(Tile::Air);
+          let target =
+            canvas.levels.get(&z).map(|l| l.tiles[gy][gx]).unwrap_or(Tile::Air);
           if target != state.selected_tile {
             push_undo(&canvas, *origin, &mut undo);
             flood_fill_same_tile_type(
@@ -1597,7 +1680,9 @@ fn canvas_interact(
           let (x1, y1, x2, y2) = selection_rect((start.0, start.1), (end.0, end.1));
           let (z1, z2) = (start.2.min(end.2), start.2.max(end.2));
           let filled = state.tool == ToolMode::RectFill;
-          for gz in z1..=z2 { canvas.ensure_z(gz); }
+          for gz in z1..=z2 {
+            canvas.ensure_z(gz);
+          }
           for gz in z1..=z2 {
             for gy in y1..=y2 {
               for gx in x1..=x2 {
@@ -1607,7 +1692,14 @@ fn canvas_interact(
                 let on_wire = (x_edge as u8 + y_edge as u8 + z_edge as u8) >= 2;
                 if filled || on_wire {
                   let (ix, iy) = grid_to_index(gx, gy, *origin);
-                  canvas.place_tile(ix, iy, gz, state.selected_tile, state.selected_object, paint_marker.clone());
+                  canvas.place_tile(
+                    ix,
+                    iy,
+                    gz,
+                    state.selected_tile,
+                    state.selected_object,
+                    paint_marker.clone()
+                  );
                 }
               }
             }
@@ -1646,9 +1738,13 @@ fn canvas_interact(
               let mut row_m = Vec::new();
               for gx in source.x1..=source.x2 {
                 let (ix, iy) = grid_to_index(gx, gy, *origin);
-                let (tile, obj, marker) = canvas.levels.get(&gz).map(|lvl|
-                  (lvl.tiles[iy][ix], lvl.objects[iy][ix], lvl.markers[iy][ix].clone())
-                ).unwrap_or((Tile::Air, None, None));
+                let (tile, obj, marker) = canvas
+                  .levels
+                  .get(&gz)
+                  .map(|lvl| {
+                    (lvl.tiles[iy][ix], lvl.objects[iy][ix], lvl.markers[iy][ix].clone())
+                  })
+                  .unwrap_or((Tile::Air, None, None));
                 row_t.push(tile);
                 row_o.push(obj);
                 row_m.push(marker);
@@ -1657,7 +1753,11 @@ fn canvas_interact(
               clip_objects.push(row_o);
               clip_markers.push(row_m);
             }
-            layers.push(ClipboardLayer { tiles: clip_tiles, objects: clip_objects, markers: clip_markers });
+            layers.push(ClipboardLayer {
+              tiles: clip_tiles,
+              objects: clip_objects,
+              markers: clip_markers
+            });
           }
           state.clipboard =
             Some(Clipboard { layers, source, source_z1: z1, source_z2: z2, mode });
@@ -1697,7 +1797,9 @@ fn canvas_interact(
               }
             }
           }
-          for dz in 0..clip.depth() { canvas.ensure_z(dest_z1 + dz); }
+          for dz in 0..clip.depth() {
+            canvas.ensure_z(dest_z1 + dz);
+          }
           for (dz, layer) in clip.layers.iter().enumerate() {
             let gz = dest_z1 + dz as i32;
             for (dy, row) in layer.tiles.iter().enumerate() {
@@ -1771,7 +1873,10 @@ fn undo_key(
   marker_input: Res<MarkerInput>
 ) {
   let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
-  if !save_name.focused && !marker_input.focused && (keys.just_pressed(KeyCode::KeyU) || (ctrl && keys.just_pressed(KeyCode::KeyZ))) {
+  if !save_name.focused
+    && !marker_input.focused
+    && (keys.just_pressed(KeyCode::KeyU) || (ctrl && keys.just_pressed(KeyCode::KeyZ)))
+  {
     if let Some((levels, undo_origin)) = undo.0.pop() {
       canvas.levels = levels;
       canvas.ensure_size(spawned.width, spawned.height);
@@ -1971,7 +2076,9 @@ fn sync_object_visuals(
     let lvl = canvas.levels.get(&current_z.0);
     for (label, mut sprite, mut visibility) in &mut queries.p0() {
       if let Some(obj_idx) = lvl
-        .and_then(|l| l.objects.get(label.1).and_then(|row| row.get(label.0)).copied().flatten())
+        .and_then(|l| {
+          l.objects.get(label.1).and_then(|row| row.get(label.0)).copied().flatten()
+        })
         .map(|idx| idx as usize)
         && let Some(image) =
           object_visuals.0.get(obj_idx).and_then(|visual| visual.image.as_ref())
@@ -1984,7 +2091,9 @@ fn sync_object_visuals(
     }
     for (label, mut text, mut text_color, mut visibility) in &mut queries.p1() {
       if let Some(obj_idx) = lvl
-        .and_then(|l| l.objects.get(label.1).and_then(|row| row.get(label.0)).copied().flatten())
+        .and_then(|l| {
+          l.objects.get(label.1).and_then(|row| row.get(label.0)).copied().flatten()
+        })
         .map(|idx| idx as usize)
         && let Some(visual) = object_visuals.0.get(obj_idx)
         && visual.image.is_none()
@@ -2008,9 +2117,9 @@ fn sync_marker_visuals(
   if canvas.is_changed() || current_z.is_changed() {
     let lvl = canvas.levels.get(&current_z.0);
     for (label, mut text, mut color, mut visibility) in &mut query {
-      if let Some(name) = lvl
-        .and_then(|l| l.markers.get(label.1).and_then(|row| row.get(label.0)).and_then(|m| m.as_deref()))
-      {
+      if let Some(name) = lvl.and_then(|l| {
+        l.markers.get(label.1).and_then(|row| row.get(label.0)).and_then(|m| m.as_deref())
+      }) {
         text.0 = abbreviate_marker(name);
         color.0 = marker_color(name);
         *visibility = Visibility::Visible;
@@ -2130,141 +2239,148 @@ fn generate_wfc(
   tileset: Res<EditorTileset>,
   object_visuals: Res<ObjectVisualCache>,
   mut commands: Commands,
-  (existing, save_name, marker_input): (Query<Entity, Or<(With<OutputChunk>, With<OutputLabel>)>>, Res<SaveNameInput>, Res<MarkerInput>)
+  (existing, save_name, marker_input): (
+    Query<Entity, Or<(With<OutputChunk>, With<OutputLabel>)>>,
+    Res<SaveNameInput>,
+    Res<MarkerInput>
+  )
 ) {
-  if keys.just_pressed(KeyCode::KeyG) && !save_name.focused && !marker_input.focused
+  if keys.just_pressed(KeyCode::KeyG)
+    && !save_name.focused
+    && !marker_input.focused
     && let Some(lvl) = canvas.levels.get(&current_z.0)
   {
+    clear_wfc_preview(&mut commands, &existing);
 
-  clear_wfc_preview(&mut commands, &existing);
+    let canvas_width = canvas.width();
+    let canvas_height = canvas.height();
+    let ow = INITIAL_CANVAS_W as u32 * state.output_mult;
+    let oh = INITIAL_CANVAS_H as u32 * state.output_mult;
 
-  let canvas_width = canvas.width();
-  let canvas_height = canvas.height();
-  let ow = INITIAL_CANVAS_W as u32 * state.output_mult;
-  let oh = INITIAL_CANVAS_H as u32 * state.output_mult;
+    let input_grid = Grid::new_fn(
+      coord_2d::Size::new(canvas_width as u32, canvas_height as u32),
+      |coord| {
+        encode_cell(
+          lvl.tiles[coord.y as usize][coord.x as usize],
+          lvl.objects[coord.y as usize][coord.x as usize]
+        )
+      }
+    );
 
-  let input_grid = Grid::new_fn(
-    coord_2d::Size::new(canvas_width as u32, canvas_height as u32),
-    |coord| {
-      encode_cell(
-        lvl.tiles[coord.y as usize][coord.x as usize],
-        lvl.objects[coord.y as usize][coord.x as usize]
-      )
-    }
-  );
+    let pattern_size = NonZeroU32::new(state.pattern_size).unwrap();
+    let patterns = OverlappingPatterns::new(input_grid, pattern_size, &[
+      wfc::orientation::Orientation::Original,
+      wfc::orientation::Orientation::Clockwise90,
+      wfc::orientation::Orientation::Clockwise180,
+      wfc::orientation::Orientation::Clockwise270,
+      wfc::orientation::Orientation::DiagonallyFlipped,
+      wfc::orientation::Orientation::DiagonallyFlippedClockwise90,
+      wfc::orientation::Orientation::DiagonallyFlippedClockwise180,
+      wfc::orientation::Orientation::DiagonallyFlippedClockwise270
+    ]);
 
-  let pattern_size = NonZeroU32::new(state.pattern_size).unwrap();
-  let patterns = OverlappingPatterns::new(input_grid, pattern_size, &[
-    wfc::orientation::Orientation::Original,
-    wfc::orientation::Orientation::Clockwise90,
-    wfc::orientation::Orientation::Clockwise180,
-    wfc::orientation::Orientation::Clockwise270,
-    wfc::orientation::Orientation::DiagonallyFlipped,
-    wfc::orientation::Orientation::DiagonallyFlippedClockwise90,
-    wfc::orientation::Orientation::DiagonallyFlippedClockwise180,
-    wfc::orientation::Orientation::DiagonallyFlippedClockwise270
-  ]);
+    let global_stats = patterns.global_stats();
+    let mut rng = rand::thread_rng();
+    let output_size = coord_2d::Size::new(ow, oh);
 
-  let global_stats = patterns.global_stats();
-  let mut rng = rand::thread_rng();
-  let output_size = coord_2d::Size::new(ow, oh);
+    let run = RunOwn::new(output_size, &global_stats, &mut rng);
+    let result: Result<Wave, _> = NumTimes(20).retry(run, &mut rng);
 
-  let run = RunOwn::new(output_size, &global_stats, &mut rng);
-  let result: Result<Wave, _> = NumTimes(20).retry(run, &mut rng);
+    match result {
+      Ok(wave) => {
+        let right_cell_grid_x = origin.x + canvas_width as i32 - 1;
+        let top_cell_grid_y = origin.y;
+        let bottom_cell_grid_y = origin.y + canvas_height as i32 - 1;
+        let canvas_right_edge = grid_coord_to_world(right_cell_grid_x, top_cell_grid_y).x;
+        let output_gap = 40.0;
+        let output_half_w = ow as f32 * CELL / 2.0;
+        let output_half_h = oh as f32 * CELL / 2.0;
+        // `TilemapChunk` mesh is centered on the entity transform (see bevy `calculate_tile_transform`).
+        let output_center_x = canvas_right_edge + output_gap + output_half_w;
+        let top_y = grid_coord_to_world(origin.x, top_cell_grid_y).y;
+        let bottom_y = grid_coord_to_world(origin.x, bottom_cell_grid_y).y;
+        let canvas_center_y = (top_y + bottom_y) / 2.0;
+        let output_center_y = canvas_center_y;
 
-  match result {
-    Ok(wave) => {
-      let right_cell_grid_x = origin.x + canvas_width as i32 - 1;
-      let top_cell_grid_y = origin.y;
-      let bottom_cell_grid_y = origin.y + canvas_height as i32 - 1;
-      let canvas_right_edge = grid_coord_to_world(right_cell_grid_x, top_cell_grid_y).x;
-      let output_gap = 40.0;
-      let output_half_w = ow as f32 * CELL / 2.0;
-      let output_half_h = oh as f32 * CELL / 2.0;
-      // `TilemapChunk` mesh is centered on the entity transform (see bevy `calculate_tile_transform`).
-      let output_center_x = canvas_right_edge + output_gap + output_half_w;
-      let top_y = grid_coord_to_world(origin.x, top_cell_grid_y).y;
-      let bottom_y = grid_coord_to_world(origin.x, bottom_cell_grid_y).y;
-      let canvas_center_y = (top_y + bottom_y) / 2.0;
-      let output_center_y = canvas_center_y;
-
-      let mut tile_data: Vec<Option<TileData>> = vec![None; (ow * oh) as usize];
-      for coord_y in 0..oh {
-        for coord_x in 0..ow {
-          let cell = wave
-            .grid()
-            .get(coord_2d::Coord::new(coord_x as i32, coord_y as i32))
-            .unwrap();
-          let val =
-            cell.chosen_pattern_id().ok().map(|id| *patterns.pattern_top_left_value(id));
-          let (tile, obj) = val.map(decode_cell).unwrap_or((None, None));
-          if let Some(tile) = tile {
-            let info = tileset.0.layer_range[tile as usize];
-            let tileset_index = match info.select {
-              sprites::TileSelect::Single => info.base,
-              sprites::TileSelect::RandomHash => {
-                let h: u64 = (coord_x as u64) | ((coord_y as u64) << 32);
-                let h = (h ^ (h >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
-                let h = (h ^ (h >> 27)).wrapping_mul(0x94d049bb133111eb);
-                let h = h ^ (h >> 31);
-                info.base + (h as u16) % info.count
+        let mut tile_data: Vec<Option<TileData>> = vec![None; (ow * oh) as usize];
+        for coord_y in 0..oh {
+          for coord_x in 0..ow {
+            let cell = wave
+              .grid()
+              .get(coord_2d::Coord::new(coord_x as i32, coord_y as i32))
+              .unwrap();
+            let val = cell
+              .chosen_pattern_id()
+              .ok()
+              .map(|id| *patterns.pattern_top_left_value(id));
+            let (tile, obj) = val.map(decode_cell).unwrap_or((None, None));
+            if let Some(tile) = tile {
+              let info = tileset.0.layer_range[tile as usize];
+              let tileset_index = match info.select {
+                sprites::TileSelect::Single => info.base,
+                sprites::TileSelect::RandomHash => {
+                  let h: u64 = (coord_x as u64) | ((coord_y as u64) << 32);
+                  let h = (h ^ (h >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+                  let h = (h ^ (h >> 27)).wrapping_mul(0x94d049bb133111eb);
+                  let h = h ^ (h >> 31);
+                  info.base + (h as u16) % info.count
+                }
+                sprites::TileSelect::Connected => info.base
+              };
+              let chunk_idx = ((oh - 1 - coord_y) * ow + coord_x) as usize;
+              tile_data[chunk_idx] =
+                Some(TileData { tileset_index, color: Color::WHITE, visible: true });
+            }
+            if let Some(tmpl) = obj
+              && let Some(visual) = object_visuals.0.get(tmpl as u8 as usize)
+            {
+              let ux = coord_x as f32;
+              let uy = (oh - 1 - coord_y) as f32;
+              let lx = ux * CELL + CELL / 2.0 - output_half_w;
+              let ly = uy * CELL + CELL / 2.0 - output_half_h;
+              let tx = output_center_x + lx;
+              let ty = output_center_y + ly;
+              if let Some(image) = &visual.image {
+                commands.spawn((
+                  Sprite {
+                    image: image.clone(),
+                    color: Color::WHITE,
+                    custom_size: Some(Vec2::splat(CELL)),
+                    ..default()
+                  },
+                  Transform::from_xyz(tx, ty, 1.0),
+                  OutputLabel
+                ));
+              } else {
+                commands.spawn((
+                  Text2d::new(visual.text.clone()),
+                  TextFont { font_size: 8.0, ..default() },
+                  TextColor(visual.text_color),
+                  Transform::from_xyz(tx, ty, 1.0),
+                  OutputLabel
+                ));
               }
-              sprites::TileSelect::Connected => info.base
-            };
-            let chunk_idx = ((oh - 1 - coord_y) * ow + coord_x) as usize;
-            tile_data[chunk_idx] =
-              Some(TileData { tileset_index, color: Color::WHITE, visible: true });
-          }
-          if let Some(tmpl) = obj
-            && let Some(visual) = object_visuals.0.get(tmpl as u8 as usize)
-          {
-            let ux = coord_x as f32;
-            let uy = (oh - 1 - coord_y) as f32;
-            let lx = ux * CELL + CELL / 2.0 - output_half_w;
-            let ly = uy * CELL + CELL / 2.0 - output_half_h;
-            let tx = output_center_x + lx;
-            let ty = output_center_y + ly;
-            if let Some(image) = &visual.image {
-              commands.spawn((
-                Sprite {
-                  image: image.clone(),
-                  color: Color::WHITE,
-                  custom_size: Some(Vec2::splat(CELL)),
-                  ..default()
-                },
-                Transform::from_xyz(tx, ty, 1.0),
-                OutputLabel
-              ));
-            } else {
-              commands.spawn((
-                Text2d::new(visual.text.clone()),
-                TextFont { font_size: 8.0, ..default() },
-                TextColor(visual.text_color),
-                Transform::from_xyz(tx, ty, 1.0),
-                OutputLabel
-              ));
             }
           }
         }
-      }
 
-      commands.spawn((
-        TilemapChunk {
-          chunk_size: UVec2::new(ow, oh),
-          tile_display_size: UVec2::splat(CELL as u32),
-          tileset: tileset.0.handle.clone(),
-          alpha_mode: AlphaMode2d::Blend
-        },
-        TilemapChunkTileData(tile_data),
-        Transform::from_xyz(output_center_x, output_center_y, 0.01),
-        OutputChunk
-      ));
-      eprintln!("WFC generated {ow}x{oh} output (pattern_size={})", state.pattern_size);
+        commands.spawn((
+          TilemapChunk {
+            chunk_size: UVec2::new(ow, oh),
+            tile_display_size: UVec2::splat(CELL as u32),
+            tileset: tileset.0.handle.clone(),
+            alpha_mode: AlphaMode2d::Blend
+          },
+          TilemapChunkTileData(tile_data),
+          Transform::from_xyz(output_center_x, output_center_y, 0.01),
+          OutputChunk
+        ));
+        eprintln!("WFC generated {ow}x{oh} output (pattern_size={})", state.pattern_size);
+      }
+      Err(_) => {
+        eprintln!("WFC generation failed after retries");
+      }
     }
-    Err(_) => {
-      eprintln!("WFC generation failed after retries");
-    }
-  }
   }
 }
 
@@ -2284,14 +2400,16 @@ fn save_files() -> Vec<PathBuf> {
     .map(|entry| entry.path())
     .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("txt"))
     .collect::<Vec<_>>();
-  files.sort_by_key(|p| {
-    std::fs::metadata(p).and_then(|m| m.modified()).ok()
-  });
+  files.sort_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
   files.reverse();
   files
 }
 
-fn save_canvas(canvas: &EditorCanvas, origin: CanvasGridOrigin, name: &str) -> Option<PathBuf> {
+fn save_canvas(
+  canvas: &EditorCanvas,
+  origin: CanvasGridOrigin,
+  name: &str
+) -> Option<PathBuf> {
   let _ = std::fs::create_dir_all(SAVE_DIR);
   let width = canvas.width();
   let height = canvas.height();
@@ -2302,7 +2420,8 @@ fn save_canvas(canvas: &EditorCanvas, origin: CanvasGridOrigin, name: &str) -> O
     format!("{name}.txt")
   };
   let path = PathBuf::from(SAVE_DIR).join(filename);
-  let mut out = format!("{width} {height} {} {} ZRANGE {z_min} {z_max}\n", origin.x, origin.y);
+  let mut out =
+    format!("{width} {height} {} {} ZRANGE {z_min} {z_max}\n", origin.x, origin.y);
   for (&z, lvl) in canvas.levels.iter() {
     out.push_str(&format!("LEVEL {z}\n"));
     for y in 0..height {
@@ -2337,17 +2456,19 @@ fn load_canvas_from_file(
   std::fs::read_to_string(path)
     .ok()
     .map(|text| {
-      let (grid_section, marker_section) = text
-        .split_once("MARKERS\n")
-        .map(|(a, b)| (a, Some(b)))
-        .unwrap_or((&text, None));
+      let (grid_section, marker_section) =
+        text.split_once("MARKERS\n").map(|(a, b)| (a, Some(b))).unwrap_or((&text, None));
       let mut lines = grid_section.lines();
       let header = lines.next().unwrap_or("");
       let mut header_iter = header.split_whitespace();
-      let w: usize = header_iter.next().and_then(|s| s.parse().ok()).unwrap_or(INITIAL_CANVAS_W);
-      let h: usize = header_iter.next().and_then(|s| s.parse().ok()).unwrap_or(INITIAL_CANVAS_H);
-      let saved_origin_x: i32 = header_iter.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-      let saved_origin_y: i32 = header_iter.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+      let w: usize =
+        header_iter.next().and_then(|s| s.parse().ok()).unwrap_or(INITIAL_CANVAS_W);
+      let h: usize =
+        header_iter.next().and_then(|s| s.parse().ok()).unwrap_or(INITIAL_CANVAS_H);
+      let saved_origin_x: i32 =
+        header_iter.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+      let saved_origin_y: i32 =
+        header_iter.next().and_then(|s| s.parse().ok()).unwrap_or(0);
       let tag = header_iter.next();
       let (z_min, z_max): (i32, i32) = match tag {
         Some("ZRANGE") => {
@@ -2400,7 +2521,8 @@ fn load_canvas_from_file(
           }
         }
       } else if let Some(lvl) = canvas.levels.get_mut(&0) {
-        let all_toks: Vec<&str> = remaining_lines.iter().flat_map(|l| l.split_whitespace()).collect();
+        let all_toks: Vec<&str> =
+          remaining_lines.iter().flat_map(|l| l.split_whitespace()).collect();
         let mut data_idx = 0;
         for y in 0..h.min(height) {
           for x in 0..w.min(width) {
@@ -2425,7 +2547,8 @@ fn load_canvas_from_file(
             None => (0i32, third)
           };
           if let (Some(x), Some(y), Some(name)) = (x, y, name)
-            && x < width && y < height
+            && x < width
+            && y < height
             && let Some(lvl) = canvas.levels.get_mut(&z)
           {
             lvl.markers[y][x] = Some(name.to_string());
@@ -2471,9 +2594,14 @@ fn save_name_input_typing(
     for event in events.read() {
       if event.state.is_pressed() {
         match (&event.logical_key, &event.text) {
-          (Key::Backspace, _) => { save_name.text.pop(); }
-          (Key::Escape | Key::Enter, _) => { save_name.focused = false; }
-          _ if keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight) => {}
+          (Key::Backspace, _) => {
+            save_name.text.pop();
+          }
+          (Key::Escape | Key::Enter, _) => {
+            save_name.focused = false;
+          }
+          _ if keys.pressed(KeyCode::ControlLeft)
+            || keys.pressed(KeyCode::ControlRight) => {}
           (_, Some(ch)) => {
             if ch.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
               save_name.text.push_str(ch);
@@ -2562,7 +2690,9 @@ fn save_load_ui_actions(
         SaveUiAction::New => {
           push_undo(&canvas, *origin, &mut undo);
           canvas.levels.clear();
-          canvas.levels.insert(0, CanvasLevel::new(INITIAL_CANVAS_W, INITIAL_CANVAS_H, Tile::Grass));
+          canvas
+            .levels
+            .insert(0, CanvasLevel::new(INITIAL_CANVAS_W, INITIAL_CANVAS_H, Tile::Grass));
           origin.x = 0;
           origin.y = 0;
           current_z.0 = 0;
@@ -2631,11 +2761,10 @@ fn load_picker_file_clicks(
   for (interaction, file_btn) in &interaction_q {
     if *interaction == Interaction::Pressed {
       let path = PathBuf::from(&file_btn.0);
-      if load_canvas_from_file(&path, &mut canvas, &mut origin, &mut current_z, &mut undo) {
-        save_name.text = path.file_stem()
-          .and_then(|s| s.to_str())
-          .unwrap_or("")
-          .to_string();
+      if load_canvas_from_file(&path, &mut canvas, &mut origin, &mut current_z, &mut undo)
+      {
+        save_name.text =
+          path.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
         eprintln!("Loaded from {}", path.display());
         picker.open = false;
         picker.refresh_requested = false;
@@ -2648,9 +2777,18 @@ fn load_picker_file_clicks(
 // Export prefab
 // ---------------------------------------------------------------------------
 
-fn export_prefab(keys: Res<ButtonInput<KeyCode>>, canvas: Res<EditorCanvas>, current_z: Res<CurrentZ>, save_name: Res<SaveNameInput>, marker_input: Res<MarkerInput>) {
+fn export_prefab(
+  keys: Res<ButtonInput<KeyCode>>,
+  canvas: Res<EditorCanvas>,
+  current_z: Res<CurrentZ>,
+  save_name: Res<SaveNameInput>,
+  marker_input: Res<MarkerInput>
+) {
   let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
-  if !save_name.focused && !marker_input.focused && keys.just_pressed(KeyCode::KeyE) && !ctrl
+  if !save_name.focused
+    && !marker_input.focused
+    && keys.just_pressed(KeyCode::KeyE)
+    && !ctrl
     && let Some(lvl) = canvas.levels.get(&current_z.0)
   {
     let mut chars_used = HashMap::<u16, char>::new();
@@ -2741,11 +2879,18 @@ fn marker_input_typing(
     events.read().last();
   } else {
     for ev in events.read() {
-      if !ev.state.is_pressed() || keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight) {
+      if !ev.state.is_pressed()
+        || keys.pressed(KeyCode::ControlLeft)
+        || keys.pressed(KeyCode::ControlRight)
+      {
       } else {
         match (&ev.logical_key, ev.key_code) {
-          (Key::Backspace, _) => { marker_input.text.pop(); }
-          (Key::Escape | Key::Enter, _) => { marker_input.focused = false; }
+          (Key::Backspace, _) => {
+            marker_input.text.pop();
+          }
+          (Key::Escape | Key::Enter, _) => {
+            marker_input.focused = false;
+          }
           (Key::Character(ch), _) if !ch.is_empty() => {
             let filtered: String = ch.chars().filter(|c| !c.is_whitespace()).collect();
             marker_input.text.push_str(&filtered);
@@ -2845,7 +2990,9 @@ fn refresh_marker_list(
         }
       }
     }
-    entries.sort_by(|a, b| a.3.cmp(&b.3).then(a.2.cmp(&b.2)).then(a.1.cmp(&b.1)).then(a.0.cmp(&b.0)));
+    entries.sort_by(|a, b| {
+      a.3.cmp(&b.3).then(a.2.cmp(&b.2)).then(a.1.cmp(&b.1)).then(a.0.cmp(&b.0))
+    });
 
     commands.entity(*content_entity).with_children(|parent| {
       for (x, y, z, name) in &entries {
@@ -2854,10 +3001,7 @@ fn refresh_marker_list(
         parent
           .spawn((
             Button,
-            Node {
-              padding: UiRect::axes(Val::Px(4.0), Val::Px(1.0)),
-              ..default()
-            },
+            Node { padding: UiRect::axes(Val::Px(4.0), Val::Px(1.0)), ..default() },
             BackgroundColor(Color::srgba(0.1, 0.14, 0.18, 0.95)),
             MarkerListButton(*x, *y, *z)
           ))
@@ -2891,7 +3035,11 @@ fn marker_list_clicks(
 // Window title (shows mode/tool/tile/object info)
 // ---------------------------------------------------------------------------
 
-fn update_title(state: Res<EditorState>, current_z: Res<CurrentZ>, mut win: Single<&mut Window>) {
+fn update_title(
+  state: Res<EditorState>,
+  current_z: Res<CurrentZ>,
+  mut win: Single<&mut Window>
+) {
   if state.is_changed() || current_z.is_changed() {
     win.title = format!("Level Editor | {} | z={}", state.tool.name(), current_z.0);
   }
@@ -2913,7 +3061,10 @@ fn main() {
     }))
     .insert_resource(ClearColor(Color::srgb(0.08, 0.08, 0.1)))
     .insert_resource(EditorCanvas {
-      levels: BTreeMap::from([(0, CanvasLevel::new(INITIAL_CANVAS_W, INITIAL_CANVAS_H, Tile::Grass))])
+      levels: BTreeMap::from([(
+        0,
+        CanvasLevel::new(INITIAL_CANVAS_W, INITIAL_CANVAS_H, Tile::Grass)
+      )])
     })
     .insert_resource(SpawnedCanvasSize {
       width: INITIAL_CANVAS_W,
@@ -2978,7 +3129,10 @@ fn main() {
         sync_canvas_sprites
       )
     )
-    .add_systems(Update, (sync_object_visuals, sync_marker_visuals, update_overlays, generate_wfc))
+    .add_systems(
+      Update,
+      (sync_object_visuals, sync_marker_visuals, update_overlays, generate_wfc)
+    )
     .add_systems(
       Update,
       (
