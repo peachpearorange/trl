@@ -15,8 +15,9 @@
 
 use {crate::{Clock, GAME_VIEWPORT_WIDTH_FRAC, STATUS_BAR_HEIGHT,
              abilities::AbilityBarData,
-             entities::{Loadout, Location, Named, Stats},
+             entities::{Glyph, Loadout, Location, Named, ShowOnCompass, Stats},
              game_pane_rect,
+             sprites::{PaletteImageCache, palette_sprite_handle},
              utils::mapv,
              world_to_level_cell},
      bevy::{prelude::*,
@@ -102,6 +103,19 @@ pub fn log_spans(log: &mut LogEntries, line: LogLine) {
   }
   log.0.push(line);
 }
+
+/// One marker on the navigation compass; `x`/`y` are pixel offsets from the dial centre.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CompassIcon {
+  /// White-baked sprite of the thing being pointed at.
+  pub image: Handle<Image>,
+  pub x: f32,
+  pub y: f32
+}
+
+/// Markers for the compass dial — written by `sync_compass`, read by per-slot signals.
+#[derive(Resource, Clone, Default, PartialEq)]
+pub struct CompassData(pub Vec<CompassIcon>);
 
 /// Per-row display state for the Interact overlay — written by sync_interact_display, read by
 /// per-row signals. Split out of OverlayKind::Interact so navigation/equip never rebuilds overlay
@@ -233,9 +247,11 @@ impl Plugin for UiPlugin {
       .init_resource::<InteractDisplayState>()
       .init_resource::<CraftingDisplayState>()
       .init_resource::<MenuClickPending>()
+      .init_resource::<CompassData>()
       .add_systems(
         PostUpdate,
-        (sync_interact_display, sync_crafting_display, sync_ui).before(SignalProcessing)
+        (sync_interact_display, sync_crafting_display, sync_compass, sync_ui)
+          .before(SignalProcessing)
       );
   }
 }
@@ -286,6 +302,7 @@ fn main_layout() -> impl Element {
               n.min_width = Val::Px(0.0);
               n.justify_content = JustifyContent::FlexEnd;
             })
+            .item(compass())
             .item(dialogue_panel())
             .item(ability_bar())
         )
@@ -371,6 +388,114 @@ fn ability_bar() -> impl Element {
       W_UI
     ))
     .items(mapv(ability_slot, 0..ABILITY_MAX_SLOTS))
+}
+
+// ---------------------------------------------------------------------------
+// Compass — circular dial in the game pane; markers at true bearing, distance
+// squashed by a horizon projection r = R·d/(d+K) so far things crowd the rim
+// ---------------------------------------------------------------------------
+
+const COMPASS_DIAMETER: f32 = 120.0;
+/// Markers stay inside this radius; the rim itself is "infinitely far".
+const COMPASS_RADIUS: f32 = COMPASS_DIAMETER / 2.0 - 10.0;
+/// Tile distance at which a marker sits halfway to the rim.
+const COMPASS_HALF_DIST: f32 = 12.0;
+const COMPASS_MAX_ICONS: usize = 16;
+const COMPASS_ICON_PX: f32 = 16.0;
+
+fn compass_icon(i: usize) -> El<Node> {
+  El::<Node>::new().with_builder(move |b| {
+    b.component_signal::<Node>(signal::from_resource::<CompassData>().map_in(
+      move |data: CompassData| {
+        let mut node = Node::default();
+        node.position_type = PositionType::Absolute;
+        node.width = Val::Px(COMPASS_ICON_PX);
+        node.height = Val::Px(COMPASS_ICON_PX);
+        let (left, top, display) = data
+          .0
+          .get(i)
+          .map(|icon| {
+            (
+              Val::Px(COMPASS_DIAMETER / 2.0 + icon.x - COMPASS_ICON_PX / 2.0),
+              Val::Px(COMPASS_DIAMETER / 2.0 + icon.y - COMPASS_ICON_PX / 2.0),
+              Display::Flex
+            )
+          })
+          .unwrap_or((Val::Auto, Val::Auto, Display::None));
+        node.left = left;
+        node.top = top;
+        node.display = display;
+        Some(node)
+      }
+    ))
+    .component_signal::<ImageNode>(signal::from_resource::<CompassData>().map_in(
+      move |data: CompassData| data.0.get(i).map(|icon| ImageNode::new(icon.image.clone()))
+    ))
+  })
+}
+
+fn compass() -> impl Element {
+  Row::<Node>::new()
+    .with_node(|mut n| {
+      n.position_type = PositionType::Absolute;
+      n.top = Val::Px(10.0);
+      n.right = Val::Px(10.0);
+      n.width = Val::Px(COMPASS_DIAMETER);
+      n.height = Val::Px(COMPASS_DIAMETER);
+      n.border = UiRect::all(Val::Px(1.0));
+      n.border_radius = BorderRadius::all(Val::Px(COMPASS_DIAMETER / 2.0));
+    })
+    .background_color(BackgroundColor(PANEL_BG.with_alpha(0.55)))
+    .border_color(BorderColor::all(BORDER))
+    // centre dot: the player
+    .item(
+      El::<Node>::new()
+        .with_node(|mut n| {
+          n.position_type = PositionType::Absolute;
+          n.left = Val::Px(COMPASS_DIAMETER / 2.0 - 2.0);
+          n.top = Val::Px(COMPASS_DIAMETER / 2.0 - 2.0);
+          n.width = Val::Px(4.0);
+          n.height = Val::Px(4.0);
+          n.border_radius = BorderRadius::all(Val::Px(2.0));
+        })
+        .background_color(BackgroundColor(DIM_TEXT))
+    )
+    .items(mapv(compass_icon, 0..COMPASS_MAX_ICONS))
+}
+
+/// Project every [`ShowOnCompass`] entity on the player's z-level onto the compass dial.
+fn sync_compass(
+  player_q: Query<&Location, With<crate::Player>>,
+  marked_q: Query<(&Location, &Glyph), With<ShowOnCompass>>,
+  mut cache: ResMut<PaletteImageCache>,
+  mut images: ResMut<Assets<Image>>,
+  mut data: ResMut<CompassData>
+) {
+  let mut icons = Vec::new();
+  if let Ok(&Location::Coords { x: px, y: py, z: pz }) = player_q.single() {
+    for (loc, glyph) in &marked_q {
+      if let &Location::Coords { x, y, z } = loc
+        && z == pz
+        && let Some(path) = glyph.texture
+      {
+        // Tile y grows downward on screen, same as UI y — bearings map directly.
+        let (dx, dy) = ((x - px) as f32, (y - py) as f32);
+        let d = dx.hypot(dy);
+        let r = COMPASS_RADIUS * d / (d + COMPASS_HALF_DIST);
+        let scale = if d > 0.0 { r / d } else { 0.0 };
+        // White-on-white bake: solid white silhouette, Skyrim-marker style. Cached by key.
+        let image =
+          palette_sprite_handle(path, Color::WHITE, Color::WHITE, &mut cache, &mut images);
+        icons.push(CompassIcon { image, x: dx * scale, y: dy * scale });
+      }
+    }
+    // Stable order so markers keep their slots and signals only fire on real movement.
+    icons.sort_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)));
+    icons.truncate(COMPASS_MAX_ICONS);
+  }
+  if data.0 != icons {
+    data.0 = icons
+  }
 }
 
 fn sidebar_column() -> impl Element {

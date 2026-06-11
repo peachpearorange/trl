@@ -52,8 +52,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var bg = bg_raw;
     if is_liquid {
         let world = vec2<f32>(coord + world_offset);
-        let wave_x = i32(floor(sin(world.y * 0.15 + time * 1.5) * 2.0));
-        let wave_y = i32(floor(cos(world.x * 0.12 + time * 1.2) * 1.5));
+        let wave_x = i32(floor(cos(world.y * 0.12 + time * 1.2) * 1.5));
+        let wave_y = i32(floor(sin(world.x * 0.15 + time * 1.5) * 2.0));
         let wcoord = clamp(coord + vec2<i32>(wave_x, wave_y), vec2<i32>(0), dims - 1);
         let sampled = textureLoad(screen_texture, wcoord, 0);
         bg = vec4<f32>(sampled.rgb, bg_raw.a);

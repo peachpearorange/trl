@@ -487,6 +487,10 @@ pub struct Tree;
 #[derive(Component, Clone, Copy)]
 pub struct Bed;
 
+/// Drawn as a marker on the navigation compass (white silhouette of the entity's sprite).
+#[derive(Component, Clone, Copy)]
+pub struct ShowOnCompass;
+
 /// An elevator that transports the player to another z-level.
 /// `floors` lists every connected deck as (deck_index, local_x, local_y).
 #[derive(Component, Clone)]
@@ -826,7 +830,7 @@ object_data! {
     WalkAroundRandomly, BlocksSight,
     Door, Bed, CraftingTable, FlightConsole, LoadoutConsole, LootChest, AirlockDoor,
     Tree, GroundItem, LightSource, WallComp, Elevator, FixedChestLoot,
-    FollowerState, FollowerData, Path
+    FollowerState, FollowerData, Path, ShowOnCompass
   )
 }
 
@@ -1349,7 +1353,8 @@ impl Object {
       name: "Bed",
       flavor: "A place to sleep. Looks like it hasn't been used in a while."
     })
-    .with(Bed);
+    .with(Bed)
+    .with(ShowOnCompass);
 
   pub const CRAFTING_TABLE: Self = Self::STRUCTURE
     .with(Glyph::recolor_sprite(
@@ -1460,6 +1465,7 @@ impl Object {
       ))
       .with(Named { name: "Elevator", flavor: "Vertical transport. Choose a deck." })
       .with(Elevator { current_z, floors: Cow::Owned(floors) })
+      .with(ShowOnCompass)
   }
 
   pub fn cave_entrance(surface_x: i32, surface_y: i32, cave_x: i32, cave_y: i32) -> Self {
@@ -1475,6 +1481,7 @@ impl Object {
         current_z: 0,
         floors: Cow::Owned(vec![(0, surface_x, surface_y), (1, cave_x, cave_y)])
       })
+      .with(ShowOnCompass)
   }
 
   pub fn cave_exit(surface_x: i32, surface_y: i32, cave_x: i32, cave_y: i32) -> Self {
@@ -1490,6 +1497,47 @@ impl Object {
         current_z: 1,
         floors: Cow::Owned(vec![(0, surface_x, surface_y), (1, cave_x, cave_y)])
       })
+      .with(ShowOnCompass)
+  }
+
+  /// Stairway from cave level `z` down to level `z + 1` (landing at `below_x/y`).
+  pub fn passage_down(z: usize, x: i32, y: i32, below_x: i32, below_y: i32) -> Self {
+    Self::STRUCTURE_PASSABLE
+      .with(Glyph::recolor_sprite(
+        "textures/space_qud/stairs.png",
+        '>',
+        Color::srgb(0.28, 0.25, 0.22),
+        Color::srgb(0.48, 0.42, 0.34)
+      ))
+      .with(Named {
+        name: "Descending Passage",
+        flavor: "A narrow shaft winds down into deeper dark."
+      })
+      .with(Elevator {
+        current_z: z,
+        floors: Cow::Owned(vec![(z, x, y), (z + 1, below_x, below_y)])
+      })
+      .with(ShowOnCompass)
+  }
+
+  /// Counterpart of [`Self::passage_down`], placed on level `z + 1`.
+  pub fn passage_up(z: usize, x: i32, y: i32, below_x: i32, below_y: i32) -> Self {
+    Self::STRUCTURE_PASSABLE
+      .with(Glyph::recolor_sprite(
+        "textures/space_qud/stairs up.png",
+        '<',
+        Color::srgb(0.48, 0.42, 0.34),
+        Color::srgb(0.28, 0.25, 0.22)
+      ))
+      .with(Named {
+        name: "Ascending Passage",
+        flavor: "Cooler air drifts down from the level above."
+      })
+      .with(Elevator {
+        current_z: z + 1,
+        floors: Cow::Owned(vec![(z, x, y), (z + 1, below_x, below_y)])
+      })
+      .with(ShowOnCompass)
   }
 
   pub const fn ground_item(item: Item) -> Self {
