@@ -25,14 +25,12 @@ jobs:
       - name: Build for itch.io
         run: trunk build --release --public-url .
 
-      - name: Install Butler
-        run: |
-          curl -L -o butler.zip https://broth.itch.ovh/butler/linux-amd64/LATEST/archive/default
-          unzip butler.zip -d butler
-          chmod +x butler/butler
-
       - name: Push to itch.io
-        env:
-          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
-        run: |
-          ./butler/butler push dist peachpearorange/gw:html5 --userversion ${{ github.run_number }}
+        uses: Oval-Tutu/publish-to-itch-with-butler@v1
+        with:
+          api-key: ${{ secrets.BUTLER_API_KEY }}
+          itch_user: peachpearorange
+          itch_game: gw
+          channel: html5
+          package: dist
+          version: ${{ github.run_number }}
