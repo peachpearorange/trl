@@ -72,12 +72,39 @@ Most orchestration lives in `src/main.rs`:
 - Procedural:
   - planets: `src/locations/planet_gen.rs` (WFC in `build.rs` + editor-exported grids)
   - stations: `src/locations/station_gen.rs`
+  - caves: `src/locations/cave_gen.rs` — shared multi-level cave generator used
+    by every planet (`planet_gen.rs` and `natural_planet.rs` both call
+    `cave_gen::generate_caves`). Cavern-graph carving (dart-thrown cavern
+    blobs + MST-with-loops wobbly tunnels, floor-only roughening, so
+    connectivity is guaranteed by construction), 2–4 stacked underground
+    levels per planet (it *grows* `loc.levels`/`loc.depth` beyond the depth
+    the Location was created with), per-level themes (Rocky/Fungal/Flooded/
+    Crystal/Molten — each picks creatures, pools, decor), surface entrances
+    via `Object::cave_entrance/cave_exit` and deeper stairs via
+    `Object::passage_down/passage_up` (entities.rs). Placement is driven by
+    a BFS distance map from each level's entry stairs: creatures spawn ≥14
+    steps in, loot chests/supply caches go to the farthest caverns.
   - experimental layered-noise planet: `src/locations/natural_planet.rs`
     (elevation + moisture + detail noise fields, water-fragmentation pass,
     smoothstep tree density, long rock-wall ridges that limit movement,
     Tile::Ground dirt patches and rock skirts, starting-zone seed,
     biome-scoped creature scatter with alien-weighted fauna, registered as
     LocationId `(13, 0, 0)` = "Vera Spera" in `main.rs`)
+  - icy planet with a settlement: `src/locations/icy_planet.rs` ("Brume",
+    LocationId `(14, 0, 0)`, registered deferred in `main.rs`). Same
+    layered-noise approach as `natural_planet` (reuses its now-pub
+    `NoiseField`, `smoothstep`, and `place_ship_dock(level, fill_tile)`):
+    frozen seas (DeepWater cores ringed by walkable IceFloor), snowdrift
+    fragmentation, gravel shorelines, alternating glacier/rock ridges, a
+    mid-elevation taiga tree belt, crystal ice spires. After
+    `cave_gen::generate_caves`, a six-house village (prefab houses with
+    residents and furniture, lamp posts, sheep pen, trampled paths) is
+    stamped on the buildable patch nearest the dock — site selection avoids
+    cave entrances because entrance/exit pairs can't be moved after the
+    fact. The village cellar is a *separate level appended after the cave
+    levels* (index `levels.len()`), reached by Elevator pairs that jump z
+    directly — level index doesn't have to match physical depth, and
+    appending avoids colliding with cave-level geometry and spawns.
 - Hand-authored locations:
   - `src/locations/starter_planet.rs`
   - `src/locations/meridian_station.rs`

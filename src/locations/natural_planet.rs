@@ -36,11 +36,6 @@ const ELEV_BEACH: f32 = 0.40;
 const ELEV_MIDLAND: f32 = 0.58;
 const ELEV_PEAK: f32 = 0.76;
 
-// Cave sublevel tunables.
-const CAVE_ENTRANCES: usize = 3;
-const CAVE_FILL_CHANCE: f64 = 0.44;
-const CAVE_SMOOTH_PASSES: usize = 5;
-
 // Tile-feature scatter probabilities (per eligible tile, after the density
 // mask passes). Keep them low — natural terrain is mostly empty, with a few
 // strong features per area.
@@ -96,12 +91,12 @@ impl Biome {
   }
 }
 
-struct NoiseField {
+pub struct NoiseField {
   base: Fbm<Perlin>
 }
 
 impl NoiseField {
-  fn new(seed: u32, frequency: f64, octaves: usize, persistence: f64) -> Self {
+  pub fn new(seed: u32, frequency: f64, octaves: usize, persistence: f64) -> Self {
     let base = Fbm::<Perlin>::new(seed)
       .set_frequency(frequency)
       .set_octaves(octaves)
@@ -110,7 +105,7 @@ impl NoiseField {
   }
 
   /// Returns a noise value remapped from roughly [-1, 1] to [0, 1].
-  fn sample01(&self, x: f64, y: f64) -> f64 { (self.base.get([x, y]) + 1.0) * 0.5 }
+  pub fn sample01(&self, x: f64, y: f64) -> f64 { (self.base.get([x, y]) + 1.0) * 0.5 }
 }
 
 fn classify(e: f32, m: f32) -> Biome {
@@ -356,7 +351,7 @@ pub fn generate_natural_planet(params: &NaturalParams) -> Location {
   // Pass 4: place the ship dock on a flat clearing in the largest landmass.
   // The dock is a single tile; we clear a 3x3 around it so the player can
   // step off and trees don't spawn on it.
-  let dock = place_ship_dock(loc.level_mut(0));
+  let dock = place_ship_dock(loc.level_mut(0), Tile::Grass);
 
   // Pass 5: scatter trees using the tree density mask. Instead of a hard
   // threshold ("density > X means tree, else no tree"), the per-tile tree
@@ -449,12 +444,12 @@ pub fn generate_natural_planet(params: &NaturalParams) -> Location {
     }
   }
 
-  // Pass 6: cave sublevel. Cellular automata carves the level, and entrances
-  // are placed on the surface only where midland+highland cells exist — so
-  // caves look like they emerge from hills, not from lakes.
-  generate_cave_sublevel(&mut loc, params.seed, &mut spawn_objects);
-
   loc.spawn_objects.extend(spawn_objects);
+
+  // Pass 6: multi-level cave system. Cavern-graph carving with themed levels;
+  // entrances only open on dry walkable ground (see locations::cave_gen).
+  super::cave_gen::generate_caves(&mut loc, params.seed);
+
   loc
 }
 
@@ -464,7 +459,7 @@ pub fn generate_natural_planet(params: &NaturalParams) -> Location {
 /// derivatives at both ends, so transitions have no visible kinks. Used
 /// to convert the raw tree-density noise into a per-tile probability ramp
 /// that fades gradually from "no trees" to "dense grove" over many tiles.
-fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
+pub fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
   let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
   t * t * (3.0 - 2.0 * t)
 }
@@ -572,8 +567,8 @@ fn seed_starting_zone(
 fn pick_creature_for_biome(tile: Tile, rng: &mut SmallRng) -> Object {
   let (options, weights): (Vec<Object>, Vec<u32>) = match tile {
     Tile::TallGrass => (
-      vec![Object::MUSHROOM_CREATURE, Object::ALIEN_RUNNER, Object::MANTIS_ALIEN],
-      vec![40, 35, 25]
+      vec![Object::MUSHROOM_CREATURE, Object::ALIEN_RUNNER, Object::MANTIS_ALIEN, Object::POLYCHROMATIC_SHEEP],
+      vec![35, 30, 20, 15]
     ),
     Tile::Grass => (
       vec![
@@ -664,7 +659,7 @@ fn scatter_creatures(loc: &Location, seed: u64, spawn_objects: &mut Vec<(i32, i3
   place_n_biome(&mut cells, count, &taken, Tile::Sand, spawn_objects, &mut rng);
 }
 
-fn place_ship_dock(level: &mut Level) -> (i32, i32) {
+pub fn place_ship_dock(level: &mut Level, fill: Tile) -> (i32, i32) {
   // Flood-fill every walkable component and find the largest one. The dock
   // must land there so the player isn't isolated in a small pocket.
   let (w, h) = (level.width as i32, level.height as i32);
@@ -711,7 +706,7 @@ fn place_ship_dock(level: &mut Level) -> (i32, i32) {
     // No walkable component at all — clear the center and place the dock.
     for dy in -1..=1 {
       for dx in -1..=1 {
-        level.set(cx + dx, cy + dy, Tile::Grass);
+        level.set(cx + dx, cy + dy, fill);
       }
     }
     level.set(cx, cy, Tile::ShipDock);
@@ -724,174 +719,12 @@ fn place_ship_dock(level: &mut Level) -> (i32, i32) {
       let nx = (sx + dx).clamp(0, w - 1);
       let ny = (sy + dy).clamp(0, h - 1);
       if !level.walkable(nx, ny) {
-        level.set(nx, ny, Tile::Grass);
+        level.set(nx, ny, fill);
       }
     }
   }
   level.set(sx, sy, Tile::ShipDock);
   (sx, sy)
-}
-
-fn is_solid_ground(tile: Tile) -> bool {
-  matches!(
-    tile,
-    Tile::Grass
-      | Tile::TallGrass
-      | Tile::Sand
-      | Tile::Ground
-      | Tile::CaveWall
-      | Tile::CaveFloor
-  )
-}
-
-fn generate_cave_sublevel(
-  loc: &mut Location,
-  seed: u64,
-  spawn_objects: &mut Vec<(i32, i32, usize, Object)>
-) {
-  let size = loc.width;
-  let mut rng = SmallRng::seed_from_u64(seed ^ 0xDEAD_BEEF);
-
-  let cave = loc.level_mut(1);
-  for y in 0..size {
-    for x in 0..size {
-      cave.set(x as i32, y as i32, Tile::CaveWall);
-    }
-  }
-
-  // Cellular automata: seed random floor cells, then smooth into caves.
-  let mut cells = vec![vec![false; size]; size];
-  for y in 2..size - 2 {
-    for x in 2..size - 2 {
-      cells[y][x] = rng.gen_bool(CAVE_FILL_CHANCE);
-    }
-  }
-  for _ in 0..CAVE_SMOOTH_PASSES {
-    let prev = cells.clone();
-    for y in 1..size - 1 {
-      for x in 1..size - 1 {
-        let neighbors = (-1..=1i32)
-          .flat_map(|dy| (-1..=1i32).map(move |dx| (dx, dy)))
-          .filter(|&(dx, dy)| (dx, dy) != (0, 0))
-          .filter(|&(dx, dy)| prev[(y as i32 + dy) as usize][(x as i32 + dx) as usize])
-          .count();
-        cells[y][x] = neighbors >= 5 || (cells[y][x] && neighbors >= 4);
-      }
-    }
-  }
-
-  for y in 0..size {
-    for x in 0..size {
-      if cells[y][x] {
-        cave.set(x as i32, y as i32, Tile::CaveFloor);
-      }
-    }
-  }
-
-  // Find the largest connected cave region.
-  let largest = largest_walkable_component(cave);
-  if largest.len() < 20 {
-    return;
-  }
-
-  // Entrance candidates: cave tiles that are below walkable surface terrain.
-  // The cave CA produces a fragmented region (typically a handful of
-  // disconnected pockets), so we just accept any solid-ground surface cell
-  // — midland/highland/ground are all fine places for a cave mouth. Trying
-  // to *prefer* hills gives 0 candidates on a small island, so don't.
-  let surface = loc.levels[0].clone();
-  let mut entrance_candidates: Vec<(i32, i32)> = largest
-    .iter()
-    .copied()
-    .filter(|&(x, y)| {
-      x > 5
-        && y > 5
-        && x < (size as i32 - 5)
-        && y < (size as i32 - 5)
-        && is_solid_ground(surface.get(x, y).unwrap_or(Tile::CaveWall))
-    })
-    .collect();
-
-  if entrance_candidates.is_empty() {
-    return;
-  }
-
-  entrance_candidates.sort_by_key(|&(x, y)| (x, y));
-  let count = CAVE_ENTRANCES.min(entrance_candidates.len());
-  let step = entrance_candidates.len() / count;
-  let entrances: Vec<(i32, i32)> =
-    (0..count).map(|i| entrance_candidates[i * step]).collect();
-
-  for &(ex, ey) in &entrances {
-    // Clear a small area around the entrance in the cave.
-    for dy in -1..=1 {
-      for dx in -1..=1 {
-        let cave = loc.level_mut(1);
-        if !cave.walkable(ex + dx, ey + dy) {
-          cave.set(ex + dx, ey + dy, Tile::CaveFloor);
-        }
-      }
-    }
-    spawn_objects.push((ex, ey, 0, Object::cave_entrance(ex, ey, ex, ey)));
-    spawn_objects.push((ex, ey, 1, Object::cave_exit(ex, ey, ex, ey)));
-  }
-
-  // Scatter loot chests in the cave away from the entrances.
-  let chest_candidates: Vec<(i32, i32)> = largest
-    .iter()
-    .copied()
-    .filter(|&(x, y)| {
-      !entrances.contains(&(x, y))
-        && x > 3
-        && y > 3
-        && x < (size as i32 - 3)
-        && y < (size as i32 - 3)
-    })
-    .collect();
-  let chest_count = (chest_candidates.len() / 80).clamp(2, 6);
-  let chest_step = chest_candidates.len().max(1) / chest_count.max(1);
-  for i in 0..chest_count.min(chest_candidates.len()) {
-    let (cx, cy) = chest_candidates[i * chest_step];
-    spawn_objects.push((cx, cy, 1, Object::LOOT_CHEST));
-  }
-}
-
-fn largest_walkable_component(level: &Level) -> Vec<(i32, i32)> {
-  let (w, h) = (level.width as i32, level.height as i32);
-  let mut visited = vec![vec![false; level.width]; level.height];
-  let mut best = Vec::new();
-
-  for sy in 0..h {
-    for sx in 0..w {
-      if visited[sy as usize][sx as usize] || !level.walkable(sx, sy) {
-        continue;
-      }
-      let mut component = Vec::new();
-      let mut queue = VecDeque::new();
-      visited[sy as usize][sx as usize] = true;
-      queue.push_back((sx, sy));
-      while let Some((x, y)) = queue.pop_front() {
-        component.push((x, y));
-        for (dx, dy) in [(1i32, 0), (-1, 0), (0, 1), (0, -1)] {
-          let (nx, ny) = (x + dx, y + dy);
-          if nx >= 0
-            && ny >= 0
-            && nx < w
-            && ny < h
-            && !visited[ny as usize][nx as usize]
-            && level.walkable(nx, ny)
-          {
-            visited[ny as usize][nx as usize] = true;
-            queue.push_back((nx, ny));
-          }
-        }
-      }
-      if component.len() > best.len() {
-        best = component;
-      }
-    }
-  }
-  best
 }
 
 #[cfg(test)]

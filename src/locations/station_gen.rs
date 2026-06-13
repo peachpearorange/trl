@@ -1,8 +1,9 @@
-use rand::{Rng, SeedableRng, rngs::SmallRng};
+use rand::{Rng, SeedableRng, rngs::SmallRng, seq::SliceRandom};
 
 use crate::{entities::*,
             galaxy::{Location, LocationId},
-            level::{Level, LocationType, Tile}};
+            level::{Level, LocationType, Tile},
+            npcs};
 
 pub const STATION_SIZE: usize = 64;
 pub const STATION_MARGIN: usize = 16;
@@ -17,12 +18,16 @@ pub fn all() -> Vec<(LocationId, Location)> {
       ID_NOVA_OUTPOST,
       generate(&StationParams::new("Nova Outpost").with_seed(0xABCD_1234))
     ),
-    (
-      ID_IRON_RING,
-      generate(
-        &StationParams::new("Iron Ring Station").with_decks(3).with_seed(0x9876_FEDC)
-      )
-    ),
+    (ID_IRON_RING, {
+      let mut loc = generate(
+        &StationParams::new("Iron Ring Station")
+          .with_decks(2)
+          .with_size(36)
+          .with_seed(0x9876_FEDC)
+      );
+      scatter_npcs(&mut loc, npcs::bad_clankers::ROSTER, 0xC1A_C1A);
+      loc
+    }),
     (
       ID_VEGA_RELAY,
       generate(
@@ -43,12 +48,13 @@ pub struct StationParams {
   pub name: &'static str,
   pub decks: usize,
   pub rooms_per_deck: usize,
+  pub size: usize,
   pub seed: Option<u64>
 }
 
 impl StationParams {
   pub fn new(name: &'static str) -> Self {
-    Self { name, decks: 2, rooms_per_deck: 7, seed: None }
+    Self { name, decks: 2, rooms_per_deck: 7, size: STATION_SIZE, seed: None }
   }
 
   pub fn with_seed(mut self, s: u64) -> Self {
@@ -61,6 +67,10 @@ impl StationParams {
   }
   pub fn with_rooms(mut self, r: usize) -> Self {
     self.rooms_per_deck = r;
+    self
+  }
+  pub fn with_size(mut self, s: usize) -> Self {
+    self.size = s;
     self
   }
 }
@@ -198,7 +208,7 @@ pub fn generate(params: &StationParams) -> Location {
   let seed = params.seed.unwrap_or(0x5EED_5EED);
   let mut rng = SmallRng::seed_from_u64(seed);
 
-  let size = STATION_SIZE;
+  let size = params.size;
   let map_size = size + 2 * STATION_MARGIN;
   let fill = Tile::Vacuum;
   let mut loc = Location::new(
@@ -455,6 +465,55 @@ fn add_spine_wall(level: &mut Level, inner: &Rect, rng: &mut SmallRng) {
       if !in_gap && level.get(wx, y) == Some(Tile::StationFloor) {
         level.set(wx, y, Tile::StationWall);
       }
+    }
+  }
+}
+
+/// Place a set of NPCs onto distinct StationFloor tiles in `loc`, spread across
+/// decks and kept far apart so they end up in different rooms.
+fn scatter_npcs(loc: &mut Location, npcs: &[Object], seed: u64) {
+  let mut rng = SmallRng::seed_from_u64(seed);
+  // Collect all StationFloor candidates per deck.
+  let mut candidates: Vec<(i32, i32, usize)> = Vec::new();
+  for z in 0..loc.depth {
+    let level = loc.level(z);
+    for y in 0..level.height as i32 {
+      for x in 0..level.width as i32 {
+        if level.get(x, y) == Some(Tile::StationFloor) {
+          candidates.push((x, y, z));
+        }
+      }
+    }
+  }
+  candidates.shuffle(&mut rng);
+
+  // Round-robin decks so the faction isn't all on one floor: when picking a spot
+  // for the next NPC, prefer the deck with the fewest placements so far.
+  let mut placed: Vec<(i32, i32, usize)> = Vec::new();
+  const MIN_DIST_SQ: i32 = 6 * 6;
+  for npc in npcs.iter().cloned() {
+    let target_deck = (0..loc.depth)
+      .min_by_key(|z| placed.iter().filter(|(_, _, pz)| pz == z).count())
+      .unwrap_or(0);
+    let pick = candidates
+      .iter()
+      .position(|&(x, y, z)| {
+        z == target_deck
+          && placed.iter().all(|&(px, py, pz)| {
+            pz != z || (px - x).pow(2) + (py - y).pow(2) >= MIN_DIST_SQ
+          })
+      })
+      .or_else(|| {
+        candidates.iter().position(|&(x, y, z)| {
+          placed.iter().all(|&(px, py, pz)| {
+            pz != z || (px - x).pow(2) + (py - y).pow(2) >= MIN_DIST_SQ
+          })
+        })
+      });
+    if let Some(i) = pick {
+      let (x, y, z) = candidates.remove(i);
+      placed.push((x, y, z));
+      loc.spawn_objects.push((x, y, z, npc));
     }
   }
 }

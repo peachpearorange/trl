@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::OnceLock};
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 
@@ -178,6 +178,62 @@ pub fn palette_sprite_handle(
     cache.0.insert(key, handle.clone());
     handle
   }
+}
+
+/// Cached per-char sprites generated from FiraMono. The bake is a pure black
+/// silhouette on transparent with no AA gradient, so the cache is keyed by
+/// char alone — the actual ink color is applied via `RecolorMaterial` at draw.
+#[derive(Resource, Default)]
+pub struct CharGlyphCache(pub HashMap<char, Handle<Image>>);
+
+pub fn char_glyph_handle(
+  ch: char,
+  cache: &mut CharGlyphCache,
+  images: &mut Assets<Image>
+) -> Handle<Image> {
+  if let Some(h) = cache.0.get(&ch) {
+    return h.clone();
+  }
+  let data = render_char_image(ch);
+  let handle = images.add(Image::new(
+    Extent3d { width: 20, height: 20, depth_or_array_layers: 1 },
+    TextureDimension::D2,
+    data,
+    TextureFormat::Rgba8UnormSrgb,
+    RenderAssetUsages::RENDER_WORLD
+  ));
+  cache.0.insert(ch, handle.clone());
+  handle
+}
+
+fn render_char_image(ch: char) -> Vec<u8> {
+  use ab_glyph::{Font, FontVec, PxScale};
+  static FONT: OnceLock<FontVec> = OnceLock::new();
+  let font = FONT.get_or_init(|| {
+    FontVec::try_from_vec(load_asset_bytes("fonts/FiraMono-subset.ttf"))
+      .expect("failed to parse FiraMono font")
+  });
+  let mut pixels = vec![0u8; 20 * 20 * 4];
+  let glyph = font.glyph_id(ch).with_scale(PxScale::from(22.0));
+  if let Some(outlined) = font.outline_glyph(glyph) {
+    let bounds = outlined.px_bounds();
+    let x_start = ((20.0 - bounds.width()) / 2.0).round() as i32;
+    let y_start = ((20.0 - bounds.height()) / 2.0).round() as i32;
+    outlined.draw(|px, py, coverage| {
+      let x = px as i32 + x_start;
+      let y = py as i32 + y_start;
+      // Binary alpha: any partial coverage rounds to fully opaque black, the
+      // rest stays fully transparent — no anti-alias halo.
+      if x >= 0 && x < 20 && y >= 0 && y < 20 && coverage >= 0.5 {
+        let idx = (y as usize * 20 + x as usize) * 4;
+        pixels[idx] = 0;
+        pixels[idx + 1] = 0;
+        pixels[idx + 2] = 0;
+        pixels[idx + 3] = 255;
+      }
+    });
+  }
+  pixels
 }
 
 /// Returns all 8 flip/rotation variants of an image (4 rotations × 2 horizontal mirrors).

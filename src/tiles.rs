@@ -128,7 +128,7 @@ pub enum Tile {
   AsteroidFloor,
   #[assoc(glyph = ",", color = [0.55, 0.5, 0.45], walkable = true, name = "Regolith", render_mode = TileRenderMode::SpritePackRandom(&["textures/space_qud/ground.png"], [0.48, 0.46, 0.44], [0.72, 0.70, 0.68]))]
   Regolith,
-  #[assoc(glyph = ",", color = [0.7, 0.75, 0.85], walkable = true, name = "Ice Floor")]
+  #[assoc(glyph = ",", color = [0.7, 0.75, 0.85], walkable = true, name = "Ice Floor", render_mode = TileRenderMode::Sprite("textures/space_qud/wavy.png", [0.55, 0.68, 0.82], [0.80, 0.90, 0.98]))]
   IceFloor,
   #[assoc(glyph = ",", color = [0.45, 0.35, 0.55], walkable = true, name = "Alien Soil", render_mode = TileRenderMode::SpritePackRandom(&["textures/space_qud/ground.png"], [0.28, 0.18, 0.38], [0.52, 0.38, 0.62]))]
   AlienSoil,
@@ -152,9 +152,9 @@ pub enum Tile {
   CaveWall,
   #[assoc(glyph = "#", color = [0.4, 0.35, 0.3], walkable = false, opaque = true, name = "Asteroid Rock", render_mode = TileRenderMode::Sprite("textures/space_qud/cobble tile.png", [0.28, 0.26, 0.24], [0.48, 0.46, 0.42]))]
   AsteroidRock,
-  #[assoc(glyph = "#", color = [0.5, 0.5, 0.5], walkable = true, name = "Small Rocks", render_mode = TileRenderMode::Sprite("textures/space_qud/smallrocks1.png", [0.40, 0.40, 0.40], [0.50, 0.50, 0.50]))]
+  #[assoc(glyph = "#", color = [0.5, 0.5, 0.5], walkable = true, name = "Small Rocks", render_mode = TileRenderMode::Sprite("textures/space_qud/smallrocks1.png", [0.40, 0.40, 0.40], [0.45, 0.45, 0.45]))]
   SmallRocks,
-  #[assoc(glyph = "#", color = [0.5, 0.55, 0.7], walkable = false, opaque = true, name = "Ice Wall")]
+  #[assoc(glyph = "#", color = [0.5, 0.55, 0.7], walkable = false, opaque = true, name = "Ice Wall", render_mode = TileRenderMode::Sprite("textures/space_qud/cobble tile.png", [0.45, 0.55, 0.72], [0.72, 0.84, 0.95]))]
   IceWall,
   #[assoc(glyph = "#", color = [0.72, 0.76, 0.82], walkable = false, opaque = true, name = "Bright Cobble Wall", render_mode = TileRenderMode::Sprite("textures/space_qud/cobble tile.png", [0.68, 0.72, 0.78], [0.88, 0.92, 0.96]))]
   BrightCobbleWall,

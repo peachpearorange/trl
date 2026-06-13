@@ -7,7 +7,8 @@ use bevy::{asset::RenderAssetUsages,
            shader::ShaderRef,
            sprite_render::{Material2d, Material2dPlugin}};
 
-use crate::sprites::PaletteImageCache;
+use crate::shadow::ShadowMaterial;
+use crate::sprites::{CharGlyphCache, PaletteImageCache};
 
 #[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
 pub struct RecolorMaterial {
@@ -58,8 +59,10 @@ pub fn fov_image(width: usize, height: usize) -> Image {
 #[derive(SystemParam)]
 pub struct SpriteRes<'w> {
   pub palette_cache: ResMut<'w, PaletteImageCache>,
+  pub char_cache: ResMut<'w, CharGlyphCache>,
   pub images: ResMut<'w, Assets<Image>>,
   pub recolor_materials: ResMut<'w, Assets<RecolorMaterial>>,
+  pub shadow_materials: ResMut<'w, Assets<ShadowMaterial>>,
   pub recolor_quad: Res<'w, RecolorQuad>
 }
 
@@ -88,6 +91,7 @@ impl Plugin for RecolorPlugin {
     app
       .add_plugins(Material2dPlugin::<RecolorMaterial>::default())
       .init_resource::<FovLightmap>()
+      .init_resource::<CharGlyphCache>()
       .add_systems(Startup, |mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>| {
         commands.insert_resource(RecolorQuad(meshes.add(Rectangle::new(1.0, 1.0))));
       });

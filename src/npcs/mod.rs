@@ -1,3 +1,4 @@
+pub mod bad_clankers;
 pub mod chronos;
 pub mod guard;
 pub mod kong;

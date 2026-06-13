@@ -19,6 +19,7 @@ pub mod navigation;
 mod npcs;
 mod outline;
 pub mod recolor;
+pub mod shadow;
 mod particles;
 mod path_overlay;
 mod post_process;
@@ -34,7 +35,7 @@ use {crate::entities::{AirlockDoor, Bed, BlocksSight, Collidable, CraftingTable,
                        CreatureKind, Dialogue, DialogueNode, DialogueTree, Door, Elevator, Enemy,
                        FixedChestLoot, FlightConsole, FollowerData, FollowerState,
                        Glyph, Loadout, LoadoutConsole, Location, LootChest, Named,
-                       Stats, Tree, Visuals, WalkAnim},
+                       Path, Polychromatic, Stats, Tree, Visuals, WalkAnim},
      active_zone::ActiveZone,
      bevy::{camera::visibility::RenderLayers,
             prelude::*,
@@ -132,7 +133,8 @@ enum InteractionAction {
   TakeElevator { dest_z: usize, dest_x: i32, dest_y: i32 },
   RecruitFollower { entity: Entity, name: &'static str },
   DismissFollower { entity: Entity, name: &'static str },
-  SaveAtBed
+  SaveAtBed,
+  AttackNpc(Entity)
 }
 
 /// Tracks which menu row index a [`Button`] entity belongs to; queried by [`detect_menu_option_clicks`].
@@ -296,7 +298,8 @@ struct DeferredActions {
   pub navigate: Option<galaxy::LocationId>,
   /// Position to teleport the player to after navigation completes (used by death respawn).
   pub post_navigate_pos: Option<(i32, i32, usize)>,
-  pub save_at_bed: bool
+  pub save_at_bed: bool,
+  pub attack_npc: Option<Entity>
 }
 
 /// Snapshot of player state taken when sleeping in a bed.
@@ -383,6 +386,29 @@ struct Render;
 
 #[derive(Resource)]
 pub struct CurrentZone(pub active_zone::ActiveZone);
+
+/// World ids currently expressed as `Location::Coords` (merged-zone coords).
+/// The ship's world is always active; the docked destination's world is too
+/// when docked.
+#[derive(Resource, Default, Clone, Copy)]
+pub struct ActiveWorlds {
+  pub ship_w: i32,
+  pub dest_w: Option<i32>
+}
+
+impl ActiveWorlds {
+  /// Merged-zone offset to add to an entity's `w`'s local frame to land in
+  /// merged coords. Returns `None` if the entity's `w` isn't currently active.
+  pub fn offset_for(&self, w: i32, zone: &active_zone::ActiveZone) -> Option<(i32, i32)> {
+    if w == self.ship_w {
+      Some(zone.ship_origin)
+    } else if Some(w) == self.dest_w {
+      zone.dest_origin
+    } else {
+      None
+    }
+  }
+}
 
 #[derive(Resource)]
 pub struct Fov(pub FovGrid);
@@ -577,9 +603,9 @@ fn setup_glyph_visuals(
         {
           let p = primary.to_linear();
           let s = secondary.to_linear();
-          let mat = sprites.add_recolor(asset_server.load(path), p, s);
-          let mut entity_cmds = commands.entity(entity);
-          entity_cmds.insert((
+          let tex = asset_server.load(path);
+          let mat = sprites.add_recolor(tex.clone(), p, s);
+          commands.entity(entity).insert((
             Mesh2d(sprites.recolor_quad.0.clone()),
             MeshMaterial2d(mat),
             shared
@@ -594,8 +620,13 @@ fn setup_glyph_visuals(
             if !frame_mats.iter().any(|(fp, _)| *fp == anim.idle) {
               frame_mats.push((anim.idle, sprites.add_recolor(asset_server.load(anim.idle), p, s)));
             }
-            entity_cmds.insert(AnimMaterials(frame_mats));
+            commands.entity(entity).insert(AnimMaterials(frame_mats));
           }
+          shadow::spawn_shadow_child(
+            &mut commands, entity, tex, sprites.recolor_quad.0.clone(),
+            &mut sprites.shadow_materials, post_process::LAYER_ENTITIES,
+            TILE_SIZE, TILE_SIZE
+          );
         } else {
           let img = if let Some((primary, secondary)) = glyph.sprite_palette {
             palette_sprite_handle(path, primary, secondary, &mut sprites.palette_cache, &mut sprites.images)
@@ -604,7 +635,7 @@ fn setup_glyph_visuals(
           };
           commands.entity(entity).insert((
             Sprite {
-              image: img,
+              image: img.clone(),
               custom_size: Some(Vec2::splat(TILE_SIZE)),
               color: Color::WHITE,
               ..default()
@@ -616,18 +647,20 @@ fn setup_glyph_visuals(
             PrevHp(stats_q.get(entity).map_or(0, |s| s.hp)),
             Visuals { prev: local, last_move_start_frame: None, display: local, last_pos: local }
           ));
+          shadow::spawn_shadow_child(
+            &mut commands, entity, img, sprites.recolor_quad.0.clone(),
+            &mut sprites.shadow_materials, post_process::LAYER_ENTITIES,
+            TILE_SIZE, 1.0
+          );
         }
       } else {
+        let img = sprites::char_glyph_handle(glyph.ch, &mut sprites.char_cache, &mut sprites.images);
+        let c = glyph.color.to_linear();
+        let mat = sprites.add_recolor(img, c, c);
         commands.entity(entity).insert((
-          Text2d::new(glyph.ch.to_string()),
-          TextFont { font_size: TILE_SIZE, ..default() },
-          TextColor(glyph.color),
-          Transform::from_translation(pos),
-          GlyphVisual,
-          GlyphFade::default(),
-          RenderLayers::layer(post_process::LAYER_ENTITIES),
-          PrevHp(stats_q.get(entity).map_or(0, |s| s.hp)),
-          Visuals { prev: local, last_move_start_frame: None, display: local, last_pos: local }
+          Mesh2d(sprites.recolor_quad.0.clone()),
+          MeshMaterial2d(mat),
+          shared
         ));
       }
     }
@@ -703,13 +736,11 @@ fn main() {
   let mut galaxy = galaxy::Galaxy::new();
   let ship_id: galaxy::LocationId = (-1, -1, -1);
 
-  let ship_location = ship::build_ship_interior();
-  galaxy.insert(ship_id, ship_location.clone());
+  galaxy.insert(ship_id, ship::build_ship_interior());
 
   // Add starter planet at origin
   let origin: galaxy::LocationId = locations::starter_planet::ID;
-  let starter_planet = locations::starter_planet::generate();
-  galaxy.insert(origin, starter_planet.clone());
+  galaxy.insert(origin, locations::starter_planet::generate());
   galaxy.insert(locations::asteroid_field::ID, locations::asteroid_field::generate());
   galaxy.insert(locations::meridian_station::ID, locations::meridian_station::generate());
   galaxy.insert(locations::lava_planet::ID, locations::lava_planet::generate());
@@ -731,13 +762,22 @@ fn main() {
       }
     ))
   });
+  // Icy planet with a settled village and cellar (see locations::icy_planet).
+  galaxy.register_deferred(locations::icy_planet::ID, locations::icy_planet::NAME, |_id| {
+    Some(locations::icy_planet::generate())
+  });
   for (id, loc) in locations::station_gen::all() {
     galaxy.insert(id, loc);
   }
 
   // Ship starts docked at the starter planet
+  let ship_location = galaxy.get(ship_id).expect("ship inserted above").clone();
+  let starter_planet = galaxy.get(origin).expect("starter inserted above").clone();
   let active = active_zone::ActiveZone::docked(&ship_location, &starter_planet)
     .expect("ship should dock at starter planet");
+  let ship_w = ship_location.w;
+  let dest_w = starter_planet.w;
+  let active_worlds = ActiveWorlds { ship_w, dest_w: Some(dest_w) };
 
   let ship_res = ship::Ship {
     location_id: ship_id,
@@ -763,6 +803,7 @@ fn main() {
     .insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.05)))
     .insert_resource(galaxy)
     .insert_resource(ship_res)
+    .insert_resource(active_worlds)
     .insert_resource(CurrentZone(active))
     .init_resource::<RenderFrame>()
     .init_resource::<TurnBasedWorldState>()
@@ -784,6 +825,8 @@ fn main() {
     .insert_resource({
       let mut ql = quest::QuestLog::default();
       ql.register(quest::ALIEN_HUNT);
+      ql.register(quest::CLANKER_FIELD_TEST);
+      ql.register(quest::BRUME_PREDATOR);
       ql
     })
     .init_resource::<path_overlay::RangedPathOverlay>()
@@ -792,6 +835,7 @@ fn main() {
     .add_plugins(post_process::PostProcessPlugin)
     .add_plugins(outline::OutlinePlugin)
     .add_plugins(recolor::RecolorPlugin)
+    .add_plugins(shadow::ShadowPlugin)
     .add_systems(Startup, (setup, ui::spawn_haalka_root).chain())
     .add_systems(PostStartup, (update_fov, init_follower_homes).chain())
     // --- every frame: world bookkeeping ---
@@ -816,6 +860,7 @@ fn main() {
         handle_menus,
         handle_crafting_menu,
         flush_pending_loot,
+        apply_attack_npc,
         apply_bed_save,
         handle_interact,
         handle_utility_menus,
@@ -881,6 +926,10 @@ fn main() {
         .chain()
         .run_if(is_sim_frame)
         .in_set(WorldStep)
+    )
+    .add_systems(
+      Update,
+      tick_polychromatic.run_if(is_sim_frame).in_set(WorldStep)
     )
     // --- every frame: visuals ---
     .add_systems(
@@ -995,7 +1044,7 @@ fn enemy_death_check(
     With<Enemy>
   >
 ) {
-  for (entity, stats, loadout, location, _, _glyph, creature_kind) in enemy_q.iter() {
+  for (entity, stats, loadout, location, named, _glyph, creature_kind) in enemy_q.iter() {
     if stats.hp <= 0 {
       if creature_kind == Some(&CreatureKind::Alien)
         && quests.is_active(quest::ALIEN_HUNT.id)
@@ -1007,6 +1056,24 @@ fn enemy_death_check(
           log_spans(&mut *log, vec![LogSpan::colored("[Quest completed: Alien Extermination]", QUEST_LOG_COLOR)]);
         } else {
           log_spans(&mut *log, vec![LogSpan::colored(format!("Alien killed ({kills}/10)"), QUEST_LOG_COLOR)]);
+        }
+      }
+      if named.map(|n| n.name) == Some(locations::icy_planet::FROSTMAW_MATRIARCH_NAME)
+        && quests.stage(quest::BRUME_PREDATOR.id) == Some(10)
+      {
+        quests.set_stage(quest::BRUME_PREDATOR.id, 20);
+        log_spans(&mut *log, vec![LogSpan::colored("[Frostmaw Matriarch slain — return to Brume]", QUEST_LOG_COLOR)]);
+      }
+      if creature_kind == Some(&CreatureKind::Human)
+        && quests.stage(quest::CLANKER_FIELD_TEST.id) == Some(10)
+      {
+        let kills = quests.flag(quest::CLANKER_FIELD_TEST.id, quest::CLANKER_FIELD_TEST_KILL_FLAG) + 1;
+        quests.set_flag(quest::CLANKER_FIELD_TEST.id, quest::CLANKER_FIELD_TEST_KILL_FLAG, kills);
+        if kills >= 5 {
+          quests.set_stage(quest::CLANKER_FIELD_TEST.id, 20);
+          log_spans(&mut *log, vec![LogSpan::colored("[Field data collected — report to Gasket]", QUEST_LOG_COLOR)]);
+        } else {
+          log_spans(&mut *log, vec![LogSpan::colored(format!("Field data collected ({kills}/5)"), QUEST_LOG_COLOR)]);
         }
       }
       let loot = loadout.lootable_items();
@@ -1186,6 +1253,33 @@ fn damage_flash(
         mat.secondary = secondary.to_linear();
         commands.entity(entity).remove::<DamageFlash>();
       }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Polychromatic hue shift
+// ---------------------------------------------------------------------------
+
+/// Every sim step, tick down `Polychromatic` timers. When a timer hits 0,
+/// pick new random max-saturation / max-brightness hues for primary and secondary.
+/// Only calls `get_mut` on the material when the hues actually change.
+fn tick_polychromatic(
+  mut recolor_mats: ResMut<Assets<recolor::RecolorMaterial>>,
+  mut query: Query<(&mut Polychromatic, &MeshMaterial2d<recolor::RecolorMaterial>), With<GlyphVisual>>
+) {
+  use rand::Rng;
+  let mut rng = rand::thread_rng();
+  for (mut poly, mat_handle) in query.iter_mut() {
+    if poly.timer == 0 {
+      poly.timer = poly.interval;
+      let new_hue: f32 = rng.gen_range(0.0..360.0);
+      let secondary = Color::hsv(new_hue, 1.0, 1.0).to_linear();
+      if let Some(mat) = recolor_mats.get_mut(&mat_handle.0) {
+        mat.secondary = secondary;
+      }
+    } else {
+      poly.timer -= 1;
     }
   }
 }
@@ -1870,11 +1964,13 @@ fn set_door_open_state(
         ));
       }
     } else {
+      let img = sprites::char_glyph_handle(glyph.ch, &mut sprites.char_cache, &mut sprites.images);
+      let c = glyph.color.to_linear();
+      let mat = sprites.add_recolor(img, c, c);
       commands.entity(entity).insert((
-        Text2d::new(glyph.ch.to_string()),
-        TextFont { font_size: TILE_SIZE, ..default() },
-        TextColor(glyph.color),
-        Transform::from_translation(pos),
+        Mesh2d(sprites.recolor_quad.0.clone()),
+        MeshMaterial2d(mat),
+        Transform::from_translation(pos).with_scale(Vec3::splat(TILE_SIZE)),
         shared
       ));
     }
@@ -2209,7 +2305,8 @@ fn apply_open_chest(
   fixed_q: &Query<&FixedChestLoot>,
   log: &mut LogEntries,
   clock: &mut Clock,
-  tb: &mut TurnBasedWorldState
+  tb: &mut TurnBasedWorldState,
+  sprites: &mut recolor::SpriteRes
 ) {
   if let Ok((mut chest, mut glyph, loc)) = loot_chest_q.get_mut(entity)
     && !chest.opened
@@ -2229,11 +2326,13 @@ fn apply_open_chest(
     glyph.sprite_palette = None;
     glyph.ch = '□';
     glyph.color = Color::srgb(0.45, 0.38, 0.32);
+    let img = sprites::char_glyph_handle(glyph.ch, &mut sprites.char_cache, &mut sprites.images);
+    let c = glyph.color.to_linear();
+    let mat = sprites.add_recolor(img, c, c);
     commands.entity(entity).remove::<Sprite>();
     commands.entity(entity).insert((
-      Text2d::new(glyph.ch.to_string()),
-      TextFont { font_size: TILE_SIZE, ..default() },
-      TextColor(glyph.color)
+      Mesh2d(sprites.recolor_quad.0.clone()),
+      MeshMaterial2d(mat)
     ));
     log_message(
       log,
@@ -2652,12 +2751,13 @@ fn execute_interaction(
         log_message(log, format!("Loadout - weapon: {wpn}, armor: {arm}."));
       }
       InteractionAction::TakeElevator { dest_z, dest_x, dest_y } => {
-        *pos = Location::xyz(*dest_x, *dest_y, *dest_z);
+        pos.move_to(*dest_x, *dest_y, *dest_z);
         clock.spend_turn(tb);
       }
       InteractionAction::RecruitFollower { .. }
       | InteractionAction::DismissFollower { .. }
-      | InteractionAction::SaveAtBed => {}
+      | InteractionAction::SaveAtBed
+      | InteractionAction::AttackNpc(_) => {}
     }
   }
 }
@@ -2724,6 +2824,9 @@ fn dispatch_interactive_choice(
     }
     InteractionAction::SaveAtBed => {
       deferred.save_at_bed = true;
+    }
+    InteractionAction::AttackNpc(entity) => {
+      deferred.attack_npc = Some(*entity);
     }
     InteractionAction::OpenCraftingTable => {
       if let Ok((_, inventory, _)) = player_query.single() {
@@ -2885,7 +2988,8 @@ struct InteractQueries<'w, 's> {
     )
   >,
   follower_q: Query<'w, 's, &'static FollowerState>,
-  item_glyph_q: Query<'w, 's, (Entity, &'static ItemGlyph)>
+  item_glyph_q: Query<'w, 's, (Entity, &'static ItemGlyph)>,
+  attackable_q: Query<'w, 's, &'static CreatureKind, (Without<Enemy>, Without<Player>)>
 }
 
 fn gather_interactions_at_tile(
@@ -2922,6 +3026,14 @@ fn gather_interactions_at_tile(
             tree: dialogue.0,
             speaker_color
           }
+        });
+      }
+      if iq.attackable_q.get(e).is_ok()
+        && let Ok((named, ..)) = iq.named_q.get(e)
+      {
+        opts.push(InteractionOption {
+          label: format!("Attack {}", named.name),
+          action: InteractionAction::AttackNpc(e)
         });
       }
       if let Ok(state) = iq.follower_q.get(e)
@@ -3105,7 +3217,8 @@ fn flush_pending_loot(
   fixed_q: Query<&FixedChestLoot>,
   mut log: ResMut<LogEntries>,
   mut clock: ResMut<Clock>,
-  mut tb: ResMut<TurnBasedWorldState>
+  mut tb: ResMut<TurnBasedWorldState>,
+  mut sprites: recolor::SpriteRes
 ) {
   if let Some(ent) = pending.loot_chest.take() {
     apply_open_chest(
@@ -3116,8 +3229,49 @@ fn flush_pending_loot(
       &fixed_q,
       &mut *log,
       &mut *clock,
-      &mut *tb
+      &mut *tb,
+      &mut sprites
     );
+  }
+}
+
+fn apply_attack_npc(
+  mut deferred: ResMut<DeferredActions>,
+  mut commands: Commands,
+  mut clock: ResMut<Clock>,
+  mut tb: ResMut<TurnBasedWorldState>,
+  mut log: ResMut<LogEntries>,
+  player_q: Single<(&Stats, &Loadout), With<Player>>,
+  mut target_q: Query<(&mut Stats, Option<&Named>, &CreatureKind), Without<Player>>,
+  faction_q: Query<(Entity, &CreatureKind), (Without<Enemy>, Without<Player>)>
+) {
+  if let Some(target) = deferred.attack_npc.take()
+    && let Ok((mut target_stats, named, &kind)) = target_q.get_mut(target)
+  {
+    let (player_stats, equipped) = *player_q;
+    let dmg = player_stats.attack + equipped.weapon_attack_bonus();
+    target_stats.hp -= dmg;
+    let name = named.map(|n| n.name).unwrap_or("them");
+    log_message(&mut log, format!("You strike {name} for {dmg} damage."));
+    let aggro = |cmd: &mut Commands, e: Entity| {
+      cmd.entity(e).insert((
+        Enemy,
+        entities::TimeSinceAction { attack: 0, movement: 0 },
+        entities::FactionComp(crate::faction::Faction::Hostile)
+      )).remove::<entities::WalkAroundRandomly>();
+    };
+    aggro(&mut commands, target);
+    let mut allies = 0;
+    for (e, &k) in faction_q.iter() {
+      if e != target && k == kind {
+        aggro(&mut commands, e);
+        allies += 1;
+      }
+    }
+    if allies > 0 {
+      log_message(&mut log, format!("The rest of them turn on you. ({allies} more)"));
+    }
+    clock.spend_turn(&mut tb);
   }
 }
 
@@ -3158,7 +3312,7 @@ fn player_death_check(
     return;
   }
   let Some(save) = bed_save.0.take() else { return };
-  *pos = Location::xyz(save.pos.0, save.pos.1, save.pos.2);
+  pos.move_to(save.pos.0, save.pos.1, save.pos.2);
   stats.hp = stats.max_hp;
   inventory.0 = save.inventory.clone();
   *loadout = save.loadout.clone();
@@ -3245,92 +3399,79 @@ fn spawn_tilemaps(
   }
 }
 
+/// Rebuilds the tilemap chunks for the active zone, and materializes any
+/// not-yet-materialized Locations in the active set. Persistent entities
+/// stay alive across docking, so materialization happens at most once per
+/// Location. Coordinate retranslation of already-live entities is handled
+/// separately by `retranslate_entities_for_dock`.
 fn spawn_zone_geometry(
   commands: &mut Commands,
   zone: &active_zone::ActiveZone,
-  galaxy: &galaxy::Galaxy,
+  galaxy: &mut galaxy::Galaxy,
+  ship_id: galaxy::LocationId,
   docked_at: Option<galaxy::LocationId>,
+  active_worlds: ActiveWorlds,
   tileset: Handle<Image>,
   palette_cache: &mut PaletteImageCache,
   images: &mut Assets<Image>
 ) {
   spawn_tilemaps(commands, zone, tileset);
+
   let (sox, soy) = zone.ship_origin;
-  let ship = prefabs::Prefab::starting_ship();
-  ship.stamp_entities(commands, sox, soy, 0);
-  let ship_footprint = ship.occupied_positions(sox, soy);
-  if docked_at == Some(locations::starter_planet::ID)
-    && let Some((dox, doy)) = zone.dest_origin
-  {
-    locations::starter_planet::surface_prefab().stamp_entities_excluding(
-      commands,
-      dox,
-      doy,
-      0,
-      &ship_footprint
-    );
-  }
-  if docked_at == Some(locations::mushroom_planet::ID)
-    && let Some((dox, doy)) = zone.dest_origin
-  {
-    locations::mushroom_planet::mushroom_prefab().stamp_entities_excluding(
-      commands,
-      dox,
-      doy,
-      0,
-      &ship_footprint
-    );
-  }
-  if docked_at == Some(locations::gamma_station::ID)
-    && let Some((dox, doy)) = zone.dest_origin
-  {
-    locations::gamma_station::station_prefab().stamp_entities_excluding(
-      commands,
-      dox,
-      doy,
-      0,
-      &ship_footprint
-    );
-  }
-  if docked_at == Some(locations::meridian_station::ID)
-    && let Some((dox, doy)) = zone.dest_origin
-  {
-    locations::meridian_station::station_prefab().stamp_entities_excluding(
-      commands,
-      dox,
-      doy,
-      0,
-      &ship_footprint
-    );
-    for &(lx, ly) in locations::meridian_station::NPC_COORDS {
-      let wx = dox + lx;
-      let wy = doy + ly;
-      if ship_footprint.contains(&(wx, wy)) {
-        continue;
-      }
-      let obj = match (lx, ly) {
-        (23, 3) => locations::meridian_station::dock1(),
-        (23, 10) => locations::meridian_station::aiden3(),
-        (6, 14) => locations::meridian_station::wren9(),
-        (41, 14) => locations::meridian_station::forge(),
-        _ => continue
-      };
-      obj.spawn_at(commands, wx, wy, 0);
-    }
+  let ship_prefab = prefabs::Prefab::starting_ship();
+  let ship_footprint = ship_prefab.occupied_positions(sox, soy);
+  let ship_w = active_worlds.ship_w;
+  if let Some(ship_loc) = galaxy.get_mut(ship_id) && !ship_loc.materialized {
+    ship_loc.materialized = true;
+    ship_prefab.stamp_entities_w(commands, sox, soy, 0, ship_w);
   }
 
-  // Spawn any objects registered on the destination location (e.g. elevators).
   if let Some(dest_id) = docked_at
-    && let Some(dest_loc) = galaxy.get(dest_id)
     && let Some((dox, doy)) = zone.dest_origin
+    && let Some(dest_w) = active_worlds.dest_w
+    && let Some(dest_loc) = galaxy.get_mut(dest_id)
+    && !dest_loc.materialized
   {
-    for (lx, ly, lz, obj) in &dest_loc.spawn_objects {
+    dest_loc.materialized = true;
+    // Drain spawn_objects: each Location's catalog only feeds into the ECS once.
+    let spawn_objects = std::mem::take(&mut dest_loc.spawn_objects);
+
+    if dest_id == locations::starter_planet::ID {
+      locations::starter_planet::surface_prefab()
+        .stamp_entities_excluding_w(commands, dox, doy, 0, dest_w, &ship_footprint);
+    } else if dest_id == locations::mushroom_planet::ID {
+      locations::mushroom_planet::mushroom_prefab()
+        .stamp_entities_excluding_w(commands, dox, doy, 0, dest_w, &ship_footprint);
+    } else if dest_id == locations::gamma_station::ID {
+      locations::gamma_station::station_prefab()
+        .stamp_entities_excluding_w(commands, dox, doy, 0, dest_w, &ship_footprint);
+    } else if dest_id == locations::meridian_station::ID {
+      locations::meridian_station::station_prefab()
+        .stamp_entities_excluding_w(commands, dox, doy, 0, dest_w, &ship_footprint);
+      for &(lx, ly) in locations::meridian_station::NPC_COORDS {
+        let wx = dox + lx;
+        let wy = doy + ly;
+        if ship_footprint.contains(&(wx, wy)) {
+          continue;
+        }
+        let obj = match (lx, ly) {
+          (23, 3) => locations::meridian_station::dock1(),
+          (23, 10) => locations::meridian_station::aiden3(),
+          (6, 14) => locations::meridian_station::wren9(),
+          (41, 14) => locations::meridian_station::forge(),
+          _ => continue
+        };
+        obj.spawn_at_w(commands, wx, wy, 0, dest_w);
+      }
+    }
+
+    for (lx, ly, lz, obj) in spawn_objects {
       let wx = dox + lx;
       let wy = doy + ly;
       if ship_footprint.contains(&(wx, wy)) {
         continue;
       }
-      let ent = obj.clone().spawn_at(commands, wx, wy, *lz);
+      let ent = obj.spawn_at_w(commands, wx, wy, lz, dest_w);
       commands.entity(ent).queue(move |mut e: bevy::ecs::world::EntityWorldMut| {
         if let Some(mut elev) = e.get_mut::<Elevator>() {
           for (_, x, y) in elev.floors.to_mut() {
@@ -3350,15 +3491,18 @@ fn apply_pending_navigation(
   mut galaxy: ResMut<galaxy::Galaxy>,
   mut ship: ResMut<ship::Ship>,
   mut current: ResMut<CurrentZone>,
+  mut active_worlds: ResMut<ActiveWorlds>,
   mut fov: ResMut<Fov>,
   mut log: ResMut<LogEntries>,
   tileset: Res<Tileset>,
-  to_despawn: Query<
-    Entity,
-    (
-      Or<(With<TilemapLayer>, With<ItemGlyph>, With<GlyphVisual>, With<Location>)>,
-      Without<Player>
-    )
+  tilemap_q: Query<Entity, With<TilemapLayer>>,
+  // All non-player game entities: their Location is re-projected for the new
+  // active zone. Anything dormant stays dormant unless its w becomes active.
+  mut all_entities: Query<
+    (&mut Location, Option<&mut Visuals>, Option<&mut Transform>,
+     Option<&mut Visibility>, Option<&mut ItemGlyph>,
+     Option<&mut FollowerData>, Option<&mut Path>),
+    Without<Player>
   >,
   mut player: Query<
     (&mut Location, &mut Visuals, &mut Transform),
@@ -3386,13 +3530,19 @@ fn apply_pending_navigation(
     );
     return;
   };
-  for e in to_despawn.iter() {
-    commands.entity(e).despawn();
-  }
-  // Capture the player's offset within the OLD ship before swapping zones.
+
+  let old_zone = current.0.clone();
+  let old_active = *active_worlds;
+  let new_active = ActiveWorlds {
+    ship_w: old_active.ship_w,
+    dest_w: galaxy.get(dest).map(|loc| loc.w)
+  };
+
+  // Capture the player's ship-local offset before the swap, so we can plant
+  // them at the equivalent spot in the new active zone.
   let player_ship_offset = player.single().ok().and_then(|(pos, ..)| {
     if let Location::Coords { x, y, .. } = *pos {
-      let (old_sox, old_soy) = current.0.ship_origin;
+      let (old_sox, old_soy) = old_zone.ship_origin;
       let rel_x = (x - old_sox).clamp(0, ship::SHIP_WIDTH as i32 - 1);
       let rel_y = (y - old_soy).clamp(0, ship::SHIP_HEIGHT as i32 - 1);
       Some((rel_x, rel_y))
@@ -3401,17 +3551,86 @@ fn apply_pending_navigation(
     }
   });
 
+  // Rebuild the tilemap from scratch — tiles are pure visuals.
+  for e in tilemap_q.iter() {
+    commands.entity(e).despawn();
+  }
   *current = CurrentZone(new_zone);
   fov.0 = FovGrid::new();
+  *active_worlds = new_active;
+
+  // Re-project every persistent entity for the new active set.
+  for (mut loc, vis_comp, tf, visibility, item_glyph, follower, path) in all_entities.iter_mut() {
+    let (new_loc, new_merged, shift) = match *loc {
+      Location::Coords { x, y, z, w } => {
+        let old_off = old_active.offset_for(w, &old_zone);
+        let new_off = new_active.offset_for(w, &current.0);
+        match (old_off, new_off) {
+          (Some((ox, oy)), Some((nx, ny))) => {
+            let lx = x - ox + nx;
+            let ly = y - oy + ny;
+            (Location::Coords { x: lx, y: ly, z, w }, Some((lx, ly)), Some((nx - ox, ny - oy)))
+          }
+          (Some((ox, oy)), None) => {
+            (Location::Dormant { x: x - ox, y: y - oy, z, w }, None, Some((-ox, -oy)))
+          }
+          (None, _) => (Location::Dormant { x, y, z, w }, None, None)
+        }
+      }
+      Location::Dormant { x, y, z, w } => {
+        if let Some((nx, ny)) = new_active.offset_for(w, &current.0) {
+          let lx = x + nx;
+          let ly = y + ny;
+          (Location::Coords { x: lx, y: ly, z, w }, Some((lx, ly)), Some((nx, ny)))
+        } else {
+          (Location::Dormant { x, y, z, w }, None, None)
+        }
+      }
+      Location::Inventory(_) | Location::Nowhere => continue
+    };
+    let z = match new_loc { Location::Coords { z, .. } | Location::Dormant { z, .. } => z, _ => 0 };
+    *loc = new_loc;
+    if let (Some((mx, my)), Some(mut v)) = (new_merged, vis_comp) {
+      let p = Vec2::new(mx as f32, my as f32);
+      v.prev = p;
+      v.display = p;
+      v.last_pos = p;
+      v.last_move_start_frame = None;
+    }
+    if let (Some((mx, my)), Some(mut t)) = (new_merged, tf) {
+      t.translation = tile_screen_pos(mx as f32, my as f32, current.0.width, current.0.height)
+        + Vec3::new(0.0, 0.0, t.translation.z);
+    }
+    if let (Some((mx, my)), Some(mut ig)) = (new_merged, item_glyph) {
+      ig.x = mx as usize;
+      ig.y = my as usize;
+      ig.z = z;
+    }
+    if let Some(mut v) = visibility {
+      *v = if new_merged.is_some() { Visibility::Inherited } else { Visibility::Hidden };
+    }
+    if let (Some((dx, dy)), Some(mut fd)) = (shift, follower) {
+      fd.home.0 += dx;
+      fd.home.1 += dy;
+    }
+    if let Some(mut p) = path {
+      p.steps.clear();
+      p.cached_goal = None;
+    }
+  }
+
   spawn_zone_geometry(
     &mut commands,
     &current.0,
-    &galaxy,
+    &mut galaxy,
+    ship.location_id,
     ship.docked_at,
+    *active_worlds,
     tileset.0.handle.clone(),
     &mut palette_cache,
     &mut images
   );
+
   let (sox, soy) = current.0.ship_origin;
   let (offset_x, offset_y) = player_ship_offset
     .unwrap_or((ship::SHIP_WIDTH as i32 / 2, ship::SHIP_HEIGHT as i32 / 2));
@@ -3419,7 +3638,7 @@ fn apply_pending_navigation(
   let local_y = soy + offset_y;
   if let Ok((mut location, mut vis, mut tf)) = player.single_mut() {
     let (lx, ly, lz) = pending.post_navigate_pos.take().unwrap_or((local_x, local_y, 0));
-    *location = Location::xyz(lx, ly, lz);
+    *location = Location::xyzw(lx, ly, lz, active_worlds.ship_w);
     let start_local = Vec2::new(lx as f32, ly as f32);
     vis.prev = start_local;
     vis.display = start_local;
@@ -3444,8 +3663,9 @@ fn init_follower_homes(mut follower_q: Query<(&mut FollowerData, &Location)>) {
 fn setup(
   mut commands: Commands,
   current: Res<CurrentZone>,
-  galaxy: Res<galaxy::Galaxy>,
+  mut galaxy: ResMut<galaxy::Galaxy>,
   ship: Res<ship::Ship>,
+  active_worlds: Res<ActiveWorlds>,
   mut images: ResMut<Assets<Image>>,
   mut palette_cache: ResMut<PaletteImageCache>,
   mut log: ResMut<LogEntries>,
@@ -3486,8 +3706,10 @@ fn setup(
   spawn_zone_geometry(
     &mut commands,
     &current.0,
-    &galaxy,
+    &mut galaxy,
+    ship.location_id,
     ship.docked_at,
+    *active_worlds,
     tileset_handle,
     &mut palette_cache,
     &mut images
@@ -3522,7 +3744,7 @@ fn setup(
     ),
     Visibility::Visible,
     Player,
-    Location::xyz(local_x, local_y, 0),
+    Location::xyzw(local_x, local_y, 0, active_worlds.ship_w),
     Stats { hp: 20, max_hp: 20, attack: 5, move_speed: 3.0, attack_speed: 1.0 },
     {
       let mut inv = Inventory::default();
@@ -3792,7 +4014,7 @@ fn player_input(
             start_frame: r.frame.0
           });
         } else {
-          *loc = Location::xyz(target_x, target_y, pz);
+          loc.move_to(target_x, target_y, pz);
 
           for (ig_ent, ig) in item_glyph_q.iter() {
             if ig.x == target_x as usize && ig.y == target_y as usize && ig.z == pz {

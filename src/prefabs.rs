@@ -32,7 +32,7 @@ pub struct Prefab {
 fn resident() -> Object {
   Object::NPC_BASE.with(Named { name: "Resident", flavor: "Someone trying to keep a small place livable." })
     .with(Stats { hp: 8, max_hp: 8, attack: 1, move_speed: 3.0, attack_speed: 1.0 })
-    .with(Glyph::ascii('@', Color::srgb(0.7, 0.9, 1.0)))
+    .with(Glyph::from_char('@', Color::srgb(0.7, 0.9, 1.0)))
 }
 
 fn ship_pilot() -> Object {
@@ -41,7 +41,7 @@ fn ship_pilot() -> Object {
       flavor: "Ticks through a short pre-flight list. Coffee stains on the console manual."
     })
     .with(Stats { hp: 10, max_hp: 10, attack: 1, move_speed: 3.0, attack_speed: 1.0 })
-    .with(Glyph::ascii('@', Color::srgb(0.55, 0.82, 0.95)))
+    .with(Glyph::from_char('@', Color::srgb(0.55, 0.82, 0.95)))
 }
 
 pub fn prefab(layout: impl Into<String>) -> Prefab { Prefab::new(layout) }
@@ -131,16 +131,31 @@ impl Prefab {
 
   /// Spawn assoc objects at world coords `(ox + x, oy + y, z)`.
   pub fn stamp_entities(&self, commands: &mut Commands, ox: i32, oy: i32, z: usize) {
-    self.stamp_entities_excluding(commands, ox, oy, z, &std::collections::HashSet::new());
+    self.stamp_entities_w(commands, ox, oy, z, 0);
   }
 
-  /// Spawn assoc objects, skipping any world position in `exclude`.
+  pub fn stamp_entities_w(
+    &self, commands: &mut Commands, ox: i32, oy: i32, z: usize, w: i32
+  ) {
+    self.stamp_entities_excluding_w(commands, ox, oy, z, w, &std::collections::HashSet::new());
+  }
+
   pub fn stamp_entities_excluding(
+    &self, commands: &mut Commands, ox: i32, oy: i32, z: usize,
+    exclude: &std::collections::HashSet<(i32, i32)>
+  ) {
+    self.stamp_entities_excluding_w(commands, ox, oy, z, 0, exclude);
+  }
+
+  /// Spawn assoc objects, skipping any world position in `exclude`. Tags each
+  /// spawned entity with world id `w`.
+  pub fn stamp_entities_excluding_w(
     &self,
     commands: &mut Commands,
     ox: i32,
     oy: i32,
     z: usize,
+    w: i32,
     exclude: &std::collections::HashSet<(i32, i32)>
   ) {
     self.visit_cells(|lx, ly, _tile, templates| {
@@ -148,7 +163,7 @@ impl Prefab {
       let wy = oy + ly;
       if !exclude.contains(&(wx, wy)) {
         for template in templates {
-          template.clone().spawn_at(commands, wx, wy, z);
+          template.clone().spawn_at_w(commands, wx, wy, z, w);
         }
       }
     });
@@ -239,7 +254,7 @@ impl Prefab {
          #L===,l......dUGH.......a....C.W
         t#L===,#.................#......W
          #,,,,L#.................#.....WW
-        t#l##l##.................#...###
+        t#l##l##..........p......#...###
          #,L#,L#.cTTc............#.###
         t#,B#,B#.cTTc............###
          #WW#WW##########a########
@@ -255,6 +270,7 @@ impl Prefab {
     .assoc('C', (Tile::DeckPlate, [Object::FLIGHT_CONSOLE]))
     .assoc('Q', (Tile::DeckPlate, [Object::LOADOUT_CONSOLE]))
     .assoc('k', (Tile::DeckPlate, [Object::SPACE_CAT]))
+    .assoc('p', (Tile::DeckPlate, [Object::POLYCHROMATIC_SHEEP]))
     .assoc('B', (Tile::WoodTile, [Object::BED]))
     .assoc('T', (Tile::DeckPlate, [Object::TABLE]))
     .assoc('c', (Tile::DeckPlate, [Object::CHAIR]))

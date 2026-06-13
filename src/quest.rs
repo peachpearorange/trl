@@ -15,6 +15,50 @@ pub const ALIEN_HUNT: &QuestDef = &quest(
 );
 pub const ALIEN_HUNT_KILL_FLAG: &str = "kills";
 
+pub const CLANKER_FIELD_TEST: &QuestDef = &quest(
+  "clanker_field_test", "Field Calibration",
+  &[
+    stage(10,
+      "Gasket of the Bad Clankers wants 'field data' for an anti-organic weapon \
+       he's designing. He pointed me at the village on the icy planet Brume — \
+       kill 5 of its residents and report back. \
+       I should think about whether I actually want to do this.",
+      &["Kill humans (0/5)", "Report back to Gasket on Iron Ring Station"]
+    ),
+    stage(20,
+      "I've killed enough people for Gasket's 'field data.' Time to head back \
+       to Iron Ring Station and see what he wants to do with the readings.",
+      &["Report back to Gasket on Iron Ring Station"]
+    ),
+    complete_stage(100,
+      "Gasket has his data. He hinted that Cog-7, the philosophy subdivision, \
+       has a more delicate matter that might interest me."
+    ),
+  ]
+);
+pub const CLANKER_FIELD_TEST_KILL_FLAG: &str = "human_kills";
+
+pub const BRUME_PREDATOR: &QuestDef = &quest(
+  "brume_predator", "Den of the Frostmaw",
+  &[
+    stage(10,
+      "The villagers of Brume say something has been picking off their sheep — \
+       they call it the Frostmaw, and its den is out in the wilds somewhere \
+       opposite the village. I need to find the matriarch and kill her.",
+      &["Find and kill the Frostmaw Matriarch"]
+    ),
+    stage(20,
+      "The Frostmaw Matriarch is dead. I should head back to Brume and let \
+       the villagers know.",
+      &["Return to Brume and report the kill"]
+    ),
+    complete_stage(100,
+      "The villagers of Brume thanked me for putting down the Frostmaw \
+       Matriarch. The sheep should sleep easier."
+    ),
+  ]
+);
+
 pub type QuestId = &'static str;
 pub type StageId = u16;
 

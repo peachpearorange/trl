@@ -18,7 +18,16 @@ pub struct Location {
   pub location_type: LocationType,
   /// Objects to spawn when this location is loaded.
   /// Each entry: (local_x, local_y, z, object) — world offset applied at spawn time.
-  pub spawn_objects: Vec<(i32, i32, usize, Object)>
+  pub spawn_objects: Vec<(i32, i32, usize, Object)>,
+  /// World id, assigned by `Galaxy` on insert/materialization. The fourth
+  /// dimension of every entity's `Location::Coords` position. Defaulted to
+  /// 0 at construction; do not rely on this value before the Location is
+  /// inserted into a `Galaxy`.
+  pub w: i32,
+  /// Whether spawn_objects have been materialized into live ECS entities.
+  /// Set the first time the player docks here; we never re-spawn afterwards
+  /// (entities live on across navigation).
+  pub materialized: bool
 }
 
 impl Location {
@@ -31,7 +40,10 @@ impl Location {
     fill: crate::level::Tile
   ) -> Self {
     let levels = (0..depth).map(|_| Level::new(width, height, fill)).collect();
-    Location { name, width, height, depth, levels, location_type, spawn_objects: vec![] }
+    Location {
+      name, width, height, depth, levels, location_type,
+      spawn_objects: vec![], w: 0, materialized: false
+    }
   }
 
   /// Build a `Location` sized to `prefab`'s layout and stamp level 0 with it.
@@ -57,7 +69,10 @@ impl Location {
 pub struct Galaxy {
   pub locations: HashMap<LocationId, Location>,
   generators: HashMap<LocationId, fn(LocationId) -> Option<Location>>,
-  deferred_names: HashMap<LocationId, &'static str>
+  deferred_names: HashMap<LocationId, &'static str>,
+  /// Next world id to assign. Each Location (ship, planet, station) gets a
+  /// unique `w` on insert or first materialization. 0 is reserved as "unset".
+  next_w: i32
 }
 
 impl Galaxy {
@@ -65,19 +80,26 @@ impl Galaxy {
     Galaxy {
       locations: HashMap::new(),
       generators: HashMap::new(),
-      deferred_names: HashMap::new()
+      deferred_names: HashMap::new(),
+      next_w: 1
     }
   }
 
   pub fn get(&self, id: LocationId) -> Option<&Location> { self.locations.get(&id) }
 
+  /// Look up the `w` (world id) for a Location, materializing it if needed.
+  pub fn w_of(&mut self, id: LocationId) -> Option<i32> {
+    self.get_or_generate(id).map(|loc| loc.w)
+  }
+
   pub fn get_or_generate(&mut self, id: LocationId) -> Option<&Location> {
-    if !self.locations.contains_key(&id) {
-      if let Some(make) = self.generators.remove(&id) {
-        if let Some(loc) = make(id) {
-          self.locations.insert(id, loc);
-        }
-      }
+    if !self.locations.contains_key(&id)
+      && let Some(make) = self.generators.remove(&id)
+      && let Some(mut loc) = make(id)
+    {
+      loc.w = self.next_w;
+      self.next_w += 1;
+      self.locations.insert(id, loc);
     }
     self.locations.get(&id)
   }
@@ -86,12 +108,14 @@ impl Galaxy {
     self.locations.get_mut(&id)
   }
 
-  pub fn insert(&mut self, id: LocationId, location: Location) {
+  pub fn insert(&mut self, id: LocationId, mut location: Location) {
     assert!(
       !self.locations.contains_key(&id) && !self.generators.contains_key(&id),
       "Galaxy LocationId collision at {id:?}: '{}' would overwrite existing entry",
       location.name
     );
+    location.w = self.next_w;
+    self.next_w += 1;
     self.locations.insert(id, location);
   }
 

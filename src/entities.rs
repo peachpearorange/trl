@@ -105,8 +105,13 @@ pub const fn end(text: &'static str) -> DialogueChoice {
 /// Where an entity exists in the world.
 #[derive(Component, Clone, Debug, PartialEq)]
 pub enum Location {
-  /// At specific tile coordinates on z-level `z`.
-  Coords { x: i32, y: i32, z: usize },
+  /// Active position in the current merged-zone (coords are merged-zone
+  /// coordinates). `w` tags which world the entity belongs to for
+  /// persistence — its w must be in the active set for `Coords` to apply.
+  Coords { x: i32, y: i32, z: usize, w: i32 },
+  /// World inactive. Coords are stored in `w`'s local frame, ready to be
+  /// re-projected into the merged-zone next time `w` becomes active.
+  Dormant { x: i32, y: i32, z: usize, w: i32 },
   /// In another entity's inventory.
   Inventory(Entity),
   /// Not placed anywhere (template, UI preview, etc.).
@@ -114,7 +119,24 @@ pub enum Location {
 }
 
 impl Location {
-  pub fn xyz(x: i32, y: i32, z: usize) -> Self { Location::Coords { x, y, z } }
+  pub fn xyzw(x: i32, y: i32, z: usize, w: i32) -> Self {
+    Location::Coords { x, y, z, w }
+  }
+  /// Back-compat constructor used by code that hasn't been migrated yet.
+  /// Callers that know the world should use `xyzw`.
+  pub fn xyz(x: i32, y: i32, z: usize) -> Self {
+    Location::Coords { x, y, z, w: 0 }
+  }
+
+  /// Move this Location to a new tile in the same world (keeping `w`).
+  /// Use this for movement so the entity stays bound to its world.
+  pub fn move_to(&mut self, x: i32, y: i32, z: usize) {
+    let w = match *self {
+      Location::Coords { w, .. } | Location::Dormant { w, .. } => w,
+      _ => 0
+    };
+    *self = Location::Coords { x, y, z, w };
+  }
 
   /// World-space tile coordinates as Vec2 (for interpolation). Returns None for non-Coords.
   pub fn as_vec2(&self) -> Option<Vec2> {
@@ -544,6 +566,11 @@ impl Glyph {
     Self { ch, color, texture: None, sprite_palette: None, shader_recolor: false }
   }
 
+  /// Placeholder sprite generated from `ch` at runtime; use when no art asset exists yet.
+  pub fn from_char(ch: char, color: Color) -> Self {
+    Self { ch, color, texture: None, sprite_palette: None, shader_recolor: false }
+  }
+
   pub fn sprite(path: &'static str, ch: char, color: Color) -> Self {
     Self { ch, color, texture: Some(path), sprite_palette: None, shader_recolor: false }
   }
@@ -671,6 +698,14 @@ pub struct LoadoutConsole;
 
 #[derive(Component, Clone, Copy)]
 pub struct CraftingTable;
+
+/// Marks an entity whose shader-recolor hues shift randomly over time.
+/// `timer` counts down sim steps; when it hits 0, new random hues are picked and `timer` resets to `interval`.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Polychromatic {
+  pub timer: u32,
+  pub interval: u32
+}
 
 /// Lingering area-of-effect cloud that damages the player each tick while they share a tile.
 /// Used by both spore clouds and explosion clouds.
@@ -830,7 +865,7 @@ object_data! {
     WalkAroundRandomly, BlocksSight,
     Door, Bed, CraftingTable, FlightConsole, LoadoutConsole, LootChest, AirlockDoor,
     Tree, GroundItem, LightSource, WallComp, Elevator, FixedChestLoot,
-    FollowerState, FollowerData, Path, ShowOnCompass
+    FollowerState, FollowerData, Path, ShowOnCompass, Polychromatic
   )
 }
 
@@ -883,9 +918,15 @@ impl Object {
   }
 
   pub fn spawn_at(&self, commands: &mut Commands, x: i32, y: i32, z: usize) -> Entity {
+    self.spawn_at_w(commands, x, y, z, 0)
+  }
+
+  pub fn spawn_at_w(
+    &self, commands: &mut Commands, x: i32, y: i32, z: usize, w: i32
+  ) -> Entity {
     let mut e = commands.spawn_empty();
     self.insert_into(&mut e);
-    e.insert(Location::xyz(x, y, z));
+    e.insert(Location::xyzw(x, y, z, w));
     e.id()
   }
 }
@@ -1156,6 +1197,22 @@ impl Object {
     ))
     .with(Loadout::from_gear(&[
       GearSlot::ability(Gear::InnateGun { damage: 5 }, 10),
+    ]));
+
+  pub const POLYCHROMATIC_SHEEP: Self = Self::NPC_BASE
+    .with(CreatureKind::Alien)
+    .with(Named {
+      name: "Polychromatic Sheep",
+      flavor: "Its wool blazes with impossible color, shifting through the spectrum like oil on water. What you see is not what it is.",
+    })
+    .with(Stats { hp: 7, max_hp: 7, attack: 2, move_speed: 1.5, attack_speed: 1.0 })
+    .with(Glyph::recolor_sprite(
+      "textures/space_qud/sheep.png", 's',
+      Color::srgb(0.90, 0.82, 0.72), Color::srgb(1.0, 0.0, 0.0),
+    ))
+    .with(Polychromatic { timer: 0, interval: 12 })
+    .with(Loadout::from_gear(&[
+      GearSlot::stacked(Gear::Loot(Item::GoldCoin), 1),
     ]));
 
   // ---- zero-arg .with()-only structures → associated constants ----
@@ -1548,10 +1605,10 @@ impl Object {
   }
 }
 
-pub fn npc_person_glyph(ch: char, primary: Color, secondary: Color) -> Glyph {
+pub const fn npc_person_glyph(ch: char, primary: Color, secondary: Color) -> Glyph {
   Glyph::recolor_sprite("textures/space_qud/person (2).png", ch, primary, secondary)
 }
 
-pub fn npc_robo_glyph(ch: char, primary: Color, secondary: Color) -> Glyph {
+pub const fn npc_robo_glyph(ch: char, primary: Color, secondary: Color) -> Glyph {
   Glyph::recolor_sprite("textures/space_qud/robo (1).png", ch, primary, secondary)
 }

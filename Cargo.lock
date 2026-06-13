@@ -6048,6 +6048,7 @@ dependencies = [
 name = "trl"
 version = "0.1.0"
 dependencies = [
+ "ab_glyph",
  "bevy",
  "bevy_ghx_proc_gen",
  "bevy_hanabi",

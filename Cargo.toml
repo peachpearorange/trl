@@ -27,6 +27,7 @@ bevy_hanabi = "0.18"
 rand = { version = "0.8", features = ["small_rng"] }
 serde = { version = "*", features = ["derive"] }
 image = "*"
+ab_glyph = "0.2"
 enum-assoc = "*"
 haalka = "*"
 noise = "*"

@@ -117,6 +117,12 @@ pub struct CompassIcon {
 #[derive(Resource, Clone, Default, PartialEq)]
 pub struct CompassData(pub Vec<CompassIcon>);
 
+/// Wall layer under the compass markers: one dial-sized image whose pixels are
+/// redrawn in place by `sync_compass` when the player moves. The handle is set
+/// once, so the UI signal fires once; later frames mutate the asset directly.
+#[derive(Resource, Clone, Default, PartialEq)]
+pub struct CompassWalls(pub Handle<Image>);
+
 /// Per-row display state for the Interact overlay — written by sync_interact_display, read by
 /// per-row signals. Split out of OverlayKind::Interact so navigation/equip never rebuilds overlay
 /// nodes; only the signals for text and color re-fire.
@@ -248,6 +254,7 @@ impl Plugin for UiPlugin {
       .init_resource::<CraftingDisplayState>()
       .init_resource::<MenuClickPending>()
       .init_resource::<CompassData>()
+      .init_resource::<CompassWalls>()
       .add_systems(
         PostUpdate,
         (sync_interact_display, sync_crafting_display, sync_compass, sync_ui)
@@ -395,11 +402,11 @@ fn ability_bar() -> impl Element {
 // squashed by a horizon projection r = R·d/(d+K) so far things crowd the rim
 // ---------------------------------------------------------------------------
 
-const COMPASS_DIAMETER: f32 = 120.0;
+const COMPASS_DIAMETER: f32 = 144.0;
 /// Markers stay inside this radius; the rim itself is "infinitely far".
 const COMPASS_RADIUS: f32 = COMPASS_DIAMETER / 2.0 - 10.0;
 /// Tile distance at which a marker sits halfway to the rim.
-const COMPASS_HALF_DIST: f32 = 12.0;
+const COMPASS_HALF_DIST: f32 = 20.0;
 const COMPASS_MAX_ICONS: usize = 16;
 const COMPASS_ICON_PX: f32 = 16.0;
 
@@ -447,6 +454,19 @@ fn compass() -> impl Element {
     })
     .background_color(BackgroundColor(PANEL_BG.with_alpha(0.55)))
     .border_color(BorderColor::all(BORDER))
+    // wall layer: gray pixels where wall tiles are, under the markers
+    .item(El::<Node>::new().with_builder(|b| {
+      b.insert(Node {
+        position_type: PositionType::Absolute,
+        width: Val::Px(COMPASS_DIAMETER),
+        height: Val::Px(COMPASS_DIAMETER),
+        ..default()
+      })
+      .component_signal::<ImageNode>(
+        signal::from_resource::<CompassWalls>()
+          .map_in(|walls: CompassWalls| Some(ImageNode::new(walls.0)))
+      )
+    }))
     // centre dot: the player
     .item(
       El::<Node>::new()
@@ -463,18 +483,78 @@ fn compass() -> impl Element {
     .items(mapv(compass_icon, 0..COMPASS_MAX_ICONS))
 }
 
+/// Repaint the [`CompassWalls`] image: for each dial pixel, invert the horizon
+/// projection back to tile space and paint gray scaled by wall coverage.
+/// A pixel's footprint in tile space grows toward the rim (many tiles per
+/// pixel), so each pixel takes a 3×3 sub-sample grid and uses the fraction of
+/// wall hits as alpha — distant walls fade instead of aliasing away.
+fn draw_compass_walls(image: &mut Image, level: &crate::level::Level, px: i32, py: i32) {
+  let side = COMPASS_DIAMETER as usize;
+  let data = image.data.as_mut().expect("compass wall image has CPU data");
+  let centre = COMPASS_DIAMETER / 2.0;
+  const SUB: usize = 3;
+  for iy in 0..side {
+    for ix in 0..side {
+      let hits = (0..SUB * SUB).fold(0, |hits, s| {
+        let (sx, sy) = ((s % SUB) as f32, (s / SUB) as f32);
+        let (fx, fy) = (ix as f32 + (sx + 0.5) / SUB as f32 - centre,
+                        iy as f32 + (sy + 0.5) / SUB as f32 - centre);
+        let r = fx.hypot(fy);
+        // Invert r = R·d/(d+K): d = K·r/(R−r). Past ~8× the half-distance the
+        // projection crams everything into a couple of rim pixels — cut it off.
+        let d = COMPASS_HALF_DIST * r / (COMPASS_RADIUS - r);
+        let wall = r < COMPASS_RADIUS - 1.0
+          && d < COMPASS_HALF_DIST * 8.0
+          && level
+            .get(px + (fx * d / r.max(0.001)).round() as i32,
+                 py + (fy * d / r.max(0.001)).round() as i32)
+            .is_some_and(|t| !t.walkable());
+        hits + wall as u32
+      });
+      let alpha = (160 * hits / (SUB * SUB) as u32) as u8;
+      let pixel: [u8; 4] = [150, 150, 150, alpha];
+      data[(iy * side + ix) * 4..][..4].copy_from_slice(&pixel);
+    }
+  }
+}
+
 /// Project every [`ShowOnCompass`] entity on the player's z-level onto the compass dial.
 fn sync_compass(
   player_q: Query<&Location, With<crate::Player>>,
   marked_q: Query<(&Location, &Glyph), With<ShowOnCompass>>,
+  current: Res<crate::CurrentZone>,
   mut cache: ResMut<PaletteImageCache>,
   mut images: ResMut<Assets<Image>>,
-  mut data: ResMut<CompassData>
+  mut data: ResMut<CompassData>,
+  mut walls: ResMut<CompassWalls>,
+  mut walls_drawn_at: Local<Option<(i32, i32, usize)>>
 ) {
   let mut icons = Vec::new();
-  if let Ok(&Location::Coords { x: px, y: py, z: pz }) = player_q.single() {
+  if let Ok(&Location::Coords { x: px, y: py, z: pz, .. }) = player_q.single() {
+    if walls.0 == Handle::default() {
+      use bevy::{asset::RenderAssetUsages,
+                 render::render_resource::{Extent3d, TextureDimension, TextureFormat}};
+      let side = COMPASS_DIAMETER as u32;
+      walls.0 = images.add(Image::new_fill(
+        Extent3d { width: side, height: side, depth_or_array_layers: 1 },
+        TextureDimension::D2,
+        &[0, 0, 0, 0],
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::default()
+      ));
+    }
+    if *walls_drawn_at != Some((px, py, pz)) {
+      *walls_drawn_at = Some((px, py, pz));
+      // get_mut bumps the change tick → one GPU re-upload, only on player movement.
+      draw_compass_walls(
+        images.get_mut(&walls.0).expect("compass wall image exists"),
+        current.0.level(pz),
+        px,
+        py
+      );
+    }
     for (loc, glyph) in &marked_q {
-      if let &Location::Coords { x, y, z } = loc
+      if let &Location::Coords { x, y, z, .. } = loc
         && z == pz
         && let Some(path) = glyph.texture
       {

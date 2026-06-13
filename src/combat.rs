@@ -240,7 +240,7 @@ pub fn npc_wander(
         let (nx, ny) = (x + dx, y + dy);
         !tile_blocked(level, nx, ny, z, &index, &collidable_q)
       }) {
-        *location = Location::xyz(x + dx, y + dy, z);
+        location.move_to(x + dx, y + dy, z);
       }
     }
   }
@@ -278,7 +278,7 @@ pub fn follower_ai(
               if let Some(&(nx, ny)) = path.steps.front() {
                 if !tile_blocked(level, nx, ny, fz, &index, &collidable_q) {
                   path.steps.pop_front();
-                  *location = Location::xyz(nx, ny, fz);
+                  location.move_to(nx, ny, fz);
                 } else {
                   path.steps.clear();
                 }
@@ -306,7 +306,7 @@ pub fn follower_ai(
               if let Some(&(nx, ny)) = path.steps.front() {
                 if !tile_blocked(level, nx, ny, fz, &index, &collidable_q) {
                   path.steps.pop_front();
-                  *location = Location::xyz(nx, ny, fz);
+                  location.move_to(nx, ny, fz);
                 } else {
                   path.steps.clear();
                 }
@@ -417,7 +417,7 @@ pub fn enemy_ai(
           } else {
             ez
           };
-          *location = Location::xyz(nex, ney, nz);
+          location.move_to(nex, ney, nz);
           claimed.insert((nex, ney));
           timer.movement = 0;
         }
@@ -676,7 +676,7 @@ pub fn tick_grenade_in_flight(
       final_tile = (cx, cy);
     }
     grenade.pos = Vec2::new(final_tile.0 as f32 + 0.5, final_tile.1 as f32 + 0.5);
-    *location = Location::xyz(final_tile.0, final_tile.1, grenade.z);
+    location.move_to(final_tile.0, final_tile.1, grenade.z);
     if hit_wall || step >= remaining {
       detonate_grenade(&mut commands, &effects, level, final_tile.0, final_tile.1, grenade.z);
       commands.entity(entity).despawn();
