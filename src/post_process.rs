@@ -1,11 +1,15 @@
 use {bevy::{asset::RenderAssetUsages,
             camera::{RenderTarget, visibility::RenderLayers},
+            core_pipeline::core_2d::graph::{Core2d, Node2d},
+            ecs::query::QueryItem,
             prelude::*,
             reflect::TypePath,
             render::{Render, RenderApp, RenderStartup, RenderSystems,
+                     extract_component::{ExtractComponent, ExtractComponentPlugin},
                      extract_resource::{ExtractResource, ExtractResourcePlugin},
                      render_asset::RenderAssets,
-                     render_graph::{self, RenderGraph, RenderLabel},
+                     render_graph::{self, RenderGraphExt, RenderLabel, ViewNode,
+                                    ViewNodeRunner},
                      render_resource::{binding_types::{storage_buffer_sized,
                                                        texture_2d,
                                                        texture_storage_2d,
@@ -38,7 +42,7 @@ pub struct CameraWorldOffset(pub IVec2);
 #[derive(Resource, Clone, Copy, Default)]
 pub struct PlayerScreenPos(pub Vec2);
 
-#[derive(Component)]
+#[derive(Component, Clone, Copy, ExtractComponent)]
 pub struct GameCamera;
 
 #[derive(Component)]
@@ -92,6 +96,7 @@ impl Plugin for PostProcessPlugin {
     app
       .add_plugins((
         Material2dPlugin::<DisplayMaterial>::default(),
+        ExtractComponentPlugin::<GameCamera>::default(),
         ExtractResourcePlugin::<GameRenderTarget>::default(),
         ExtractResourcePlugin::<OutputImage>::default(),
         ExtractResourcePlugin::<EntityRenderTarget>::default(),
@@ -109,11 +114,9 @@ impl Plugin for PostProcessPlugin {
     let render_app = app.sub_app_mut(RenderApp);
     render_app
       .add_systems(RenderStartup, init_ccl_pipeline)
-      .add_systems(Render, prepare_bind_group.in_set(RenderSystems::PrepareBindGroups));
-
-    let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();
-    render_graph.add_node(CclLabel, CclNode::default());
-    render_graph.add_node_edge(CclLabel, bevy::render::graph::CameraDriverLabel);
+      .add_systems(Render, prepare_bind_group.in_set(RenderSystems::PrepareBindGroups))
+      .add_render_graph_node::<ViewNodeRunner<CclNode>>(Core2d, CclLabel)
+      .add_render_graph_edges(Core2d, (Node2d::MainTransparentPass, CclLabel, Node2d::EndMainPass));
   }
 }
 
@@ -400,53 +403,36 @@ fn prepare_bind_group(
   });
 }
 
-enum CclState {
-  Loading,
-  Ready
-}
+// Runs inside Core2d after the main transparent pass so Dawn sees the explicit
+// producer→consumer ordering: GameCamera writes `game_rt` → CCL reads it and writes
+// `output` → DisplayCam (higher order) samples `output`. ViewQuery on `GameCamera`
+// makes this a no-op on Entity/Display cameras' sub-graph runs.
+#[derive(Default)]
+struct CclNode;
 
-struct CclNode {
-  state: CclState
-}
-
-impl Default for CclNode {
-  fn default() -> Self { Self { state: CclState::Loading } }
-}
-
-impl render_graph::Node for CclNode {
-  fn update(&mut self, world: &mut World) {
-    let pipeline = world.resource::<CclPipeline>();
-    let cache = world.resource::<PipelineCache>();
-    if matches!(self.state, CclState::Loading) {
-      let all_ready =
-        [pipeline.init, pipeline.union, pipeline.compress, pipeline.recolor].iter().all(
-          |id| match cache.get_compute_pipeline_state(*id) {
-            CachedPipelineState::Ok(_) => true,
-            CachedPipelineState::Err(PipelineCacheError::ShaderNotLoaded(_)) => false,
-            CachedPipelineState::Err(err) => panic!("ccl pipeline: {err}"),
-            _ => false
-          }
-        );
-      if all_ready {
-        self.state = CclState::Ready;
-      }
-    }
-  }
+impl ViewNode for CclNode {
+  type ViewQuery = &'static GameCamera;
 
   fn run(
     &self,
     _graph: &mut render_graph::RenderGraphContext,
     render_context: &mut RenderContext,
+    _view: QueryItem<Self::ViewQuery>,
     world: &World
   ) -> Result<(), render_graph::NodeRunError> {
-    if !matches!(self.state, CclState::Ready) {
-      return Ok(());
-    }
     let Some(res) = world.get_resource::<CclResources>() else {
       return Ok(());
     };
     let pipeline = world.resource::<CclPipeline>();
     let cache = world.resource::<PipelineCache>();
+    for id in [pipeline.init, pipeline.union, pipeline.compress, pipeline.recolor] {
+      match cache.get_compute_pipeline_state(id) {
+        CachedPipelineState::Ok(_) => {}
+        CachedPipelineState::Err(PipelineCacheError::ShaderNotLoaded(_)) => return Ok(()),
+        CachedPipelineState::Err(err) => panic!("ccl pipeline: {err}"),
+        _ => return Ok(())
+      }
+    }
     let (Some(init), Some(union), Some(compress), Some(recolor)) = (
       cache.get_compute_pipeline(pipeline.init),
       cache.get_compute_pipeline(pipeline.union),
