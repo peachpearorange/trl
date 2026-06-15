@@ -68,6 +68,45 @@
         4. Reload this page.
       </p>
     </div>
+    <script>
+      // WebGPU debug hook: surface WGSL compilation messages and uncaptured
+      // device errors that Chromium would otherwise swallow. Runs before the
+      // WASM loads so it can patch GPUDevice/GPUAdapter prototypes first.
+      (() => {
+        if (!globalThis.GPUDevice || !globalThis.GPUAdapter) return;
+
+        const origCreateShaderModule = GPUDevice.prototype.createShaderModule;
+        GPUDevice.prototype.createShaderModule = function (desc) {
+          const label = (desc && desc.label) || "(unlabeled)";
+          const code = String((desc && desc.code) || "");
+          const module = origCreateShaderModule.call(this, desc);
+          module.getCompilationInfo().then((info) => {
+            if (!info.messages.length) return;
+            console.group(`WGSL compilation info: ${label}`);
+            for (const m of info.messages) {
+              const text = `${m.type} at ${m.lineNum}:${m.linePos}: ${m.message}`;
+              if (m.type === "error") console.error(text);
+              else if (m.type === "warning") console.warn(text);
+              else console.log(text);
+            }
+            console.log("WGSL source:\n" + code);
+            console.groupEnd();
+          }).catch((e) => console.warn("getCompilationInfo() failed:", e));
+          return module;
+        };
+
+        const origRequestDevice = GPUAdapter.prototype.requestDevice;
+        GPUAdapter.prototype.requestDevice = async function (...args) {
+          const device = await origRequestDevice.apply(this, args);
+          device.addEventListener("uncapturederror", (ev) => {
+            console.error("WebGPU uncaptured error:", ev.error);
+          });
+          return device;
+        };
+
+        console.log("WebGPU debug hook installed");
+      })();
+    </script>
     <link data-trunk rel="rust" data-bin="trl"/>
     <link data-trunk rel="copy-dir" href="assets"/>
     <script>
