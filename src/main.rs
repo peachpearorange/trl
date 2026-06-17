@@ -119,7 +119,7 @@ struct InteractionOption {
 #[derive(Clone, Debug)]
 enum InteractionAction {
   ToggleDoor(Entity),
-  Talk { speaker: &'static str, tree: &'static DialogueTree, speaker_color: Color },
+  Talk { speaker: &'static str, tree: &'static DialogueTree, speaker_color: Color, speaker_entity: Entity },
   ChopTree(Entity),
   PickUpItem(i32, i32),
   OpenChest(Entity),
@@ -192,7 +192,8 @@ enum DialogueState {
     speaker: &'static str,
     tree: &'static DialogueTree,
     node_name: &'static str,
-    speaker_color: Color
+    speaker_color: Color,
+    speaker_entity: Entity
   }
 }
 
@@ -2018,7 +2019,8 @@ fn handle_menus(
   mut deferred: ResMut<DeferredActions>,
   mut exit: MessageWriter<AppExit>,
   mut menu_click: ResMut<MenuClickPending>,
-  item_glyph_q: Query<(Entity, &ItemGlyph)>
+  item_glyph_q: Query<(Entity, &ItemGlyph)>,
+  mut quests: ResMut<quest::QuestLog>
 ) {
   // Extract what we need before any mutation so the borrow checker is happy.
   let n_opts = if let InteractMenu::Open { ref options, .. } = ui.interact {
@@ -2142,7 +2144,8 @@ fn handle_menus(
           &mut door_q,
           &asset_server,
           &mut sprites,
-          &item_glyph_q
+          &item_glyph_q,
+          &mut quests
         );
         if is_loadout && let Ok((_, inventory, equipped)) = player_query.single() {
           let opts = loadout_options(&inventory, &equipped);
@@ -2219,18 +2222,25 @@ fn log_dialogue_node_block(
 }
 
 fn handle_dialogue(
+  mut commands: Commands,
   keys: Res<ButtonInput<KeyCode>>,
   mut ui: ResMut<UiState>,
   mut log: ResMut<LogEntries>,
-  mut quests: ResMut<quest::QuestLog>
+  mut quests: ResMut<quest::QuestLog>,
+  frame: Res<RenderFrame>,
+  current: Res<CurrentZone>,
+  asset_server: Res<AssetServer>,
+  mut sprites: recolor::SpriteRes,
+  mut player_q: Query<&mut Inventory, With<entities::Player>>,
+  speaker_q: Query<&Location>
 ) {
   if matches!(&ui.interact, InteractMenu::Open { .. }) {
     return;
   }
 
-  if let DialogueState::Open { speaker, tree, node_name, speaker_color } = &ui.dialogue {
-    let (speaker, tree, node_name, speaker_color) =
-      (*speaker, *tree, *node_name, *speaker_color);
+  if let DialogueState::Open { speaker, tree, node_name, speaker_color, speaker_entity } = &ui.dialogue {
+    let (speaker, tree, node_name, speaker_color, speaker_entity) =
+      (*speaker, *tree, *node_name, *speaker_color, *speaker_entity);
     let visible = tree.visible_choices(node_name, &quests);
     if keys.just_pressed(KeyCode::Space) {
       ui.dialogue = DialogueState::Closed;
@@ -2260,6 +2270,55 @@ fn handle_dialogue(
           entities::QuestAction::SetStage(id, stage) => {
             quests.set_stage(id, stage);
           }
+          entities::QuestAction::GiveItems(items) => {
+            if let Ok(&Location::Coords { x: sx, y: sy, z: sz, .. }) = speaker_q.get(speaker_entity) {
+              let level = current.0.level(sz);
+              let total: usize = items.iter().map(|&(_, q)| q as usize).sum();
+              let drop_tiles = scatter_loot_tiles(sx, sy, level, total);
+              let (w, h) = (current.0.width, current.0.height);
+              let mut di = 0;
+              for &(item, qty) in items {
+                for _ in 0..qty {
+                  if let Some(&(tx, ty)) = drop_tiles.get(di) {
+                    let (primary, secondary) = item.loot_colors();
+                    let mat = sprites.add_recolor(
+                      asset_server.load(item.loot_texture()),
+                      primary.to_linear(),
+                      secondary.to_linear()
+                    );
+                    commands.spawn((
+                      Mesh2d(sprites.recolor_quad.0.clone()),
+                      MeshMaterial2d(mat),
+                      Transform::from_translation(
+                        tile_screen_pos(sx as f32, sy as f32, w, h) + Vec3::new(0.0, 0.0, 5.0)
+                      ).with_scale(Vec3::splat(TILE_SIZE)),
+                      LootDrop {
+                        from: Vec2::new(sx as f32, sy as f32),
+                        to: Vec2::new(tx as f32, ty as f32),
+                        start_frame: frame.0,
+                        duration_frames: 12
+                      },
+                      ItemGlyph { x: tx as usize, y: ty as usize, z: sz, item },
+                      GlyphFade::default(),
+                      RenderLayers::layer(post_process::LAYER_ENTITIES)
+                    ));
+                  }
+                  di += 1;
+                }
+              }
+            }
+          }
+          entities::QuestAction::TakeItem(item) => {
+            if let Ok(mut inventory) = player_q.single_mut() {
+              if let Some(n) = inventory.0.get_mut(&item) {
+                if *n <= 1 {
+                  inventory.0.remove(&item);
+                } else {
+                  *n -= 1;
+                }
+              }
+            }
+          }
         }
       }
       log_spans(&mut *log, vec![
@@ -2268,7 +2327,7 @@ fn handle_dialogue(
       ]);
       if let Some(next_name) = choice.next {
         ui.dialogue =
-          DialogueState::Open { speaker, tree, node_name: next_name, speaker_color };
+          DialogueState::Open { speaker, tree, node_name: next_name, speaker_color, speaker_entity };
         let next_node = tree.find(next_name);
         log_dialogue_node_block(&mut *log, speaker, speaker_color, next_node);
       } else {
@@ -2621,16 +2680,18 @@ fn execute_interaction(
   log: &mut LogEntries,
   commands: &mut Commands,
   player_query: &mut Query<(&mut Location, &mut Inventory, &mut Loadout), With<Player>>,
-  item_glyph_q: &Query<(Entity, &ItemGlyph)>
+  item_glyph_q: &Query<(Entity, &ItemGlyph)>,
+  quests: &mut quest::QuestLog
 ) {
   // No player/position needed; must not sit behind `player_query` or logging can be skipped.
-  if let InteractionAction::Talk { speaker, tree, speaker_color } = action {
+  if let InteractionAction::Talk { speaker, tree, speaker_color, speaker_entity } = action {
     let node = tree.find(tree.nodes[0].name);
     ui.dialogue = DialogueState::Open {
       speaker,
       tree,
       node_name: tree.nodes[0].name,
-      speaker_color: *speaker_color
+      speaker_color: *speaker_color,
+      speaker_entity: *speaker_entity
     };
     log_dialogue_node_block(log, speaker, *speaker_color, node);
   } else if let InteractionAction::Navigate { .. } = action {
@@ -2651,6 +2712,12 @@ fn execute_interaction(
           if ig.x == *wx as usize && ig.y == *wy as usize && ig.z == cur_z {
             *inventory.0.entry(ig.item).or_insert(0) += 1;
             commands.entity(ig_ent).despawn();
+            if ig.item == Item::ResonanceLens
+              && quests.stage(quest::BRUME_WIZARD.id) == Some(10)
+            {
+              quests.set_stage(quest::BRUME_WIZARD.id, 20);
+              log_spans(log, vec![LogSpan::colored("[Resonance Lens found — return to Veradis]", QUEST_LOG_COLOR)]);
+            }
           }
         }
         clock.spend_turn(tb);
@@ -2781,7 +2848,8 @@ fn dispatch_interactive_choice(
   ), Without<Player>>,
   asset_server: &AssetServer,
   sprites: &mut recolor::SpriteRes,
-  item_glyph_q: &Query<(Entity, &ItemGlyph)>
+  item_glyph_q: &Query<(Entity, &ItemGlyph)>,
+  quests: &mut quest::QuestLog
 ) {
   match &option.action {
     InteractionAction::OpenChest(ent) => {
@@ -2843,7 +2911,8 @@ fn dispatch_interactive_choice(
         log,
         commands,
         player_query,
-        item_glyph_q
+        item_glyph_q,
+        quests
       );
     }
   }
@@ -3024,7 +3093,8 @@ fn gather_interactions_at_tile(
           action: InteractionAction::Talk {
             speaker: named.name,
             tree: dialogue.0,
-            speaker_color
+            speaker_color,
+            speaker_entity: e
           }
         });
       }
@@ -3185,7 +3255,8 @@ fn apply_bump_auto_interact(
   ), Without<Player>>,
   asset_server: Res<AssetServer>,
   mut sprites: recolor::SpriteRes,
-  item_glyph_q: Query<(Entity, &ItemGlyph)>
+  item_glyph_q: Query<(Entity, &ItemGlyph)>,
+  mut quests: ResMut<quest::QuestLog>
 ) {
   if let Some((entity, dir)) = pending_bump.1.take() {
     commands.entity(entity).insert(BumpLunge { dir, start_frame: frame.0 });
@@ -3204,7 +3275,8 @@ fn apply_bump_auto_interact(
       &mut door_q,
       &asset_server,
       &mut sprites,
-      &item_glyph_q
+      &item_glyph_q,
+      &mut quests
     );
   }
 }

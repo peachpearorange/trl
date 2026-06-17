@@ -6,6 +6,7 @@ use {bevy::prelude::*,
                         Gear, Glyph, Grabbed, GrenadeInFlight, Invisible, Loadout, Location, Named, Phasing,
                         Object, Path, Stats, TimeSinceAction,
                         WalkAroundRandomly},
+             level::Item,
              path_overlay::{dda_cells, euclidean_los_point},
              particles::{GunBullet, GunBulletVisual, ParticleEffects, PendingImpact,
                          spawn_explosion_burst, spawn_gun_bullet, tile_to_world},
@@ -520,7 +521,8 @@ pub fn grenade_thrower_ai(
           pos: from,
           target: to,
           tiles_per_turn: 4.0,
-          z: pz
+          z: pz,
+          item: Item::FragGrenade
         }
       ));
     }
@@ -641,12 +643,19 @@ fn detonate_grenade(
   level: &crate::level::Level,
   cx: i32,
   cy: i32,
-  z: usize
+  z: usize,
+  item: Item
 ) {
+  let cloud = match item {
+    Item::FrostScroll => Object::FROST_CLOUD,
+    Item::LightningScroll => Object::LIGHTNING_CLOUD,
+    Item::VoidScroll => Object::VOID_CLOUD,
+    _ => Object::EXPLOSION_CLOUD
+  };
   for &(dx, dy) in &EXPLOSION_OFFSETS {
     let (ex, ey) = (cx + dx, cy + dy);
     if level.walkable(ex, ey) {
-      Object::EXPLOSION_CLOUD.spawn_at(commands, ex, ey, z);
+      cloud.spawn_at(commands, ex, ey, z);
     }
   }
   spawn_explosion_burst(commands, effects, (cx, cy), level.width, level.height);
@@ -678,7 +687,7 @@ pub fn tick_grenade_in_flight(
     grenade.pos = Vec2::new(final_tile.0 as f32 + 0.5, final_tile.1 as f32 + 0.5);
     location.move_to(final_tile.0, final_tile.1, grenade.z);
     if hit_wall || step >= remaining {
-      detonate_grenade(&mut commands, &effects, level, final_tile.0, final_tile.1, grenade.z);
+      detonate_grenade(&mut commands, &effects, level, final_tile.0, final_tile.1, grenade.z, grenade.item);
       commands.entity(entity).despawn();
     }
   }

@@ -59,6 +59,28 @@ pub const BRUME_PREDATOR: &QuestDef = &quest(
   ]
 );
 
+pub const BRUME_WIZARD: &QuestDef = &quest(
+  "brume_wizard", "The Resonance Lens",
+  &[
+    stage(10,
+      "Veradis, the hermit wizard on Brume, lost a lens he calls the \
+       Resonance Lens somewhere deep in the caves beneath the snowfields. \
+       He says it amplifies intent — whatever that means. If I bring it \
+       back he'll pay me in scrolls.",
+      &["Find the Resonance Lens in the caves beneath Brume"]
+    ),
+    stage(20,
+      "I have the Resonance Lens. Veradis will want this back.",
+      &["Return the Resonance Lens to Veradis"]
+    ),
+    complete_stage(100,
+      "Veradis was pleased to have his lens back. He gave me several \
+       spell scrolls as payment — said they were the simplest things \
+       he could teach the lens to hold."
+    ),
+  ]
+);
+
 pub type QuestId = &'static str;
 pub type StageId = u16;
 

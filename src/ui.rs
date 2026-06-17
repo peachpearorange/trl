@@ -407,7 +407,7 @@ const COMPASS_DIAMETER: f32 = 144.0;
 const COMPASS_RADIUS: f32 = COMPASS_DIAMETER / 2.0 - 10.0;
 /// Tile distance at which a marker sits halfway to the rim.
 const COMPASS_HALF_DIST: f32 = 20.0;
-const COMPASS_MAX_ICONS: usize = 16;
+const COMPASS_MAX_ICONS: usize = 64;
 const COMPASS_ICON_PX: f32 = 16.0;
 
 fn compass_icon(i: usize) -> El<Node> {

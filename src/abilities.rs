@@ -431,20 +431,32 @@ pub fn handle_ability_click(
         }
         let from = Vec2::new(pos_x as f32 + 0.5, pos_y as f32 + 0.5);
         let to   = Vec2::new(tx as f32 + 0.5, ty as f32 + 0.5);
-        commands.spawn((
+        let [cr, cg, cb] = item.color();
+        let glyph = if item.is_scroll() {
+          Glyph::recolor_sprite(
+            "textures/space_qud/grenade.png",
+            '?',
+            Color::srgb(cr, cg, cb),
+            Color::srgb(cr * 0.5, cg * 0.5, cb * 0.5)
+          )
+        } else {
           Glyph::recolor_sprite(
             "textures/space_qud/grenade.png",
             'o',
             Color::srgb(0.85, 0.50, 0.10),
             Color::srgb(0.30, 0.20, 0.10)
-          ),
+          )
+        };
+        commands.spawn((
+          glyph,
           Location::xyz(pos_x, pos_y, pos_z),
           GrenadeInFlight {
             dir: (to - from).normalize(),
             pos: from,
             target: to,
             tiles_per_turn: GRENADE_TILES_PER_TURN as f32,
-            z: pos_z
+            z: pos_z,
+            item
           }
         ));
         log_message(&mut log, format!("You hurl a {}!", item.name()));

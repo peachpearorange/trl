@@ -27,7 +27,7 @@ use {super::{cave_gen,
              prefabs::{Prefab, prefab}},
      bevy::prelude::Color,
      rand::{Rng, RngCore, SeedableRng, rngs::SmallRng},
-     std::borrow::Cow};
+     std::{borrow::Cow, collections::VecDeque}};
 
 pub const ID: LocationId = (14, 0, 0);
 pub const NAME: &str = "Brume";
@@ -184,6 +184,34 @@ static VILLAGER_DIALOGUE: DialogueTree = dialogue_tree(&[
   )
 ]);
 
+static PELL_DIALOGUE: DialogueTree = dialogue_tree(&[
+  node(
+    "root",
+    "Hey — you're from off-world, right? You must have seen things. \
+     Real things. Not sheep and snow and the same six faces every day.",
+    &[
+      go("You seem restless.", "restless"),
+      go("Know anything useful around here?", "useful"),
+      end("Just passing through.")
+    ]
+  ),
+  node(
+    "restless",
+    "Restless? I'm going to lose my mind. There's something under the \
+     ice — I can feel it. The old caves go deeper than anyone admits. \
+     But nobody here wants to talk about that.",
+    &[end("Good luck with that.")]
+  ),
+  node(
+    "useful",
+    "There's a wizard — well, Brennick calls him a wizard. Lives in a \
+     stone tower out past the taiga belt. Name's Veradis. Keeps to himself \
+     mostly, but he knows things. If you're looking for work that's not \
+     sheep-related, he's your best bet.",
+    &[end("I'll check it out.")]
+  ),
+]);
+
 // ---------------------------------------------------------------------------
 // Frostmaws — the sheep-killing predators that hide out in the snow den.
 // ---------------------------------------------------------------------------
@@ -244,7 +272,7 @@ fn villager(name: &'static str, flavor: &'static str, coat: Color) -> Object {
 
 fn lamp_post() -> Object {
   Object::STRUCTURE
-    .with(Glyph::from_char('†', Color::srgb(1.0, 0.85, 0.45)))
+    .with(Glyph::from_char('!', Color::srgb(1.0, 0.85, 0.45)))
     .with(Named {
       name: "Lamp Post",
       flavor: "An oil lamp on a frost-cracked pole. Someone refills it every night."
@@ -551,11 +579,19 @@ fn build_village(loc: &mut Location, dock: (i32, i32)) -> (i32, i32) {
     ),
     (
       (ox + 18, oy + 25),
-      house_small_north(villager(
-        "Pell",
-        "Young, restless, and sure there's something under the ice worth finding.",
-        Color::srgb(0.38, 0.62, 0.45)
-      ))
+      house_small_north(
+        Object::NPC_BASE
+          .with(Named {
+            name: "Pell",
+            flavor: "Young, restless, and sure there's something under the ice worth finding."
+          })
+          .with(Stats { hp: 14, max_hp: 14, attack: 2, move_speed: 3.0, attack_speed: 1.0 })
+          .with(npc_person_glyph('@', Color::srgb(0.38, 0.62, 0.45), Color::srgb(0.85, 0.88, 0.92)))
+          .with(Collidable(true))
+          .with(CreatureKind::Human)
+          .with(Dialogue(&PELL_DIALOGUE))
+          .with(Loadout::from_gear(&VILLAGER_GEAR))
+      )
     ),
     (
       (ox + 28, oy + 24),
@@ -785,6 +821,325 @@ fn build_lair(loc: &mut Location, village: (i32, i32), dock: (i32, i32), seed: u
   center
 }
 
+// ---------------------------------------------------------------------------
+// Wizard — hermit arcanist living in a tower out in the wilds
+// ---------------------------------------------------------------------------
+
+const WIZARD_QUEST_ID: &str = crate::quest::BRUME_WIZARD.id;
+static WIZARD_QUEST_ACCEPT: [QuestAction; 1] = [QuestAction::Start(WIZARD_QUEST_ID)];
+static WIZARD_REWARD: [(Item, u32); 3] = [
+  (Item::FrostScroll, 2),
+  (Item::LightningScroll, 1),
+  (Item::VoidScroll, 1),
+];
+static WIZARD_TURN_IN: [QuestAction; 3] = [
+  QuestAction::TakeItem(Item::ResonanceLens),
+  QuestAction::SetStage(WIZARD_QUEST_ID, 100),
+  QuestAction::GiveItems(&WIZARD_REWARD),
+];
+
+static WIZARD_DIALOGUE: DialogueTree = dialogue_tree(&[
+  node(
+    "root",
+    "You stink of ship fuel and spent shell casings. Not many find the tower. \
+     Most who do were looking for someone else. \
+     ...You may call me Veradis. What is it you want?",
+    &[
+      go("What is this place?", "tower"),
+      go("The villagers mentioned you.", "villagers"),
+      DialogueChoice {
+        text: "I have something of yours.",
+        next: Some("turn_in"),
+        on_select: &[],
+        condition: DialogueCondition::QuestStageAtLeast(WIZARD_QUEST_ID, 20),
+      },
+      DialogueChoice {
+        text: "Still looking for your lens.",
+        next: Some("progress"),
+        on_select: &[],
+        condition: DialogueCondition::QuestActive(WIZARD_QUEST_ID),
+      },
+      DialogueChoice {
+        text: "Thanks for the scrolls.",
+        next: Some("after"),
+        on_select: &[],
+        condition: DialogueCondition::QuestCompleted(WIZARD_QUEST_ID),
+      },
+      end("Wrong tower. Sorry.")
+    ]
+  ),
+  node(
+    "tower",
+    "My home. I study resonance — the frequency at which intent \
+     becomes substance. You would call it magic. I would call it \
+     patience with a very particular kind of noise.",
+    &[
+      DialogueChoice {
+        text: "Can you teach me?",
+        next: Some("teach"),
+        on_select: &[],
+        condition: DialogueCondition::QuestInactive(WIZARD_QUEST_ID),
+      },
+      end("Interesting. I'll leave you to it.")
+    ]
+  ),
+  node(
+    "villagers",
+    "Brennick's lot. They tolerate me. I keep the ridge-beasts from \
+     wandering too close and they leave bread at the tower base every \
+     third day. It is a functional arrangement.",
+    &[
+      DialogueChoice {
+        text: "They said you might have work for me.",
+        next: Some("work"),
+        on_select: &[],
+        condition: DialogueCondition::QuestInactive(WIZARD_QUEST_ID),
+      },
+      end("Good to know.")
+    ]
+  ),
+  node(
+    "teach",
+    "Teach? No. But I could give you something. Scrolls — \
+     intent crystallized into parchment. Throw one and the pattern \
+     completes on impact. Frost, lightning, void. Simple things. \
+     But I need my lens back first.",
+    &[go("What lens?", "lens")]
+  ),
+  node(
+    "work",
+    "Work, no. A trade, perhaps. I lost something in the caves beneath \
+     the snowfield and I am too old to go crawling after it.",
+    &[go("What did you lose?", "lens")]
+  ),
+  node(
+    "lens",
+    "A RESONANCE LENS. Small, looks like a crystal disc with light \
+     trapped inside. I dropped it in the deeper caves — third level \
+     down, maybe fourth. The creatures didn't take it; they can't \
+     touch it. But I can't get past them anymore. \
+     Bring it back and I'll fill your pack with scrolls.",
+    &[
+      DialogueChoice {
+        text: "I'll find it.",
+        next: Some("accepted"),
+        on_select: &WIZARD_QUEST_ACCEPT,
+        condition: DialogueCondition::Always,
+      },
+      end("Not right now.")
+    ]
+  ),
+  node(
+    "accepted",
+    "Deep caves, below the snowfield. You'll know the lens when you \
+     see it — it hums. Don't try to use it yourself. \
+     You wouldn't like what it shows you.",
+    &[end("Understood.")]
+  ),
+  node(
+    "progress",
+    "Still searching? The caves go deep. The lens will be on a \
+     ledge or in a dead end — it rolled until it stopped. \
+     Listen for the hum.",
+    &[end("I'll keep looking.")]
+  ),
+  node(
+    "turn_in",
+    "*takes the lens, holds it to the light* \
+     ...Yes. Still intact. Still singing. \
+     *long pause* \
+     You've earned this. These scrolls are crude work — \
+     a shape the lens taught me to fold into paper. Throw them \
+     like grenades. The pattern does the rest.",
+    &[
+      DialogueChoice {
+        text: "Much appreciated.",
+        next: None,
+        on_select: &WIZARD_TURN_IN,
+        condition: DialogueCondition::Always,
+      }
+    ]
+  ),
+  node(
+    "after",
+    "The scrolls serve you well? Good. I may have more, in time. \
+     The lens is slow to teach and I am slow to learn. \
+     Come back when the snows change.",
+    &[end("I will.")]
+  ),
+]);
+
+fn wizard_npc() -> Object {
+  Object::NPC_BASE
+    .with(Named {
+      name: "Veradis",
+      flavor: "A gaunt figure in layered robes the color of old ice. His eyes don't \
+               quite focus on you — they're looking at something behind you, or \
+               inside you, or nowhere at all."
+    })
+    .with(Stats { hp: 20, max_hp: 20, attack: 1, move_speed: 3.0, attack_speed: 1.0 })
+    .with(npc_person_glyph('@', Color::srgb(0.4, 0.45, 0.75), Color::srgb(0.7, 0.72, 0.85)))
+    .with(Collidable(true))
+    .with(CreatureKind::Human)
+    .with(Dialogue(&WIZARD_DIALOGUE))
+    .with(Loadout::from_gear(&[]))
+}
+
+fn wizard_tower() -> Prefab {
+  prefab(
+    "
+    ___sssss___
+    __swwwwws__
+    _swfffffws_
+    swfffffffws
+    swfffBfffws
+    swffffnffws
+    swfffffffws
+    _swfffffws_
+    __swwdwws__
+    ___ssfss___
+    "
+  )
+  .assoc('_', (Tile::BrightGround, []))
+  .assoc('s', (Tile::SmallRocks, []))
+  .assoc('w', (Tile::CaveWall, []))
+  .assoc('f', (Tile::WoodFloor, []))
+  .assoc('n', (Tile::WoodFloor, []))
+  .assoc('B', (Tile::WoodFloor, [Object::TABLE]))
+  .assoc('d', (Tile::WoodFloor, [Object::DOOR]))
+}
+
+fn build_wizard_tower(loc: &mut Location, village: (i32, i32), dock: (i32, i32), _seed: u64) -> (i32, i32) {
+  let village_center = (village.0 + VILLAGE_W / 2, village.1 + VILLAGE_H / 2);
+
+  // Place the tower at moderate distance from the village — not as far as the
+  // lair, but far enough to feel like a trek. Search in a spiral from a point
+  // offset from the village in a direction away from the dock.
+  let offset_dir = (
+    (village_center.0 - dock.0).signum().max(1),
+    (village_center.1 - dock.1).signum().max(1)
+  );
+  let seed_point = (
+    (village_center.0 + offset_dir.0 * 50).clamp(20, SIZE as i32 - 20),
+    (village_center.1 + offset_dir.1 * 50).clamp(20, SIZE as i32 - 20)
+  );
+
+  let center = (0..3000)
+    .find_map(|i| {
+      let r = (i as f32).sqrt() * 1.5;
+      let ang = i as f32 * 2.4;
+      let x = seed_point.0 + (r * ang.cos()) as i32;
+      let y = seed_point.1 + (r * ang.sin()) as i32;
+      let in_bounds = x >= 10 && y >= 10 && x < SIZE as i32 - 10 && y < SIZE as i32 - 10;
+      let far_enough = (x - village_center.0).abs() + (y - village_center.1).abs() > 40
+        && (x - dock.0).abs() + (y - dock.1).abs() > 20;
+      let area_clear = (-6..=6).all(|dy| (-6..=6).all(|dx|
+        loc.level(0).get(x + dx, y + dy).is_some_and(snowy)
+      ));
+      (in_bounds && far_enough && area_clear).then_some((x, y))
+    })
+    .unwrap_or(seed_point);
+
+  let tower = wizard_tower();
+  let origin = (center.0 - 5, center.1 - 5);
+  tower.stamp_level(loc.level_mut(0), origin.0, origin.1);
+  tower.for_each_assoc_object(|lx, ly, obj| {
+    loc.spawn_objects.push((origin.0 + lx, origin.1 + ly, 0, obj.clone()));
+  });
+
+  // Place the wizard NPC at the 'n' char position
+  if let Some((nx, ny)) = tower.find_char('n') {
+    loc.spawn_objects.push((origin.0 + nx, origin.1 + ny, 0, wizard_npc()));
+  }
+
+  // Lamp posts flanking the door
+  loc.spawn_objects.push((center.0 - 2, center.1 + 5, 0, lamp_post()));
+  loc.spawn_objects.push((center.0 + 2, center.1 + 5, 0, lamp_post()));
+
+  // Compass marker outside the door
+  loc.spawn_objects.push((
+    center.0,
+    center.1 + 5,
+    0,
+    Object::STRUCTURE_PASSABLE
+      .with(Glyph::recolor_sprite(
+        "textures/space_qud/crystal.png",
+        '*',
+        Color::srgb(0.5, 0.4, 0.9),
+        Color::srgb(0.3, 0.2, 0.6)
+      ))
+      .with(Named {
+        name: "Wizard's Tower",
+        flavor: "A squat stone tower. Faint light pulses in the windows."
+      })
+      .with(ShowOnCompass)
+  ));
+
+  center
+}
+
+/// Place the Resonance Lens in a deep cave level, far from the entrance stairs.
+fn place_resonance_lens(loc: &mut Location, seed: u64) {
+  let mut rng = SmallRng::seed_from_u64(seed ^ 0x1E45_0000);
+  // Find the deepest cave level (before the cellar, which is the last level).
+  // Cave levels start at index 1; the cellar is the last level.
+  let cave_levels: Vec<usize> = (1..loc.levels.len())
+    .filter(|&z| {
+      // Cave levels have CaveWall fill; the cellar has CaveWall too but we want
+      // to pick a level with cave entrances (stairs from above).
+      loc.spawn_objects.iter().any(|&(_, _, sz, ref o)| {
+        sz == z && Has::<Elevator>::get(o).is_some()
+      })
+    })
+    .collect();
+
+  let target_z = cave_levels.last().copied().unwrap_or(1);
+  let level = loc.level(target_z);
+
+  // BFS from all stair positions on this level to find the most remote walkable cell.
+  let stair_positions: Vec<(i32, i32)> = loc.spawn_objects.iter()
+    .filter(|&&(_, _, z, ref o)| z == target_z && Has::<Elevator>::get(o).is_some())
+    .map(|&(x, y, _, _)| (x, y))
+    .collect();
+
+  let mut dist = vec![-1i32; SIZE * SIZE];
+  let mut queue = VecDeque::new();
+  for &(sx, sy) in &stair_positions {
+    if sx >= 0 && sy >= 0 && (sx as usize) < SIZE && (sy as usize) < SIZE {
+      dist[sy as usize * SIZE + sx as usize] = 0;
+      queue.push_back((sx, sy));
+    }
+  }
+  while let Some((x, y)) = queue.pop_front() {
+    for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+      let (nx, ny) = (x + dx, y + dy);
+      if nx >= 0 && ny >= 0 && (nx as usize) < SIZE && (ny as usize) < SIZE
+        && dist[ny as usize * SIZE + nx as usize] < 0
+        && level.walkable(nx, ny)
+      {
+        dist[ny as usize * SIZE + nx as usize] = dist[y as usize * SIZE + x as usize] + 1;
+        queue.push_back((nx, ny));
+      }
+    }
+  }
+
+  // Pick a far-away walkable cell — from the top 20% most remote cells, pick randomly.
+  let mut candidates: Vec<(i32, i32, i32)> = Vec::new();
+  for y in 0..SIZE as i32 {
+    for x in 0..SIZE as i32 {
+      let d = dist[y as usize * SIZE + x as usize];
+      if d > 0 {
+        candidates.push((x, y, d));
+      }
+    }
+  }
+  candidates.sort_by_key(|&(_, _, d)| std::cmp::Reverse(d));
+  let top = (candidates.len() / 5).max(1);
+  let &(lx, ly, _) = &candidates[rng.gen_range(0..top)];
+
+  loc.spawn_objects.push((lx, ly, target_z, Object::ground_item(Item::ResonanceLens).with(ShowOnCompass)));
+}
+
 /// Weighted random pick: `weights` are relative (don't need to sum to 1).
 fn pick_weighted<T: Clone>(options: &[T], weights: &[u32], rng: &mut SmallRng) -> T {
   let total: u32 = weights.iter().sum();
@@ -818,12 +1173,13 @@ fn pick_creature(tile: Tile, rng: &mut SmallRng) -> Object {
   pick_weighted(&options, &weights, rng)
 }
 
-/// Hostile fauna across snow and lake ice, kept clear of the village and dock.
+/// Hostile fauna across snow and lake ice, kept clear of the village, dock, tower.
 fn scatter_creatures(
   loc: &mut Location,
   village: (i32, i32),
   dock: (i32, i32),
   lair: (i32, i32),
+  tower: (i32, i32),
   seed: u64
 ) {
   let mut rng = SmallRng::seed_from_u64(seed ^ 0xC01D_FEE7);
@@ -835,7 +1191,8 @@ fn scatter_creatures(
       && y < village.1 + VILLAGE_H + 6;
     let near_dock = (x - dock.0).abs().max((y - dock.1).abs()) <= 15;
     let near_lair = (x - lair.0).abs().max((y - lair.1).abs()) <= 10;
-    !in_village && !near_dock && !near_lair
+    let near_tower = (x - tower.0).abs().max((y - tower.1).abs()) <= 10;
+    !in_village && !near_dock && !near_lair && !near_tower
   };
   let mut snow_cells: Vec<(i32, i32)> = Vec::new();
   let mut ice_cells: Vec<(i32, i32)> = Vec::new();
@@ -1068,8 +1425,14 @@ pub fn generate() -> Location {
   // Pass 7.5: the Frostmaw den, far out in the wilds opposite the village.
   let lair = build_lair(&mut loc, village, dock, SEED);
 
-  // Pass 8: hostile fauna, kept away from the village, the dock, and the den.
-  scatter_creatures(&mut loc, village, dock, lair, SEED);
+  // Pass 7.6: the wizard's tower, somewhere between the village and the wilds.
+  let tower = build_wizard_tower(&mut loc, village, dock, SEED);
+
+  // Pass 7.7: the Resonance Lens, deep in the caves.
+  place_resonance_lens(&mut loc, SEED);
+
+  // Pass 8: hostile fauna, kept away from the village, dock, den, and tower.
+  scatter_creatures(&mut loc, village, dock, lair, tower, SEED);
 
   loc
 }
@@ -1155,7 +1518,7 @@ mod tests {
         }
       }
       if Has::<Named>::get(obj)
-        .is_some_and(|n| matches!(n.name, "Old Brennick" | "Suvi" | "Harrow" | "Wren the Smith" | "Pell" | "Mother Ilsa" | "Cellar-Keeper Odd"))
+        .is_some_and(|n| matches!(n.name, "Old Brennick" | "Suvi" | "Harrow" | "Wren the Smith" | "Pell" | "Mother Ilsa" | "Cellar-Keeper Odd" | "Veradis"))
       {
         residents += 1;
       }
@@ -1164,8 +1527,8 @@ mod tests {
       "  trees {trees}  doors {doors}  residents {residents}  creatures {creatures}  surface elevators {surface_elevators}"
     );
     assert!(trees > 100, "expected a taiga belt, got {trees} trees");
-    assert_eq!(doors, 6, "expected six house doors");
-    assert_eq!(residents, 7, "expected seven residents");
+    assert_eq!(doors, 7, "expected seven doors (6 houses + wizard tower)");
+    assert_eq!(residents, 8, "expected eight residents (7 villagers + wizard)");
     assert!(creatures > 10, "expected hostile fauna");
     // 2-4 cave entrances + cellar stairs + cellar hatch.
     assert!(surface_elevators >= 4, "expected cave entrances plus cellar access");

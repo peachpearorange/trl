@@ -130,7 +130,18 @@ pub enum Item {
   #[assoc(name = "Phase Device", glyph = "d", color = [0.3, 0.8, 1.0],
           equip_slot = EquipSlot::Device,
           scrap_yield = &[(Item::Crystal, 3), (Item::SyntheticMaterial, 2), (Item::Screws, 2)])]
-  PhaseDevice
+  PhaseDevice,
+  #[assoc(name = "Frost Scroll", glyph = "?", color = [0.55, 0.85, 1.0],
+          equip_slot = EquipSlot::Grenade)]
+  FrostScroll,
+  #[assoc(name = "Lightning Scroll", glyph = "?", color = [1.0, 0.92, 0.4],
+          equip_slot = EquipSlot::Grenade)]
+  LightningScroll,
+  #[assoc(name = "Void Scroll", glyph = "?", color = [0.6, 0.2, 0.9],
+          equip_slot = EquipSlot::Grenade)]
+  VoidScroll,
+  #[assoc(name = "Resonance Lens", glyph = "*", color = [0.4, 0.75, 0.95])]
+  ResonanceLens
 }
 
 impl Item {
@@ -165,6 +176,7 @@ impl Item {
     }
   }
 
+  pub fn is_scroll(self) -> bool { matches!(self, Item::FrostScroll | Item::LightningScroll | Item::VoidScroll) }
   pub fn is_laser(self) -> bool { matches!(self, Item::LaserRifle) }
   pub fn is_plasma(self) -> bool { matches!(self, Item::PlasmaRifle) }
   pub fn is_scatter(self) -> bool { matches!(self, Item::ScatterGun) }

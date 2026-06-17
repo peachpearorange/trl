@@ -43,7 +43,9 @@ pub struct DialogueChoice {
 #[derive(Debug, Clone, Copy)]
 pub enum QuestAction {
   Start(quest::QuestId),
-  SetStage(quest::QuestId, quest::StageId)
+  SetStage(quest::QuestId, quest::StageId),
+  GiveItems(&'static [(Item, u32)]),
+  TakeItem(Item),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -726,7 +728,8 @@ pub struct GrenadeInFlight {
   pub pos: Vec2,
   pub target: Vec2,
   pub tiles_per_turn: f32,
-  pub z: usize
+  pub z: usize,
+  pub item: Item
 }
 
 /// Smooth visual interpolation state for moving entities.
@@ -1288,6 +1291,54 @@ impl Object {
     .with(DamageCloud {
       damage_per_tick: 3,
       ticks_remaining: 2,
+      tick_interval: 2,
+      tick_timer: 0
+    });
+
+  pub const FROST_CLOUD: Self = Self::EMPTY
+    .with(Collidable(false))
+    .with(Glyph::recolor_sprite(
+      "textures/space_qud/checkerboard pattern.png",
+      '*',
+      Color::srgb(0.55, 0.85, 1.0),
+      Color::srgb(0.25, 0.55, 0.85)
+    ))
+    .with(Named { name: "Frost Burst", flavor: "A shattering wave of crystallized air." })
+    .with(DamageCloud {
+      damage_per_tick: 2,
+      ticks_remaining: 3,
+      tick_interval: 2,
+      tick_timer: 0
+    });
+
+  pub const LIGHTNING_CLOUD: Self = Self::EMPTY
+    .with(Collidable(false))
+    .with(Glyph::recolor_sprite(
+      "textures/space_qud/checkerboard pattern.png",
+      '*',
+      Color::srgb(1.0, 0.92, 0.4),
+      Color::srgb(0.9, 0.7, 0.1)
+    ))
+    .with(Named { name: "Lightning Strike", flavor: "Arcing bolts that leave the air tasting of copper." })
+    .with(DamageCloud {
+      damage_per_tick: 5,
+      ticks_remaining: 1,
+      tick_interval: 1,
+      tick_timer: 0
+    });
+
+  pub const VOID_CLOUD: Self = Self::EMPTY
+    .with(Collidable(false))
+    .with(Glyph::recolor_sprite(
+      "textures/space_qud/checkerboard pattern.png",
+      '*',
+      Color::srgb(0.6, 0.2, 0.9),
+      Color::srgb(0.3, 0.05, 0.5)
+    ))
+    .with(Named { name: "Void Tear", flavor: "A bruise in space that pulls at everything nearby." })
+    .with(DamageCloud {
+      damage_per_tick: 2,
+      ticks_remaining: 4,
       tick_interval: 2,
       tick_timer: 0
     });
