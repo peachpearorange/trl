@@ -138,10 +138,7 @@ static SPORE_TENDER_DIALOGUE: DialogueTree = dialogue_tree(&[
 
 fn spore_tender() -> Object {
   Object::defined_npc(
-    Named {
-      name: "Spore-Tender",
-      flavor: "A tall fungal being, its cap a deep violet, its movements slow and deliberate. Spores drift from its gills."
-    },
+    Named::s("Spore-Tender", "A tall fungal being, its cap a deep violet, its movements slow and deliberate. Spores drift from its gills."),
     Stats { hp: 20, max_hp: 20, attack: 2, move_speed: 1.5, attack_speed: 0.4 },
     Loadout::default(),
     Glyph::recolor_sprite(

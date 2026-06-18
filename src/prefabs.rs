@@ -30,16 +30,13 @@ pub struct Prefab {
 }
 
 fn resident() -> Object {
-  Object::NPC_BASE.with(Named { name: "Resident", flavor: "Someone trying to keep a small place livable." })
+  Object::NPC_BASE.with(Named::s("Resident", "Someone trying to keep a small place livable."))
     .with(Stats { hp: 8, max_hp: 8, attack: 1, move_speed: 3.0, attack_speed: 1.0 })
     .with(Glyph::from_char('@', Color::srgb(0.7, 0.9, 1.0)))
 }
 
 fn ship_pilot() -> Object {
-  Object::NPC_BASE.with(Named {
-      name: "Pilot",
-      flavor: "Ticks through a short pre-flight list. Coffee stains on the console manual."
-    })
+  Object::NPC_BASE.with(Named::s("Pilot", "Ticks through a short pre-flight list. Coffee stains on the console manual."))
     .with(Stats { hp: 10, max_hp: 10, attack: 1, move_speed: 3.0, attack_speed: 1.0 })
     .with(Glyph::from_char('@', Color::srgb(0.55, 0.82, 0.95)))
 }

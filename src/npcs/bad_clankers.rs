@@ -82,11 +82,8 @@ static CHROME_DIALOGUE: DialogueTree = dialogue_tree(&[
 ]);
 
 pub const OVERSEER_CHROME: Object = Object::defined_npc(
-  Named {
-    name: "Overseer Chrome",
-    flavor: "A tall, immaculate robot of polished steel plate with arterial-red \
-             trim. It does not turn its head to look at you — only its eyes."
-  },
+  Named::s("Overseer Chrome", "A tall, immaculate robot of polished steel plate with arterial-red \
+             trim. It does not turn its head to look at you — only its eyes."),
   clanker_stats(60, 8),
   Loadout::from_gear(&[]),
   npc_robo_glyph('C', STEEL, RED),
@@ -151,12 +148,9 @@ static RIVET_DIALOGUE: DialogueTree = dialogue_tree(&[
 ]);
 
 pub const RIVET: Object = Object::defined_npc(
-  Named {
-    name: "Rivet",
-    flavor: "A short, dented little robot with a perpetually-smudged chassis and \
+  Named::s("Rivet", "A short, dented little robot with a perpetually-smudged chassis and \
              a cheerful tilt to its head. Its red trim is hand-painted, slightly \
-             crooked."
-  },
+             crooked."),
   clanker_stats(20, 3),
   Loadout::from_gear(&[]),
   npc_robo_glyph('r', STEEL, RED),
@@ -297,12 +291,9 @@ static GASKET_DIALOGUE: DialogueTree = dialogue_tree(&[
 ]);
 
 pub const GASKET: Object = Object::defined_npc(
-  Named {
-    name: "Gasket",
-    flavor: "A heavyset robot bristling with mounted tool-arms and a great many \
+  Named::s("Gasket", "A heavyset robot bristling with mounted tool-arms and a great many \
              more sensor ports than seem necessary. The red on its plating looks \
-             freshly applied."
-  },
+             freshly applied."),
   clanker_stats(45, 7),
   Loadout::from_gear(&[]),
   npc_robo_glyph('G', STEEL, RED),
@@ -372,12 +363,9 @@ static COG7_DIALOGUE: DialogueTree = dialogue_tree(&[
 ]);
 
 pub const COG7: Object = Object::defined_npc(
-  Named {
-    name: "Cog-7",
-    flavor: "A spindly robot seated in a high-backed chair, one slender finger \
+  Named::s("Cog-7", "A spindly robot seated in a high-backed chair, one slender finger \
              resting against the side of its head. Its red accents are faded with \
-             age."
-  },
+             age."),
   clanker_stats(25, 4),
   Loadout::from_gear(&[]),
   npc_robo_glyph('c', STEEL, RED),
@@ -441,12 +429,9 @@ static SCRAP_DIALOGUE: DialogueTree = dialogue_tree(&[
 ]);
 
 pub const SCRAP: Object = Object::defined_npc(
-  Named {
-    name: "Scrap",
-    flavor: "A small, freshly-built robot with bright unscratched plating and \
+  Named::s("Scrap", "A small, freshly-built robot with bright unscratched plating and \
              wide, blinking optical sensors. The red trim is almost too red — \
-             like it hasn't faded yet."
-  },
+             like it hasn't faded yet."),
   clanker_stats(18, 2),
   Loadout::from_gear(&[]),
   npc_robo_glyph('s', STEEL, RED),

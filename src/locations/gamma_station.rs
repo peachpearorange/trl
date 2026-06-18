@@ -220,10 +220,7 @@ static REACTOR7_DIALOGUE: DialogueTree = dialogue_tree(&[
 
 pub fn dock_master() -> Object {
   Object::defined_npc(
-    Named {
-      name: "DOCK-MASTER",
-      flavor: "A stern docking authority unit permanently bolted to the approach console. Blinking amber status lights."
-    },
+    Named::s("DOCK-MASTER", "A stern docking authority unit permanently bolted to the approach console. Blinking amber status lights."),
     Stats { hp: 25, max_hp: 25, attack: 3, move_speed: 1.0, attack_speed: 0.5 },
     Loadout::default(),
     npc_robo_glyph('D', Color::srgb(0.55, 0.60, 0.65), Color::srgb(0.80, 0.85, 0.90)),
@@ -233,10 +230,7 @@ pub fn dock_master() -> Object {
 
 pub fn hub1() -> Object {
   Object::defined_npc(
-    Named {
-      name: "HUB-1",
-      flavor: "A slender coordination unit at the atrium centre, its display cycling station-wide status feeds."
-    },
+    Named::s("HUB-1", "A slender coordination unit at the atrium centre, its display cycling station-wide status feeds."),
     Stats { hp: 18, max_hp: 18, attack: 2, move_speed: 2.5, attack_speed: 0.6 },
     Loadout::default(),
     npc_robo_glyph('H', Color::srgb(0.40, 0.70, 0.55), Color::srgb(0.70, 0.90, 0.78)),
@@ -246,10 +240,7 @@ pub fn hub1() -> Object {
 
 pub fn medic2() -> Object {
   Object::defined_npc(
-    Named {
-      name: "MEDIC-2",
-      flavor: "A compact medical unit, its diagnostic arm held at the ready. The medbay gleams."
-    },
+    Named::s("MEDIC-2", "A compact medical unit, its diagnostic arm held at the ready. The medbay gleams."),
     Stats { hp: 20, max_hp: 20, attack: 2, move_speed: 2.0, attack_speed: 0.7 },
     Loadout::default(),
     npc_robo_glyph('M', Color::srgb(0.75, 0.30, 0.30), Color::srgb(0.95, 0.70, 0.70)),
@@ -259,10 +250,7 @@ pub fn medic2() -> Object {
 
 pub fn engineer5() -> Object {
   Object::defined_npc(
-    Named {
-      name: "ENGINEER-5",
-      flavor: "A heavyset engineering unit trailing a bundle of diagnostic cables. Smells faintly of ozone."
-    },
+    Named::s("ENGINEER-5", "A heavyset engineering unit trailing a bundle of diagnostic cables. Smells faintly of ozone."),
     Stats { hp: 22, max_hp: 22, attack: 3, move_speed: 2.0, attack_speed: 0.6 },
     Loadout::default(),
     npc_robo_glyph('E', Color::srgb(0.35, 0.55, 0.80), Color::srgb(0.65, 0.80, 0.95)),
@@ -272,10 +260,7 @@ pub fn engineer5() -> Object {
 
 pub fn guard3() -> Object {
   Object::defined_npc(
-    Named {
-      name: "GUARD-3",
-      flavor: "A security unit with a dented chassis and an active stun baton. It watches you."
-    },
+    Named::s("GUARD-3", "A security unit with a dented chassis and an active stun baton. It watches you."),
     Stats { hp: 30, max_hp: 30, attack: 5, move_speed: 3.0, attack_speed: 0.8 },
     Loadout::default(),
     npc_robo_glyph('G', Color::srgb(0.30, 0.35, 0.55), Color::srgb(0.55, 0.60, 0.80)),
@@ -285,10 +270,7 @@ pub fn guard3() -> Object {
 
 pub fn analyst4() -> Object {
   Object::defined_npc(
-    Named {
-      name: "ANALYST-4",
-      flavor: "A research unit surrounded by floating holographic spectrographs. It's annotating something."
-    },
+    Named::s("ANALYST-4", "A research unit surrounded by floating holographic spectrographs. It's annotating something."),
     Stats { hp: 15, max_hp: 15, attack: 1, move_speed: 2.5, attack_speed: 0.4 },
     Loadout::default(),
     npc_robo_glyph('A', Color::srgb(0.50, 0.40, 0.70), Color::srgb(0.75, 0.65, 0.90)),
@@ -298,10 +280,7 @@ pub fn analyst4() -> Object {
 
 pub fn steward6() -> Object {
   Object::defined_npc(
-    Named {
-      name: "STEWARD-6",
-      flavor: "A crew welfare unit with a calm demeanor and a tray of coffee bulbs clipped to its chassis."
-    },
+    Named::s("STEWARD-6", "A crew welfare unit with a calm demeanor and a tray of coffee bulbs clipped to its chassis."),
     Stats { hp: 16, max_hp: 16, attack: 2, move_speed: 2.5, attack_speed: 0.5 },
     Loadout::default(),
     npc_robo_glyph('S', Color::srgb(0.55, 0.55, 0.40), Color::srgb(0.80, 0.80, 0.60)),
@@ -311,10 +290,7 @@ pub fn steward6() -> Object {
 
 pub fn cargo8() -> Object {
   Object::defined_npc(
-    Named {
-      name: "CARGO-8",
-      flavor: "A squat cargo management unit with a barcode scanner fused to its left forearm."
-    },
+    Named::s("CARGO-8", "A squat cargo management unit with a barcode scanner fused to its left forearm."),
     Stats { hp: 20, max_hp: 20, attack: 3, move_speed: 1.5, attack_speed: 0.5 },
     Loadout::default(),
     npc_robo_glyph('C', Color::srgb(0.45, 0.38, 0.30), Color::srgb(0.72, 0.62, 0.50)),
@@ -324,10 +300,7 @@ pub fn cargo8() -> Object {
 
 pub fn reactor7() -> Object {
   Object::defined_npc(
-    Named {
-      name: "REACTOR-7",
-      flavor: "A heavy reactor technician unit running noticeably hot. Radiation insignia on both pauldrons."
-    },
+    Named::s("REACTOR-7", "A heavy reactor technician unit running noticeably hot. Radiation insignia on both pauldrons."),
     Stats { hp: 28, max_hp: 28, attack: 4, move_speed: 1.5, attack_speed: 0.5 },
     Loadout::default(),
     npc_robo_glyph('R', Color::srgb(0.60, 0.45, 0.20), Color::srgb(0.85, 0.70, 0.40)),

@@ -48,6 +48,7 @@ use {crate::entities::{AirlockDoor, Bed, BlocksSight, Collidable, CraftingTable,
      level::{FovGrid, Item, LocationType, Tile, compute_fov},
      sprites::{PaletteImageCache, palette_sprite_handle},
      std::collections::{HashMap, HashSet},
+     std::borrow::Cow,
      ui::{LogEntries, LogSpan, MenuClickPending, log_message, log_spans}};
 
 /// Tile art is authored at this resolution (e.g. space_qud masks).
@@ -119,7 +120,7 @@ struct InteractionOption {
 #[derive(Clone, Debug)]
 enum InteractionAction {
   ToggleDoor(Entity),
-  Talk { speaker: &'static str, tree: &'static DialogueTree, speaker_color: Color, speaker_entity: Entity },
+  Talk { speaker: Cow<'static, str>, tree: &'static DialogueTree, speaker_color: Color, speaker_entity: Entity },
   ChopTree(Entity),
   PickUpItem(i32, i32),
   OpenChest(Entity),
@@ -131,8 +132,8 @@ enum InteractionAction {
   UnequipItem(Item),
   ShowLoadoutStatus,
   TakeElevator { dest_z: usize, dest_x: i32, dest_y: i32 },
-  RecruitFollower { entity: Entity, name: &'static str },
-  DismissFollower { entity: Entity, name: &'static str },
+  RecruitFollower { entity: Entity, name: Cow<'static, str> },
+  DismissFollower { entity: Entity, name: Cow<'static, str> },
   SaveAtBed,
   AttackNpc(Entity)
 }
@@ -189,7 +190,7 @@ enum DialogueState {
   #[default]
   Closed,
   Open {
-    speaker: &'static str,
+    speaker: Cow<'static, str>,
     tree: &'static DialogueTree,
     node_name: &'static str,
     speaker_color: Color,
@@ -208,6 +209,9 @@ struct UiState {
   crafting: CraftingMenu,
   dialogue: DialogueState,
   quest_log_open: bool,
+  /// Character creator popup; open at startup, closed once the player confirms.
+  /// Gates input like the other menus via [`UiState::any_open`].
+  creator_open: bool,
   /// Set by `handle_dialogue`/`handle_menus` when Space closes a menu; read+cleared by
   /// `handle_interact` so the same keypress doesn't also open an interaction.
   space_consumed: bool,
@@ -227,6 +231,7 @@ impl UiState {
       || matches!(self.crafting, CraftingMenu::Open { .. })
       || matches!(self.dialogue, DialogueState::Open { .. })
       || self.quest_log_open
+      || self.creator_open
   }
 }
 
@@ -384,6 +389,82 @@ struct Render;
 // ---------------------------------------------------------------------------
 // Resources & components
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Character creator — startup popup. Lives in `UiState.creator_open` so it
+// gates movement via `any_open()` like every other menu. Selection state is
+// kept in dedicated resources so the overlay's per-row signals can react
+// without rebuilding the whole UI tree.
+// ---------------------------------------------------------------------------
+
+/// Tracks which creator row a [`Button`] entity belongs to; queried by [`detect_creator_clicks`].
+#[derive(Component)]
+pub struct CreatorOptionIndex(pub CreatorOption);
+
+/// Selectable rows in the character creator overlay.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CreatorOption {
+  /// Starting item choice by index into [`STARTING_ITEMS`].
+  Item(usize),
+  /// Special ability choice by index into [`SPECIAL_ABILITIES`].
+  Ability(usize),
+  /// Confirm and begin play.
+  Confirm
+}
+
+/// Player's chosen name. Separate from [`CharacterCreatorData`] so a per-keystroke
+/// update here does not dirty the selection state (which would rebuild overlay rows).
+#[derive(Resource, Default, Clone, PartialEq, Eq)]
+pub struct CreatorName(pub String);
+
+/// Mutable character-creator selection state. Drives the item/ability row highlight
+/// signals and is read by [`apply_character_creator`] on confirm.
+#[derive(Resource, Clone, Default, PartialEq, Eq)]
+pub struct CharacterCreatorData {
+  /// Cursor position in the item list (navigated with W/S).
+  pub cursor_item: usize,
+  /// Toggled item selections (up to [`MAX_STARTING_ITEMS`]).
+  pub selected_items: Vec<usize>,
+  /// Selected special ability (navigated with A/D).
+  pub selected_ability: usize
+}
+
+/// Maximum number of starting items the player may pick.
+pub const MAX_STARTING_ITEMS: usize = 3;
+
+/// Starting item choices offered in the character creator.
+pub const STARTING_ITEMS: &[Item] = &[
+  Item::HealthPotion,
+  Item::FragGrenade,
+  Item::StimPack,
+  Item::CannedGoods,
+  Item::Torch
+];
+
+/// Special ability archetypes offered in the character creator.
+/// Each grants a distinct starting loadout piece.
+pub const SPECIAL_ABILITIES: &[SpecialAbility] = &[
+  SpecialAbility { name: "Soldier",   flavor: "+ Pipe Revolver — ranged firearm",       item: Item::PipeRevolver,  equip: SpecialEquip::Weapon },
+  SpecialAbility { name: "Scout",     flavor: "+ Stealth Device — go invisible",        item: Item::StealthDevice, equip: SpecialEquip::Device },
+  SpecialAbility { name: "Grenadier", flavor: "+ Frag Grenades — explosive throws",     item: Item::FragGrenade,   equip: SpecialEquip::Grenade },
+  SpecialAbility { name: "Brawler",   flavor: "+ Copper Knife — melee strikes",         item: Item::CopperKnife,   equip: SpecialEquip::Weapon },
+  SpecialAbility { name: "Survivor",  flavor: "+ Phase Device — teleport out of danger", item: Item::PhaseDevice,   equip: SpecialEquip::Device }
+];
+
+#[derive(Clone, Copy)]
+pub struct SpecialAbility {
+  pub name: &'static str,
+  pub flavor: &'static str,
+  pub item: Item,
+  pub equip: SpecialEquip
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SpecialEquip {
+  Weapon,
+  Device,
+  Grenade
+}
 
 #[derive(Resource)]
 pub struct CurrentZone(pub active_zone::ActiveZone);
@@ -816,7 +897,10 @@ fn main() {
     .init_resource::<PendingBumpInteract>()
     .init_resource::<PaletteImageCache>()
     .init_resource::<AccumulatedDir>()
-    .insert_resource(UiState::default())
+    .insert_resource(UiState { creator_open: true, ..Default::default() })
+    .insert_resource(CreatorName::default())
+    .insert_resource(CharacterCreatorData::default())
+    .init_resource::<CreatorClickPending>()
     .insert_resource(Fov(fov))
     .init_resource::<FovFade>()
     .insert_resource(TileEntityIndex::default())
@@ -858,6 +942,9 @@ fn main() {
       (
         handle_dialogue,
         detect_menu_option_clicks,
+        detect_creator_clicks,
+        handle_creator_keys,
+        apply_character_creator,
         handle_menus,
         handle_crafting_menu,
         flush_pending_loot,
@@ -886,7 +973,6 @@ fn main() {
     .add_systems(
       Update,
       (
-        maintain_tile_index,
         player_input,
         resolve_bump_interact,
         apply_bump_auto_interact,
@@ -917,12 +1003,21 @@ fn main() {
         tick_grenade_in_flight,
         advance_gun_bullets,
         damage_cloud_tick,
-        player_death_check,
+        player_death_check
+      )
+        .chain()
+        .run_if(is_sim_frame)
+        .in_set(WorldStep)
+    )
+    .add_systems(
+      Update,
+      (
         npc_wander,
         follower_ai,
         abilities::tick_cooldowns,
         abilities::advance_pending_fire,
-        record_sim_ran
+        record_sim_ran,
+        maintain_tile_index
       )
         .chain()
         .run_if(is_sim_frame)
@@ -1059,7 +1154,7 @@ fn enemy_death_check(
           log_spans(&mut *log, vec![LogSpan::colored(format!("Alien killed ({kills}/10)"), QUEST_LOG_COLOR)]);
         }
       }
-      if named.map(|n| n.name) == Some(locations::icy_planet::FROSTMAW_MATRIARCH_NAME)
+      if named.map(|n| n.name.as_ref()) == Some(locations::icy_planet::FROSTMAW_MATRIARCH_NAME)
         && quests.stage(quest::BRUME_PREDATOR.id) == Some(10)
       {
         quests.set_stage(quest::BRUME_PREDATOR.id, 20);
@@ -1998,6 +2093,119 @@ fn detect_menu_option_clicks(
   }
 }
 
+/// Pending creator selection click — set by [`detect_creator_clicks`], read+cleared by
+/// [`apply_character_creator`].
+#[derive(Resource, Default)]
+struct CreatorClickPending(pub Option<CreatorOption>);
+
+fn detect_creator_clicks(
+  button_q: Query<(&Interaction, &CreatorOptionIndex), Changed<Interaction>>,
+  mut pending: ResMut<CreatorClickPending>,
+  mut data: ResMut<CharacterCreatorData>
+) {
+  for (interaction, idx) in &button_q {
+    if *interaction == Interaction::Pressed {
+      match idx.0 {
+        CreatorOption::Item(i) => {
+          data.cursor_item = i;
+          if let Some(pos) = data.selected_items.iter().position(|&x| x == i) {
+            data.selected_items.remove(pos);
+          } else if data.selected_items.len() < MAX_STARTING_ITEMS {
+            data.selected_items.push(i);
+          }
+        }
+        CreatorOption::Ability(i) => data.selected_ability = i,
+        CreatorOption::Confirm => pending.0 = Some(CreatorOption::Confirm)
+      }
+    }
+  }
+}
+
+/// Keyboard navigation for the creator: W/S moves item cursor, Space/Enter toggles
+/// item selection (up to [`MAX_STARTING_ITEMS`]), A/D cycles the special ability,
+/// Tab confirms. Mirrors the in-game menu navigation feel.
+fn handle_creator_keys(
+  keys: Res<ButtonInput<KeyCode>>,
+  mut data: ResMut<CharacterCreatorData>,
+  mut pending: ResMut<CreatorClickPending>,
+  ui: Res<UiState>
+) {
+  if !ui.creator_open {
+    return;
+  }
+  if keys.just_pressed(KeyCode::KeyW) || keys.just_pressed(KeyCode::ArrowUp) {
+    data.cursor_item = data.cursor_item.checked_sub(1).unwrap_or(STARTING_ITEMS.len() - 1);
+  } else if keys.just_pressed(KeyCode::KeyS) || keys.just_pressed(KeyCode::ArrowDown) {
+    data.cursor_item = (data.cursor_item + 1) % STARTING_ITEMS.len();
+  } else if keys.just_pressed(KeyCode::KeyA) || keys.just_pressed(KeyCode::ArrowLeft) {
+    data.selected_ability = data.selected_ability.checked_sub(1).unwrap_or(SPECIAL_ABILITIES.len() - 1);
+  } else if keys.just_pressed(KeyCode::KeyD) || keys.just_pressed(KeyCode::ArrowRight) {
+    data.selected_ability = (data.selected_ability + 1) % SPECIAL_ABILITIES.len();
+  } else if keys.just_pressed(KeyCode::Space) {
+    let i = data.cursor_item;
+    if let Some(pos) = data.selected_items.iter().position(|&x| x == i) {
+      data.selected_items.remove(pos);
+    } else if data.selected_items.len() < MAX_STARTING_ITEMS {
+      data.selected_items.push(i);
+    }
+  } else if keys.just_pressed(KeyCode::Tab) || keys.just_pressed(KeyCode::Enter) {
+    pending.0 = Some(CreatorOption::Confirm);
+  }
+}
+
+/// Apply the character creator selection on confirm: write the chosen name into
+/// [`PlayerName`], grant the selected starting items and the special ability's
+/// loadout piece to the player, close the creator, and emit the intro log line.
+fn apply_character_creator(
+  mut commands: Commands,
+  ui: Res<UiState>,
+  mut pending: ResMut<CreatorClickPending>,
+  data: Res<CharacterCreatorData>,
+  name: Res<CreatorName>,
+  player_q: Query<Entity, With<Player>>,
+  mut inventory_q: Query<(&mut Inventory, &mut Loadout), With<Player>>,
+  mut log: ResMut<LogEntries>
+) {
+  let Some(CreatorOption::Confirm) = pending.0.take() else { return };
+  if !ui.creator_open { return; }
+  let Ok(player_entity) = player_q.single() else { return };
+  let Ok((mut inventory, mut loadout)) = inventory_q.single_mut() else { return };
+
+  // Name: fall back to a default if the player left it blank.
+  let chosen = if name.0.trim().is_empty() {
+    "Drifter".to_string()
+  } else {
+    name.0.trim().to_string()
+  };
+  commands.entity(player_entity).insert(Named {
+    name: Cow::Owned(chosen.clone()),
+    flavor: Cow::Borrowed("You. A newcomer waking on the Origin World.")
+  });
+
+  // Starting items.
+  for &i in &data.selected_items {
+    if let Some(&item) = STARTING_ITEMS.get(i) {
+      *inventory.0.entry(item).or_insert(0) += 1;
+    }
+  }
+
+  // Special ability loadout piece.
+  let ability = SPECIAL_ABILITIES[data.selected_ability.min(SPECIAL_ABILITIES.len() - 1)];
+  match ability.equip {
+    SpecialEquip::Weapon => loadout.equip_weapon(ability.item),
+    SpecialEquip::Device => loadout.equip_device(ability.item),
+    SpecialEquip::Grenade => loadout.equip_grenade(ability.item)
+  }
+  // Ensure the granted item is also in inventory (so it shows in the inv panel).
+  *inventory.0.entry(ability.item).or_insert(0) += 1;
+
+  commands.insert_resource(UiState { creator_open: false, ..Default::default() });
+  log_spans(&mut *log, vec![
+    LogSpan::colored(format!("{} wakes on the Origin World.", chosen), Color::srgb(0.72, 0.78, 0.95)),
+    LogSpan::plain(" A robot hums nearby.".to_string())
+  ]);
+}
+
 fn handle_menus(
   keys: Res<ButtonInput<KeyCode>>,
   mut ui: ResMut<UiState>,
@@ -2240,7 +2448,7 @@ fn handle_dialogue(
 
   if let DialogueState::Open { speaker, tree, node_name, speaker_color, speaker_entity } = &ui.dialogue {
     let (speaker, tree, node_name, speaker_color, speaker_entity) =
-      (*speaker, *tree, *node_name, *speaker_color, *speaker_entity);
+      (speaker.clone(), *tree, *node_name, *speaker_color, *speaker_entity);
     let visible = tree.visible_choices(node_name, &quests);
     if keys.just_pressed(KeyCode::Space) {
       ui.dialogue = DialogueState::Closed;
@@ -2327,9 +2535,9 @@ fn handle_dialogue(
       ]);
       if let Some(next_name) = choice.next {
         ui.dialogue =
-          DialogueState::Open { speaker, tree, node_name: next_name, speaker_color, speaker_entity };
+          DialogueState::Open { speaker: speaker.clone(), tree, node_name: next_name, speaker_color, speaker_entity };
         let next_node = tree.find(next_name);
-        log_dialogue_node_block(&mut *log, speaker, speaker_color, next_node);
+        log_dialogue_node_block(&mut *log, &speaker, speaker_color, next_node);
       } else {
         ui.dialogue = DialogueState::Closed;
       }
@@ -2687,7 +2895,7 @@ fn execute_interaction(
   if let InteractionAction::Talk { speaker, tree, speaker_color, speaker_entity } = action {
     let node = tree.find(tree.nodes[0].name);
     ui.dialogue = DialogueState::Open {
-      speaker,
+      speaker: speaker.clone(),
       tree,
       node_name: tree.nodes[0].name,
       speaker_color: *speaker_color,
@@ -3091,7 +3299,7 @@ fn gather_interactions_at_tile(
         opts.push(InteractionOption {
           label: format!("Talk to {}", named.name),
           action: InteractionAction::Talk {
-            speaker: named.name,
+            speaker: named.name.clone(),
             tree: dialogue.0,
             speaker_color,
             speaker_entity: e
@@ -3112,11 +3320,11 @@ fn gather_interactions_at_tile(
         opts.push(match *state {
           FollowerState::Available | FollowerState::Dismissed => InteractionOption {
             label: "Follow me".into(),
-            action: InteractionAction::RecruitFollower { entity: e, name: named.name }
+            action: InteractionAction::RecruitFollower { entity: e, name: named.name.clone() }
           },
           FollowerState::Following => InteractionOption {
             label: "Go home".into(),
-            action: InteractionAction::DismissFollower { entity: e, name: named.name }
+            action: InteractionAction::DismissFollower { entity: e, name: named.name.clone() }
           }
         });
       }
@@ -3134,7 +3342,7 @@ fn gather_interactions_at_tile(
       }
       if let Ok(door) = iq.door_q.get(e) {
         let verb = if door.open { "Close" } else { "Open" };
-        let name = iq.named_q.get(e).map_or("door", |(n, ..)| n.name);
+        let name: &str = iq.named_q.get(e).map_or("door", |(n, ..)| n.name.as_ref());
         opts.push(InteractionOption {
           label: format!("{verb} {name} ({dir_label})"),
           action: InteractionAction::ToggleDoor(e)
@@ -3323,7 +3531,7 @@ fn apply_attack_npc(
     let (player_stats, equipped) = *player_q;
     let dmg = player_stats.attack + equipped.weapon_attack_bonus();
     target_stats.hp -= dmg;
-    let name = named.map(|n| n.name).unwrap_or("them");
+    let name = named.map(|n| n.name.as_ref()).unwrap_or("them");
     log_message(&mut log, format!("You strike {name} for {dmg} damage."));
     let aggro = |cmd: &mut Commands, e: Entity| {
       cmd.entity(e).insert((
@@ -3818,6 +4026,7 @@ fn setup(
     Player,
     Location::xyzw(local_x, local_y, 0, active_worlds.ship_w),
     Stats { hp: 20, max_hp: 20, attack: 5, move_speed: 3.0, attack_speed: 1.0 },
+    Named::s("Drifter", "You. A newcomer waking on the Origin World."),
     {
       let mut inv = Inventory::default();
       inv.0.insert(Item::PhaseDevice, 3);
@@ -3854,12 +4063,9 @@ fn setup(
     inventory: HashMap::new(),
     loadout: Loadout::default()
   });
-
-  log_message(
-    &mut *log,
-    "You wake up in a small outpost on the Origin World. A robot hums nearby."
-      .to_string()
-  );
+  // Intro log is deferred to `apply_character_creator` so it fires once the
+  // player has confirmed their character and play actually begins.
+  let _ = &mut *log;
 }
 
 fn update_fov(
@@ -4045,7 +4251,9 @@ fn player_input(
       let is_entity_blocked = |x, y| {
         r.index.0.get(&(x, y, pz)).is_some_and(|entities| {
           entities.iter().any(|&e| {
-            collidable_q.get(e).is_ok_and(|c| c.0) && enemy_query.get(e).is_err()
+            e != player_entity
+              && collidable_q.get(e).is_ok_and(|c| c.0)
+              && enemy_query.get(e).is_err()
           })
         })
       };

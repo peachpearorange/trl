@@ -154,10 +154,7 @@ static DIALOGUE: DialogueTree = dialogue_tree(&[
 
 pub fn ori1() -> Object {
   Object::defined_npc(
-    Named {
-      name: "ORI-1",
-      flavor: "A small orientation robot. Its chassis is scuffed but its optics are bright."
-    },
+    Named::s("ORI-1", "A small orientation robot. Its chassis is scuffed but its optics are bright."),
     Stats { hp: 30, max_hp: 30, attack: 1, move_speed: 2.0, attack_speed: 1.0 },
     Loadout::default(),
     npc_robo_glyph('O', Color::srgb(0.45, 0.75, 0.42), Color::srgb(0.82, 0.90, 0.78)),

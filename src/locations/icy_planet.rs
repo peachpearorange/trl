@@ -229,12 +229,9 @@ static MATRIARCH_GEAR: [GearSlot; 2] = [
 fn frostmaw() -> Object {
   Object::ENEMY_BASE
     .with(CreatureKind::Alien)
-    .with(Named {
-      name: "Frostmaw",
-      flavor: "A long, gaunt thing built low to the snow — six pale legs, two rows of \
+    .with(Named::s("Frostmaw", "A long, gaunt thing built low to the snow — six pale legs, two rows of \
                needle teeth, eyes the color of frozen sky. It smells of old blood and \
-               wet wool."
-    })
+               wet wool."))
     .with(Stats { hp: 8, max_hp: 8, attack: 3, move_speed: 3.5, attack_speed: 1.1 })
     .with(Glyph::from_char('f', Color::srgb(0.88, 0.94, 1.0)))
     .with(Loadout::from_gear(&FROSTMAW_GEAR))
@@ -243,12 +240,12 @@ fn frostmaw() -> Object {
 fn frostmaw_matriarch() -> Object {
   Object::ENEMY_BASE
     .with(CreatureKind::Alien)
-    .with(Named {
-      name: FROSTMAW_MATRIARCH_NAME,
-      flavor: "The big one. Twice the bulk of the others, hide thick with old scars and \
+    .with(Named::s(
+      FROSTMAW_MATRIARCH_NAME,
+      "The big one. Twice the bulk of the others, hide thick with old scars and \
                wool fibers caught in the seams. The Brume hunters used to draw it on \
                cave walls before they stopped going out at dusk."
-    })
+    ))
     .with(Stats { hp: 28, max_hp: 28, attack: 6, move_speed: 2.6, attack_speed: 0.9 })
     .with(Glyph::from_char('F', Color::srgb(0.74, 0.86, 1.0)))
     .with(Loadout::from_gear(&MATRIARCH_GEAR))
@@ -261,7 +258,7 @@ static VILLAGER_GEAR: [GearSlot; 2] = [
 
 fn villager(name: &'static str, flavor: &'static str, coat: Color) -> Object {
   Object::NPC_BASE
-    .with(Named { name, flavor })
+    .with(Named { name: Cow::Borrowed(name), flavor: Cow::Borrowed(flavor) })
     .with(Stats { hp: 14, max_hp: 14, attack: 2, move_speed: 3.0, attack_speed: 1.0 })
     .with(npc_person_glyph('@', coat, Color::srgb(0.85, 0.88, 0.92)))
     .with(Collidable(true))
@@ -273,10 +270,7 @@ fn villager(name: &'static str, flavor: &'static str, coat: Color) -> Object {
 fn lamp_post() -> Object {
   Object::STRUCTURE
     .with(Glyph::from_char('!', Color::srgb(1.0, 0.85, 0.45)))
-    .with(Named {
-      name: "Lamp Post",
-      flavor: "An oil lamp on a frost-cracked pole. Someone refills it every night."
-    })
+    .with(Named::s("Lamp Post", "An oil lamp on a frost-cracked pole. Someone refills it every night."))
     .with(LightSource { radius: 7 })
 }
 
@@ -290,7 +284,7 @@ fn cellar_down(cellar_z: usize, x: i32, y: i32, name: &'static str, flavor: &'st
       Color::srgb(0.42, 0.34, 0.22),
       Color::srgb(0.62, 0.52, 0.34)
     ))
-    .with(Named { name, flavor })
+    .with(Named { name: Cow::Borrowed(name), flavor: Cow::Borrowed(flavor) })
     .with(Elevator { current_z: 0, floors: Cow::Owned(vec![(0, x, y), (cellar_z, x, y)]) })
     .with(ShowOnCompass)
 }
@@ -304,7 +298,7 @@ fn cellar_up(cellar_z: usize, x: i32, y: i32) -> Object {
       Color::srgb(0.62, 0.52, 0.34),
       Color::srgb(0.42, 0.34, 0.22)
     ))
-    .with(Named { name: "Stairs Up", flavor: "Lamplight and woodsmoke drift down from above." })
+    .with(Named::s("Stairs Up", "Lamplight and woodsmoke drift down from above."))
     .with(Elevator {
       current_z: cellar_z,
       floors: Cow::Owned(vec![(0, x, y), (cellar_z, x, y)])
@@ -581,10 +575,7 @@ fn build_village(loc: &mut Location, dock: (i32, i32)) -> (i32, i32) {
       (ox + 18, oy + 25),
       house_small_north(
         Object::NPC_BASE
-          .with(Named {
-            name: "Pell",
-            flavor: "Young, restless, and sure there's something under the ice worth finding."
-          })
+          .with(Named::s("Pell", "Young, restless, and sure there's something under the ice worth finding."))
           .with(Stats { hp: 14, max_hp: 14, attack: 2, move_speed: 3.0, attack_speed: 1.0 })
           .with(npc_person_glyph('@', Color::srgb(0.38, 0.62, 0.45), Color::srgb(0.85, 0.88, 0.92)))
           .with(Collidable(true))
@@ -791,11 +782,8 @@ fn build_lair(loc: &mut Location, village: (i32, i32), dock: (i32, i32), seed: u
     0,
     Object::STRUCTURE_PASSABLE
       .with(Glyph::sprite("textures/space_qud/bones.png", '%', Color::srgb(0.92, 0.90, 0.82)))
-      .with(Named {
-        name: "Bone Cairn",
-        flavor: "A heap of cracked sheep bones piled at the threshold of the den. \
-                 Some are still wet."
-      })
+      .with(Named::s("Bone Cairn", "A heap of cracked sheep bones piled at the threshold of the den. \
+                 Some are still wet."))
       .with(ShowOnCompass)
   ));
 
@@ -971,12 +959,9 @@ static WIZARD_DIALOGUE: DialogueTree = dialogue_tree(&[
 
 fn wizard_npc() -> Object {
   Object::NPC_BASE
-    .with(Named {
-      name: "Veradis",
-      flavor: "A gaunt figure in layered robes the color of old ice. His eyes don't \
+    .with(Named::s("Veradis", "A gaunt figure in layered robes the color of old ice. His eyes don't \
                quite focus on you — they're looking at something behind you, or \
-               inside you, or nowhere at all."
-    })
+               inside you, or nowhere at all."))
     .with(Stats { hp: 20, max_hp: 20, attack: 1, move_speed: 3.0, attack_speed: 1.0 })
     .with(npc_person_glyph('@', Color::srgb(0.4, 0.45, 0.75), Color::srgb(0.7, 0.72, 0.85)))
     .with(Collidable(true))
@@ -1068,10 +1053,7 @@ fn build_wizard_tower(loc: &mut Location, village: (i32, i32), dock: (i32, i32),
         Color::srgb(0.5, 0.4, 0.9),
         Color::srgb(0.3, 0.2, 0.6)
       ))
-      .with(Named {
-        name: "Wizard's Tower",
-        flavor: "A squat stone tower. Faint light pulses in the windows."
-      })
+      .with(Named::s("Wizard's Tower", "A squat stone tower. Faint light pulses in the windows."))
       .with(ShowOnCompass)
   ));
 

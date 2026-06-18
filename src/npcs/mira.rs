@@ -94,7 +94,7 @@ static DIALOGUE: DialogueTree = dialogue_tree(&[
 
 pub fn mira() -> Object {
   Object::as_follower(Object::defined_npc(
-    Named { name: "Mira", flavor: "She eyes you warily, ears flat against her head." },
+    Named::s("Mira", "She eyes you warily, ears flat against her head."),
     Stats { hp: 8, max_hp: 8, attack: 2, move_speed: 4.0, attack_speed: 1.2 },
     Loadout::default(),
     npc_person_glyph('c', Color::srgb(0.95, 0.55, 0.82), Color::srgb(0.48, 0.32, 0.62)),

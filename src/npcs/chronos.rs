@@ -112,10 +112,7 @@ static DIALOGUE: DialogueTree = dialogue_tree(&[
 
 pub fn chronos() -> Object {
   Object::as_follower(Object::defined_npc(
-    Named {
-      name: "Chronos",
-      flavor: "A disheveled wizard in mismatched socks, muttering about temporal logistics."
-    },
+    Named::s("Chronos", "A disheveled wizard in mismatched socks, muttering about temporal logistics."),
     Stats { hp: 12, max_hp: 12, attack: 3, move_speed: 1.0, attack_speed: 1.0 },
     Loadout::default(),
     npc_person_glyph('W', Color::srgb(0.52, 0.22, 0.88), Color::srgb(0.82, 0.62, 0.95)),

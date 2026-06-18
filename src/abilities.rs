@@ -295,13 +295,13 @@ pub fn handle_ability_click(
       let beam_end = tile_to_world(los_x, los_y, level.width, level.height);
       spawn_laser_beam(&mut commands, &effects, beam_start, beam_end);
       let attack = loadout.weapon_attack_bonus() + 5;
-      let mut hit_names: Vec<&str> = vec![];
+      let mut hit_names: Vec<String> = vec![];
       for &(cx, cy) in cells.iter().skip(1) {
         if let Some((_, mut stats, named)) = enemy_q.iter_mut().find(|(loc, _, _)| {
           matches!(loc, Location::Coords { x, y, z, .. } if *x == cx && *y == cy && *z == pos_z)
         }) {
           stats.hp -= attack;
-          hit_names.push(named.map(|n| n.name).unwrap_or("Enemy"));
+          hit_names.push(named.map(|n| n.name.as_ref().to_string()).unwrap_or_else(|| "Enemy".to_string()));
         }
       }
       log_message(&mut log, match hit_names.len() {
@@ -338,7 +338,7 @@ pub fn handle_ability_click(
         let per_bolt = loadout.weapon_attack_bonus() + 2;
         let total = per_bolt * 3;
         stats.hp -= total;
-        let name = named.map(|n| n.name).unwrap_or("Enemy");
+        let name = named.map(|n| n.name.as_ref().to_string()).unwrap_or_else(|| "Enemy".to_string());
         log_message(&mut log, format!("Plasma burst hits {} for {} damage! (3\u{00d7}{})", name, total, per_bolt));
       } else {
         log_message(&mut log, "Your plasma burst hits nothing.".into());
@@ -354,7 +354,7 @@ pub fn handle_ability_click(
       let spreads = [-0.18, -0.09, 0.0, 0.09, 0.18];
       let mut paths = Vec::new();
       let mut total_damage = 0;
-      let mut hit_names: Vec<&str> = vec![];
+      let mut hit_names: Vec<String> = vec![];
       let attack = loadout.weapon_attack_bonus() + 3;
       for &spread in &spreads {
         let a = angle + spread;
@@ -377,7 +377,7 @@ pub fn handle_ability_click(
         {
           stats.hp -= attack;
           total_damage += attack;
-          let name = named.map(|n| n.name).unwrap_or("Enemy");
+          let name = named.map(|n| n.name.as_ref().to_string()).unwrap_or_else(|| "Enemy".to_string());
           if !hit_names.contains(&name) { hit_names.push(name); }
         }
       }
@@ -399,13 +399,13 @@ pub fn handle_ability_click(
       let beam_end = tile_to_world(los_x, los_y, level.width, level.height);
       spawn_pulse_beam(&mut commands, &effects, beam_start, beam_end);
       let attack = loadout.weapon_attack_bonus() + 5;
-      let mut hit_names: Vec<&str> = vec![];
+      let mut hit_names: Vec<String> = vec![];
       for &(cx, cy) in cells.iter().skip(1) {
         if let Some((_, mut stats, named)) = enemy_q.iter_mut().find(|(loc, _, _)| {
           matches!(loc, Location::Coords { x, y, z, .. } if *x == cx && *y == cy && *z == pos_z)
         }) {
           stats.hp -= attack;
-          hit_names.push(named.map(|n| n.name).unwrap_or("Enemy"));
+          hit_names.push(named.map(|n| n.name.as_ref().to_string()).unwrap_or_else(|| "Enemy".to_string()));
         }
       }
       log_message(&mut log, match hit_names.len() {

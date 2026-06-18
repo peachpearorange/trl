@@ -19,12 +19,15 @@ use {crate::{Clock, GAME_VIEWPORT_WIDTH_FRAC, STATUS_BAR_HEIGHT,
              game_pane_rect,
              sprites::{PaletteImageCache, palette_sprite_handle},
              utils::mapv,
-             world_to_level_cell},
+             world_to_level_cell,
+             {CreatorName, CreatorOption, CreatorOptionIndex, CharacterCreatorData,
+              STARTING_ITEMS, SPECIAL_ABILITIES}},
      bevy::{prelude::*,
             text::FontWeight,
             ui::{AlignItems, FlexWrap, JustifyContent}},
      haalka::{jonmo::SignalProcessing, prelude::*},
-     jonmo::signal};
+     jonmo::signal,
+     bevy_ui_text_input::TextInputPrompt};
 
 // ---------------------------------------------------------------------------
 // Data shapes — written by sync_ui, read by Haalka signals
@@ -168,7 +171,9 @@ pub enum OverlayKind {
   },
   QuestLog {
     entries: Vec<QuestLogEntry>
-  }
+  },
+  /// Startup character creator: name field, starting item, special ability, confirm.
+  CharacterCreator
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1248,6 +1253,7 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
               )
           )
       }
+      OverlayKind::CharacterCreator => character_creator_overlay(),
       kind => {
         let (label, lines) = match &kind {
           OverlayKind::PauseMain => ("Paused", vec![
@@ -1294,6 +1300,166 @@ fn overlay_signal() -> impl Signal<Item = Option<impl Element>> {
       }
     })
   })
+}
+
+// ---------------------------------------------------------------------------
+// Character creator overlay
+// ---------------------------------------------------------------------------
+
+const CREATOR_ROW_HI: Color = Color::srgb(0.55, 0.88, 0.65);
+const CREATOR_ROW_DIM: Color = Color::srgb(0.62, 0.66, 0.74);
+const CREATOR_CONFIRM: Color = Color::srgb(1.0, 0.85, 0.30);
+
+fn character_creator_overlay() -> El<Node> {
+  El::<Node>::new()
+    .with_node(|mut n| {
+      n.width = Val::Percent(100.0);
+      n.height = Val::Percent(100.0);
+    })
+    .background_color(BackgroundColor(OVERLAY_DIM))
+    .align(Align::center())
+    .align_content(Align::center())
+    .child(
+      Column::<Node>::new()
+        .with_node(|mut n| {
+          n.border_radius = BorderRadius::all(Val::Px(6.0));
+          n.padding = UiRect::all(Val::Px(20.0));
+          n.row_gap = Val::Px(8.0);
+          n.min_width = Val::Px(520.0);
+          n.border = UiRect::all(Val::Px(1.0));
+        })
+        .background_color(BackgroundColor(DARK_BG))
+        .border_color(BorderColor::all(BORDER))
+        .item(static_text("Create Character", FONT_SIZE_TITLE, LIGHT_TEXT, W_STRONG))
+        .item(static_text("", FONT_SIZE_SMALL, DIM_TEXT, W_OVERLAY))
+        .item(panel_label("Name"))
+        .item(
+          TextInput::new()
+            .with_node(|mut n| {
+              n.width = Val::Percent(100.0);
+              n.height = Val::Px(30.0);
+              n.padding = UiRect::axes(Val::Px(6.0), Val::Px(0.0));
+              n.border = UiRect::all(Val::Px(1.0));
+              n.border_radius = BorderRadius::all(Val::Px(3.0));
+            })
+            .text_font(TextFont { font_size: FONT_SIZE_BODY, weight: W_UI, ..default() })
+            .text_color(TextColor(LIGHT_TEXT))
+            .text_input_prompt(TextInputPrompt::new("Enter your name…"))
+            .focus()
+            .on_change(|In((_, text)): In<(Entity, String)>, mut name: ResMut<CreatorName>| {
+              name.0 = text;
+            })
+        )
+        .item(static_text("", FONT_SIZE_SMALL, DIM_TEXT, W_OVERLAY))
+        .item(panel_label("Starting Items (pick up to 3)"))
+        .items(
+          STARTING_ITEMS.iter().enumerate().map(|(i, item)| {
+            creator_row(CreatorOption::Item(i), format!("{} — {}", item.name(), item_glyph(item)))
+          })
+        )
+        .item(static_text("", FONT_SIZE_SMALL, DIM_TEXT, W_OVERLAY))
+        .item(panel_label("Special Ability"))
+        .items(
+          SPECIAL_ABILITIES.iter().enumerate().map(|(i, ability)| {
+            creator_row(CreatorOption::Ability(i), format!("{} — {}", ability.name, ability.flavor))
+          })
+        )
+        .item(static_text("", FONT_SIZE_SMALL, DIM_TEXT, W_OVERLAY))
+        .item(
+          El::<Node>::new()
+            .with_node(|mut n| {
+              n.width = Val::Percent(100.0);
+              n.height = Val::Px(36.0);
+              n.border = UiRect::all(Val::Px(1.0));
+              n.border_radius = BorderRadius::all(Val::Px(3.0));
+              n.align_items = AlignItems::Center;
+              n.justify_content = JustifyContent::Center;
+            })
+            .background_color(BackgroundColor(Color::srgb(0.10, 0.12, 0.08)))
+            .border_color(BorderColor::all(CREATOR_CONFIRM))
+            .with_builder(|b| {
+              b.component_signal::<TextColor>(
+                signal::from_resource::<CharacterCreatorData>().map_in(|_| Some(TextColor(CREATOR_CONFIRM)))
+              )
+            })
+            .child(
+              El::<Text>::new()
+                .text(Text::new("Begin ▸"))
+                .text_font(TextFont { font_size: FONT_SIZE_TITLE, weight: W_STRONG, ..default() })
+                .text_color(TextColor(CREATOR_CONFIRM))
+            )
+            .insert(Button)
+            .insert(CreatorOptionIndex(CreatorOption::Confirm))
+        )
+        .item(static_text(
+          "W/S move cursor  ·  Space toggle item  ·  A/D pick ability  ·  Tab/Enter begin",
+          FONT_SIZE_SMALL,
+          DIM_TEXT,
+          W_OVERLAY
+        ))
+    )
+}
+
+fn item_glyph(item: &crate::level::Item) -> &'static str {
+  item.glyph()
+}
+
+fn creator_row(option: CreatorOption, label: String) -> Row<Node> {
+  Row::<Node>::new()
+    .with_node(|mut n| {
+      n.width = Val::Percent(100.0);
+      n.padding = UiRect::vertical(Val::Px(2.0));
+    })
+    .item(
+      El::<Text>::new()
+        .text_font(TextFont { font_size: FONT_SIZE_BODY, weight: W_OVERLAY, ..default() })
+        .with_builder(move |b| {
+          b.component_signal::<Text>(
+            signal::from_resource::<CharacterCreatorData>().map_in(move |data: CharacterCreatorData| {
+              let prefix = row_prefix(&option, &data);
+              Some(Text::new(format!("{prefix}{label}")))
+            })
+          )
+          .component_signal::<TextColor>(
+            signal::from_resource::<CharacterCreatorData>().map_in(move |data: CharacterCreatorData| {
+              Some(TextColor(row_color(&option, &data)))
+            })
+          )
+        })
+    )
+    .insert(Button)
+    .insert(CreatorOptionIndex(option))
+}
+
+/// Prefix shown before each creator row: cursor + checkmark for items, cursor for abilities.
+fn row_prefix(option: &CreatorOption, data: &CharacterCreatorData) -> String {
+  match *option {
+    CreatorOption::Item(i) => {
+      let cursor = if data.cursor_item == i { "▶" } else { " " };
+      let mark = if data.selected_items.contains(&i) { "☑" } else { "☐" };
+      format!("{cursor}{mark} ")
+    }
+    CreatorOption::Ability(i) => {
+      let cursor = if data.selected_ability == i { "▶" } else { " " };
+      format!("{cursor}  ")
+    }
+    CreatorOption::Confirm => String::new()
+  }
+}
+
+/// Row text color: highlighted when selected/cursor-active, dimmed otherwise.
+fn row_color(option: &CreatorOption, data: &CharacterCreatorData) -> Color {
+  match *option {
+    CreatorOption::Item(i) => {
+      if data.selected_items.contains(&i) { CREATOR_ROW_HI }
+      else if data.cursor_item == i { LIGHT_TEXT }
+      else { CREATOR_ROW_DIM }
+    }
+    CreatorOption::Ability(i) => {
+      if data.selected_ability == i { CREATOR_ROW_HI } else { CREATOR_ROW_DIM }
+    }
+    CreatorOption::Confirm => CREATOR_CONFIRM
+  }
 }
 
 #[derive(Resource, Clone, Default, PartialEq)]
@@ -1482,6 +1648,11 @@ fn sync_ui(
     Some(OverlayKind::QuestLog { entries })
   } else {
     None
+  })
+  .or_else(|| if ui.creator_open {
+    Some(OverlayKind::CharacterCreator)
+  } else {
+    None
   });
   if overlay.kind != new_overlay_kind {
     overlay.kind = new_overlay_kind;
@@ -1572,10 +1743,10 @@ fn compute_hover_info(
                     Some(if is_corpse {
                       format!("dead {}", named.name)
                     } else {
-                      named.name.into()
+                      named.name.to_string()
                     }),
                     stats.map(|s| (s.hp, s.max_hp)),
-                    if is_corpse { None } else { Some(named.flavor.into()) }
+                    if is_corpse { None } else { Some(named.flavor.to_string()) }
                   )
                 })
               })

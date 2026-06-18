@@ -134,11 +134,8 @@ static DOCK1_DIALOGUE: DialogueTree = dialogue_tree(&[
 
 pub fn dock1() -> Object {
   Object::defined_npc(
-    Named {
-      name: "DOCK-1",
-      flavor: "A squat docking authority unit bolted to the bay floor. Its chassis \
-               is scratched but its sensors are keen."
-    },
+    Named::s("DOCK-1", "A squat docking authority unit bolted to the bay floor. Its chassis \
+               is scratched but its sensors are keen."),
     Stats { hp: 25, max_hp: 25, attack: 3, move_speed: 1.0, attack_speed: 0.5 },
     Loadout::default(),
     npc_robo_glyph('D', Color::srgb(0.60, 0.65, 0.70), Color::srgb(0.85, 0.88, 0.90)),
@@ -222,11 +219,8 @@ static AIDEN_DIALOGUE: DialogueTree = dialogue_tree(&[
 
 pub fn aiden3() -> Object {
   Object::defined_npc(
-    Named {
-      name: "AIDEN-3",
-      flavor: "A slender robot with an optimistic posture and a small holographic \
-               display cycling through welcome messages."
-    },
+    Named::s("AIDEN-3", "A slender robot with an optimistic posture and a small holographic \
+               display cycling through welcome messages."),
     Stats { hp: 15, max_hp: 15, attack: 1, move_speed: 3.5, attack_speed: 0.6 },
     Loadout::default(),
     npc_robo_glyph('A', Color::srgb(0.30, 0.75, 0.55), Color::srgb(0.70, 0.95, 0.80)),
@@ -298,11 +292,8 @@ static WREN_DIALOGUE: DialogueTree = dialogue_tree(&[
 
 pub fn wren9() -> Object {
   Object::defined_npc(
-    Named {
-      name: "WREN-9",
-      flavor: "A compact medical unit surrounded by neatly organized equipment. \
-               Its optical sensors are an unusually warm amber."
-    },
+    Named::s("WREN-9", "A compact medical unit surrounded by neatly organized equipment. \
+               Its optical sensors are an unusually warm amber."),
     Stats { hp: 18, max_hp: 18, attack: 2, move_speed: 2.5, attack_speed: 0.7 },
     Loadout::default(),
     npc_robo_glyph('W', Color::srgb(0.75, 0.35, 0.35), Color::srgb(0.95, 0.75, 0.75)),
@@ -375,11 +366,8 @@ static FORGE_DIALOGUE: DialogueTree = dialogue_tree(&[
 
 pub fn forge() -> Object {
   Object::defined_npc(
-    Named {
-      name: "FORGE",
-      flavor: "A heavy-duty maintenance unit worn smooth by centuries of work. \
-               Every surface is practical. There are no decorative elements."
-    },
+    Named::s("FORGE", "A heavy-duty maintenance unit worn smooth by centuries of work. \
+               Every surface is practical. There are no decorative elements."),
     Stats { hp: 30, max_hp: 30, attack: 5, move_speed: 1.5, attack_speed: 0.5 },
     Loadout::default(),
     npc_robo_glyph('F', Color::srgb(0.50, 0.45, 0.35), Color::srgb(0.80, 0.72, 0.55)),

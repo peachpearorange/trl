@@ -612,10 +612,29 @@ impl Glyph {
 }
 
 /// Identity and SS13-style flavor text shown on hover.
-#[derive(Component, Clone, Copy, Debug)]
+#[derive(Component, Clone, Debug)]
 pub struct Named {
-  pub name: &'static str,
-  pub flavor: &'static str
+  pub name: Cow<'static, str>,
+  pub flavor: Cow<'static, str>
+}
+
+impl Named {
+  /// Construct from static string literals (the common case for authored content).
+  pub const fn s(name: &'static str, flavor: &'static str) -> Self {
+    Self { name: Cow::Borrowed(name), flavor: Cow::Borrowed(flavor) }
+  }
+}
+
+impl From<&'static str> for Named {
+  fn from(name: &'static str) -> Self {
+    Self { name: Cow::Borrowed(name), flavor: Cow::Borrowed("") }
+  }
+}
+
+impl From<String> for Named {
+  fn from(name: String) -> Self {
+    Self { name: Cow::Owned(name), flavor: Cow::Borrowed("") }
+  }
 }
 
 /// Flat combat stats.
@@ -970,10 +989,7 @@ impl Object {
 
   pub const RAT_SOLDIER: Self = Self::ENEMY_BASE
     .with(CreatureKind::Rat)
-    .with(Named {
-      name: "Rat Soldier",
-      flavor: "A wiry rat-person clutching a crude spear. Smells like wet fur and old iron.",
-    })
+    .with(Named::s("Rat Soldier", "A wiry rat-person clutching a crude spear. Smells like wet fur and old iron."))
     .with(Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 2.1, attack_speed: 1.0 })
     .with(Glyph::recolor_sprite(
       "textures/space_qud/gunman .png", 'r',
@@ -986,10 +1002,7 @@ impl Object {
 
   pub const ARMORED_RAT_SOLDIER: Self = Self::ENEMY_BASE
     .with(CreatureKind::Rat)
-    .with(Named {
-      name: "Armored Rat Soldier",
-      flavor: "A rat-person in battered leather armor, gripping a crude spear. The hide smells worse than the iron.",
-    })
+    .with(Named::s("Armored Rat Soldier", "A rat-person in battered leather armor, gripping a crude spear. The hide smells worse than the iron."))
     .with(Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 1.9, attack_speed: 1.0 })
     .with(Glyph::recolor_sprite(
       "textures/space_qud/mogussy.png", 'r',
@@ -1003,10 +1016,7 @@ impl Object {
 
   pub const ROBOT: Self = Self::ENEMY_BASE
     .with(CreatureKind::Robot)
-    .with(Named {
-      name: "Robot",
-      flavor: "A damaged security robot. Its threat-response routines are still very much active.",
-    })
+    .with(Named::s("Robot", "A damaged security robot. Its threat-response routines are still very much active."))
     .with(Stats { hp: 15, max_hp: 15, attack: 4, move_speed: 2.0, attack_speed: 0.8 })
     .with(Glyph::recolor_sprite(
       "textures/space_qud/robo.png", 'R',
@@ -1018,10 +1028,7 @@ impl Object {
 
   pub const WACK_ROBOT: Self = Self::ENEMY_BASE
     .with(CreatureKind::Robot)
-    .with(Named {
-      name: "Salvage Bot",
-      flavor: "A repurposed salvage drone running corrupted directives. Approaches everything as scrap.",
-    })
+    .with(Named::s("Salvage Bot", "A repurposed salvage drone running corrupted directives. Approaches everything as scrap."))
     .with(Stats { hp: 8, max_hp: 8, attack: 3, move_speed: 2.3, attack_speed: 1.2 })
     .with(Glyph::recolor_sprite(
       "textures/space_qud/wack robo.png", 'R',
@@ -1033,10 +1040,7 @@ impl Object {
 
   pub const ALIEN_RUNNER: Self = Self::ENEMY_BASE
     .with(CreatureKind::Alien)
-    .with(Named {
-      name: "Xel-Naran Hunter",
-      flavor: "A fast-moving predator native to Xel-Nara IV. Moves in bursts. Closes distance before you can react.",
-    })
+    .with(Named::s("Xel-Naran Hunter", "A fast-moving predator native to Xel-Nara IV. Moves in bursts. Closes distance before you can react."))
     .with(Stats { hp: 5, max_hp: 5, attack: 3, move_speed: 12.0, attack_speed: 1.5 })
     .with(DriftChance(0.3))
     .with(Glyph::recolor_sprite(
@@ -1058,10 +1062,7 @@ impl Object {
 
   pub const LAVA_CRAB: Self = Self::ENEMY_BASE
     .with(CreatureKind::Alien)
-    .with(Named {
-      name: "Scorch Crawler",
-      flavor: "A heat-adapted crustacean from Pyros Maw. Its shell has fused with volcanic rock over generations. Barely slowed by flame.",
-    })
+    .with(Named::s("Scorch Crawler", "A heat-adapted crustacean from Pyros Maw. Its shell has fused with volcanic rock over generations. Barely slowed by flame."))
     .with(Stats { hp: 14, max_hp: 14, attack: 5, move_speed: 4.0, attack_speed: 0.9 })
     .with(DriftChance(0.05))
     .with(Glyph::recolor_sprite(
@@ -1076,10 +1077,7 @@ impl Object {
 
   pub const MANTIS_ALIEN: Self = Self::ENEMY_BASE
     .with(CreatureKind::Alien)
-    .with(Named {
-      name: "Crystal Mantis",
-      flavor: "A translucent predator that haunts crystal caves, nearly invisible until it strikes. Razor forelegs. Extremely fast.",
-    })
+    .with(Named::s("Crystal Mantis", "A translucent predator that haunts crystal caves, nearly invisible until it strikes. Razor forelegs. Extremely fast."))
     .with(Stats { hp: 6, max_hp: 6, attack: 5, move_speed: 10.0, attack_speed: 2.0 })
     .with(DriftChance(0.5))
     .with(Glyph::recolor_sprite(
@@ -1101,10 +1099,7 @@ impl Object {
 
   pub const CRAB_ALIEN: Self = Self::ENEMY_BASE
     .with(CreatureKind::Alien)
-    .with(Named {
-      name: "Xel-Naran Crawler",
-      flavor: "A broad-shelled crustacean that lurks in alien undergrowth. Its claws can crush bone. Slow but armored.",
-    })
+    .with(Named::s("Xel-Naran Crawler", "A broad-shelled crustacean that lurks in alien undergrowth. Its claws can crush bone. Slow but armored."))
     .with(Stats { hp: 10, max_hp: 10, attack: 4, move_speed: 3.5, attack_speed: 0.8 })
     .with(DriftChance(0.1))
     .with(Glyph::recolor_sprite(
@@ -1119,10 +1114,7 @@ impl Object {
 
   pub const MUSHROOM_CREATURE: Self = Self::ENEMY_BASE
     .with(CreatureKind::Alien)
-    .with(Named {
-      name: "Mycelid",
-      flavor: "An ambulatory fungal mass. Moves with unsettling purpose. Its gills swell with spores.",
-    })
+    .with(Named::s("Mycelid", "An ambulatory fungal mass. Moves with unsettling purpose. Its gills swell with spores."))
     .with(Stats { hp: 6, max_hp: 6, attack: 2, move_speed: 2.0, attack_speed: 0.6 })
     .with(Glyph::recolor_sprite(
       "textures/space_qud/mushroom.png", 'm',
@@ -1135,10 +1127,7 @@ impl Object {
 
   pub const GRENADE_THROWER: Self = Self::ENEMY_BASE
     .with(CreatureKind::Human)
-    .with(Named {
-      name: "Grenadier",
-      flavor: "A wiry soldier bristling with grenades. Keeps its distance."
-    })
+    .with(Named::s("Grenadier", "A wiry soldier bristling with grenades. Keeps its distance."))
     .with(Stats { hp: 8, max_hp: 8, attack: 2, move_speed: 2.0, attack_speed: 0.8 })
     .with(Glyph::recolor_sprite(
       "textures/space_qud/gunman .png",
@@ -1153,10 +1142,7 @@ impl Object {
 
   pub const GUNMAN: Self = Self::ENEMY_BASE
     .with(CreatureKind::Human)
-    .with(Named {
-      name: "Gunman",
-      flavor: "A sharp-eyed mercenary with a revolver. Shoots first."
-    })
+    .with(Named::s("Gunman", "A sharp-eyed mercenary with a revolver. Shoots first."))
     .with(Stats { hp: 8, max_hp: 8, attack: 3, move_speed: 2.0, attack_speed: 1.0 })
     .with(Glyph::recolor_sprite(
       "textures/space_qud/gunman .png",
@@ -1171,10 +1157,7 @@ impl Object {
 
   pub const ROBOT_DOG: Self = Self::ENEMY_BASE
     .with(CreatureKind::Robot)
-    .with(Named {
-      name: "Guard Dog",
-      flavor: "A battered patrol drone on four legs. Its mounted gun tracks movement."
-    })
+    .with(Named::s("Guard Dog", "A battered patrol drone on four legs. Its mounted gun tracks movement."))
     .with(Stats { hp: 10, max_hp: 10, attack: 2, move_speed: 3.0, attack_speed: 1.0 })
     .with(Glyph::recolor_sprite(
       "textures/space_qud/robot dog with gun.png",
@@ -1189,10 +1172,7 @@ impl Object {
 
   pub const TURRET: Self = Self::ENEMY_BASE
     .with(CreatureKind::Robot)
-    .with(Named {
-      name: "Turret",
-      flavor: "A ceiling-mounted autoturret. It can't move, but its tracking is relentless.",
-    })
+    .with(Named::s("Turret", "A ceiling-mounted autoturret. It can't move, but its tracking is relentless."))
     .with(Stats { hp: 12, max_hp: 12, attack: 1, move_speed: 0.0, attack_speed: 1.0 })
     .with(Glyph::recolor_sprite(
       "textures/space_qud/turret1.png", 't',
@@ -1204,10 +1184,7 @@ impl Object {
 
   pub const POLYCHROMATIC_SHEEP: Self = Self::NPC_BASE
     .with(CreatureKind::Alien)
-    .with(Named {
-      name: "Polychromatic Sheep",
-      flavor: "Its wool blazes with impossible color, shifting through the spectrum like oil on water. What you see is not what it is.",
-    })
+    .with(Named::s("Polychromatic Sheep", "Its wool blazes with impossible color, shifting through the spectrum like oil on water. What you see is not what it is."))
     .with(Stats { hp: 7, max_hp: 7, attack: 2, move_speed: 1.5, attack_speed: 1.0 })
     .with(Glyph::recolor_sprite(
       "textures/space_qud/sheep.png", 's',
@@ -1234,10 +1211,7 @@ impl Object {
       Color::srgb(0.92, 0.82, 0.62),
       Color::srgb(0.52, 0.36, 0.26)
     ))
-    .with(Named {
-      name: "Space cat",
-      flavor: "Judges your piloting from a warm bulkhead. Offers no corrections."
-    });
+    .with(Named::s("Space cat", "Judges your piloting from a warm bulkhead. Offers no corrections."));
 
   pub const BOULDER: Self = Self::STRUCTURE
     .with(Glyph::recolor_sprite(
@@ -1246,7 +1220,7 @@ impl Object {
       Color::srgb(0.32, 0.30, 0.28),
       Color::srgb(0.58, 0.55, 0.50)
     ))
-    .with(Named { name: "Boulder", flavor: "A massive rock. Immovable." });
+    .with(Named::s("Boulder", "A massive rock. Immovable."));
 
   pub const THRUSTER: Self = Self::STRUCTURE
     .with(Glyph::recolor_sprite(
@@ -1255,10 +1229,7 @@ impl Object {
       Color::srgb(0.72, 0.38, 0.08),
       Color::srgb(0.75, 0.75, 0.72)
     ))
-    .with(Named {
-      name: "Thruster",
-      flavor: "A directional thruster assembly. Keeps the ship moving."
-    });
+    .with(Named::s("Thruster", "A directional thruster assembly. Keeps the ship moving."));
 
   pub const SPORE_CLOUD: Self = Self::EMPTY
     .with(Collidable(false))
@@ -1268,10 +1239,7 @@ impl Object {
       Color::srgb(0.30, 0.72, 0.22),
       Color::srgb(0.18, 0.48, 0.12)
     ))
-    .with(Named {
-      name: "Spore Cloud",
-      flavor: "A drifting cloud of toxic fungal spores."
-    })
+    .with(Named::s("Spore Cloud", "A drifting cloud of toxic fungal spores."))
     .with(DamageCloud {
       damage_per_tick: 1,
       ticks_remaining: 4,
@@ -1287,7 +1255,7 @@ impl Object {
       Color::srgb(0.95, 0.55, 0.10),
       Color::srgb(0.72, 0.22, 0.06)
     ))
-    .with(Named { name: "Explosion", flavor: "Roiling flame and shrapnel." })
+    .with(Named::s("Explosion", "Roiling flame and shrapnel."))
     .with(DamageCloud {
       damage_per_tick: 3,
       ticks_remaining: 2,
@@ -1303,7 +1271,7 @@ impl Object {
       Color::srgb(0.55, 0.85, 1.0),
       Color::srgb(0.25, 0.55, 0.85)
     ))
-    .with(Named { name: "Frost Burst", flavor: "A shattering wave of crystallized air." })
+    .with(Named::s("Frost Burst", "A shattering wave of crystallized air."))
     .with(DamageCloud {
       damage_per_tick: 2,
       ticks_remaining: 3,
@@ -1319,7 +1287,7 @@ impl Object {
       Color::srgb(1.0, 0.92, 0.4),
       Color::srgb(0.9, 0.7, 0.1)
     ))
-    .with(Named { name: "Lightning Strike", flavor: "Arcing bolts that leave the air tasting of copper." })
+    .with(Named::s("Lightning Strike", "Arcing bolts that leave the air tasting of copper."))
     .with(DamageCloud {
       damage_per_tick: 5,
       ticks_remaining: 1,
@@ -1335,7 +1303,7 @@ impl Object {
       Color::srgb(0.6, 0.2, 0.9),
       Color::srgb(0.3, 0.05, 0.5)
     ))
-    .with(Named { name: "Void Tear", flavor: "A bruise in space that pulls at everything nearby." })
+    .with(Named::s("Void Tear", "A bruise in space that pulls at everything nearby."))
     .with(DamageCloud {
       damage_per_tick: 2,
       ticks_remaining: 4,
@@ -1350,10 +1318,7 @@ impl Object {
       Color::srgb(0.18, 0.08, 0.52),
       Color::srgb(0.42, 0.82, 0.98)
     ))
-    .with(Named {
-      name: "Laser Sword",
-      flavor: "An energy blade, dormant. Still hums faintly."
-    });
+    .with(Named::s("Laser Sword", "An energy blade, dormant. Still hums faintly."));
 
   pub const TABLE: Self = Self::STRUCTURE
     .with(Glyph::recolor_sprite(
@@ -1362,7 +1327,7 @@ impl Object {
       Color::srgb(0.48, 0.34, 0.18),
       Color::srgb(0.72, 0.58, 0.36)
     ))
-    .with(Named { name: "Table", flavor: "A sturdy table." });
+    .with(Named::s("Table", "A sturdy table."));
 
   pub const CHAIR: Self = Self::STRUCTURE_PASSABLE
     .with(Glyph::recolor_sprite(
@@ -1371,7 +1336,7 @@ impl Object {
       Color::srgb(0.60, 0.62, 0.65),
       Color::srgb(0.72, 0.18, 0.14)
     ))
-    .with(Named { name: "Chair", flavor: "A chair. Something to sit on." });
+    .with(Named::s("Chair", "A chair. Something to sit on."));
 
   pub const LOCKER: Self = Self::STRUCTURE
     .with(Glyph::recolor_sprite(
@@ -1380,10 +1345,7 @@ impl Object {
       Color::srgb(0.32, 0.38, 0.42),
       Color::srgb(0.62, 0.68, 0.72)
     ))
-    .with(Named {
-      name: "Locker",
-      flavor: "A metal locker. Whatever was inside is long gone."
-    });
+    .with(Named::s("Locker", "A metal locker. Whatever was inside is long gone."));
 
   pub const CRATE_OBJ: Self = Self::STRUCTURE
     .with(Glyph::recolor_sprite(
@@ -1392,7 +1354,7 @@ impl Object {
       Color::srgb(0.42, 0.32, 0.18),
       Color::srgb(0.72, 0.60, 0.38)
     ))
-    .with(Named { name: "Crate", flavor: "A battered storage crate. Probably empty." });
+    .with(Named::s("Crate", "A battered storage crate. Probably empty."));
 
   pub const DOOR: Self = Self::STRUCTURE
     .with(Glyph::recolor_sprite(
@@ -1401,7 +1363,7 @@ impl Object {
       DOOR_CLOSED_PRI,
       DOOR_CLOSED_SEC
     ))
-    .with(Named { name: "Door", flavor: "Press Space to open." })
+    .with(Named::s("Door", "Press Space to open."))
     .with(BlocksSight)
     .with(Door { open: false, closed_color: DOOR_CLOSED_PRI });
 
@@ -1421,10 +1383,7 @@ impl Object {
       Color::srgb(0.18, 0.34, 0.52),
       Color::srgb(0.32, 0.88, 0.45)
     ))
-    .with(Named {
-      name: "Flight Console",
-      flavor: "Navigation computer. Plot a course to a destination."
-    })
+    .with(Named::s("Flight Console", "Navigation computer. Plot a course to a destination."))
     .with(FlightConsole);
 
   pub const LOADOUT_CONSOLE: Self = Self::STRUCTURE
@@ -1434,10 +1393,7 @@ impl Object {
       Color::srgb(0.25, 0.38, 0.52),
       Color::srgb(0.55, 0.75, 0.88)
     ))
-    .with(Named {
-      name: "Loadout Console",
-      flavor: "Manage your equipped weapon and armor from your collected gear."
-    })
+    .with(Named::s("Loadout Console", "Manage your equipped weapon and armor from your collected gear."))
     .with(LoadoutConsole);
 
   pub const LOOT_CHEST: Self = Self::STRUCTURE
@@ -1447,7 +1403,7 @@ impl Object {
       Color::srgb(0.72, 0.52, 0.28),
       Color::srgb(0.42, 0.32, 0.22)
     ))
-    .with(Named { name: "Chest", flavor: "Someone stashed supplies here." })
+    .with(Named::s("Chest", "Someone stashed supplies here."))
     .with(LootChest { opened: false });
 
   pub const BED: Self = Self::STRUCTURE
@@ -1457,10 +1413,7 @@ impl Object {
       Color::srgb(0.52, 0.38, 0.22),
       Color::srgb(0.88, 0.84, 0.72)
     ))
-    .with(Named {
-      name: "Bed",
-      flavor: "A place to sleep. Looks like it hasn't been used in a while."
-    })
+    .with(Named::s("Bed", "A place to sleep. Looks like it hasn't been used in a while."))
     .with(Bed)
     .with(ShowOnCompass);
 
@@ -1471,10 +1424,7 @@ impl Object {
       Color::srgb(0.38, 0.42, 0.48),
       Color::srgb(0.62, 0.62, 0.62)
     ))
-    .with(Named {
-      name: "Crafting Table",
-      flavor: "A workbench for assembling equipment from salvaged parts."
-    })
+    .with(Named::s("Crafting Table", "A workbench for assembling equipment from salvaged parts."))
     .with(CraftingTable);
 
   // ---- const fn factories (take args, only .with()) ----
@@ -1487,7 +1437,7 @@ impl Object {
         primary,
         secondary
       ))
-      .with(Named { name, flavor: "A large fungal growth rooted in the alien soil." })
+      .with(Named { name: Cow::Borrowed(name), flavor: Cow::Borrowed("A large fungal growth rooted in the alien soil.") })
   }
 
   pub const fn torch(radius: u32) -> Self { Self::EMPTY.with(LightSource { radius }) }
@@ -1527,10 +1477,7 @@ impl Object {
         Color::srgb(0.28, 0.42, 0.52),
         Color::srgb(0.52, 0.75, 0.88)
       ))
-      .with(Named {
-        name: "Supply Cache",
-        flavor: "A sealed cache. Whoever left this behind had plans they didn't finish."
-      })
+      .with(Named::s("Supply Cache", "A sealed cache. Whoever left this behind had plans they didn't finish."))
       .with(LootChest { opened: false })
       .with(FixedChestLoot(contents))
   }
@@ -1544,7 +1491,7 @@ impl Object {
       Color::srgb(0.14, 0.42, 0.16),
       Color::srgb(0.38, 0.62, 0.24)
     ))
-    .with(Named { name: "Tree", flavor: "A sturdy tree. Could be chopped for wood." })
+    .with(Named::s("Tree", "A sturdy tree. Could be chopped for wood."))
     .with(BlocksSight)
     .with(Tree);
 
@@ -1555,7 +1502,7 @@ impl Object {
       Color::srgb(0.14, 0.42, 0.16),
       Color::srgb(0.38, 0.62, 0.24)
     ))
-    .with(Named { name: "Tree", flavor: "A sturdy tree. Could be chopped for wood." })
+    .with(Named::s("Tree", "A sturdy tree. Could be chopped for wood."))
     .with(BlocksSight)
     .with(Tree);
 
@@ -1571,7 +1518,7 @@ impl Object {
         Color::srgb(0.42, 0.46, 0.50),
         Color::srgb(1.0, 0.85, 0.10)
       ))
-      .with(Named { name: "Elevator", flavor: "Vertical transport. Choose a deck." })
+      .with(Named::s("Elevator", "Vertical transport. Choose a deck."))
       .with(Elevator { current_z, floors: Cow::Owned(floors) })
       .with(ShowOnCompass)
   }
@@ -1584,7 +1531,7 @@ impl Object {
         Color::srgb(0.35, 0.32, 0.28),
         Color::srgb(0.55, 0.50, 0.40)
       ))
-      .with(Named { name: "Cave Entrance", flavor: "A dark opening leads underground." })
+      .with(Named::s("Cave Entrance", "A dark opening leads underground."))
       .with(Elevator {
         current_z: 0,
         floors: Cow::Owned(vec![(0, surface_x, surface_y), (1, cave_x, cave_y)])
@@ -1600,7 +1547,7 @@ impl Object {
         Color::srgb(0.55, 0.50, 0.40),
         Color::srgb(0.35, 0.32, 0.28)
       ))
-      .with(Named { name: "Cave Exit", flavor: "Daylight filters in from above." })
+      .with(Named::s("Cave Exit", "Daylight filters in from above."))
       .with(Elevator {
         current_z: 1,
         floors: Cow::Owned(vec![(0, surface_x, surface_y), (1, cave_x, cave_y)])
@@ -1617,10 +1564,7 @@ impl Object {
         Color::srgb(0.28, 0.25, 0.22),
         Color::srgb(0.48, 0.42, 0.34)
       ))
-      .with(Named {
-        name: "Descending Passage",
-        flavor: "A narrow shaft winds down into deeper dark."
-      })
+      .with(Named::s("Descending Passage", "A narrow shaft winds down into deeper dark."))
       .with(Elevator {
         current_z: z,
         floors: Cow::Owned(vec![(z, x, y), (z + 1, below_x, below_y)])
@@ -1637,10 +1581,7 @@ impl Object {
         Color::srgb(0.48, 0.42, 0.34),
         Color::srgb(0.28, 0.25, 0.22)
       ))
-      .with(Named {
-        name: "Ascending Passage",
-        flavor: "Cooler air drifts down from the level above."
-      })
+      .with(Named::s("Ascending Passage", "Cooler air drifts down from the level above."))
       .with(Elevator {
         current_z: z + 1,
         floors: Cow::Owned(vec![(z, x, y), (z + 1, below_x, below_y)])

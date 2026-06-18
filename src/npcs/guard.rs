@@ -42,10 +42,7 @@ static DIALOGUE: DialogueTree = dialogue_tree(&[
 
 pub fn guard() -> Object {
   Object::as_follower(Object::defined_npc(
-    Named {
-      name: "Guard",
-      flavor: "A tired-looking guard leaning on a sword. Seems like he'd rather be elsewhere."
-    },
+    Named::s("Guard", "A tired-looking guard leaning on a sword. Seems like he'd rather be elsewhere."),
     Stats { hp: 10, max_hp: 10, attack: 3, move_speed: 3.0, attack_speed: 1.0 },
     Loadout::new(vec![
       GearSlot::passive(Gear::Weapon(crate::level::Item::IronSword)),

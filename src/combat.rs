@@ -23,7 +23,7 @@ pub struct TileEntityIndex(pub HashMap<(i32, i32, usize), Vec<Entity>>);
 
 pub fn maintain_tile_index(
   mut index: ResMut<TileEntityIndex>,
-  query: Query<(Entity, &Location), Without<crate::Player>>
+  query: Query<(Entity, &Location)>
 ) {
   index.0.clear();
   for (entity, location) in query.iter() {
@@ -366,7 +366,7 @@ pub fn enemy_ai(
       if dist == 1 && timer.attack >= atk_fr {
         let dmg = resolve_damage(enemy_stats.attack, player_loadout.armor_dr());
         player_stats.hp = (player_stats.hp - dmg).max(0);
-        let name = enemy_named.map(|n| n.name).unwrap_or("Something");
+        let name = enemy_named.map(|n| n.name.as_ref()).unwrap_or("Something");
         if dmg > 0 {
           log_message(&mut log, format!("{name} hits you for {dmg}."));
         } else {
@@ -477,7 +477,7 @@ pub fn mushroom_spore_attack(
       && slot.timer >= slot.cooldown
     {
       slot.timer = 0;
-      let name = named.map(|n| n.name).unwrap_or("Something");
+      let name = named.map(|n| n.name.as_ref()).unwrap_or("Something");
       log_message(&mut log, format!("{name} releases a cloud of spores!"));
       spawn_cloud_area(&mut commands, ex, ey, ez, Object::SPORE_CLOUD, &SPORE_CLOUD_OFFSETS);
     }
@@ -504,7 +504,7 @@ pub fn grenade_thrower_ai(
       && slot.timer >= slot.cooldown
     {
       slot.timer = 0;
-      let name = named.map(|n| n.name).unwrap_or("Something");
+      let name = named.map(|n| n.name.as_ref()).unwrap_or("Something");
       log_message(&mut log, format!("{name} hurls a grenade!"));
       let from = Vec2::new(ex as f32 + 0.5, ey as f32 + 0.5);
       let to   = Vec2::new(px as f32 + 0.5, py as f32 + 0.5);
@@ -553,7 +553,7 @@ pub fn gun_attacker_ai(
         && let Some((aim_x, aim_y)) = euclidean_los_point(ex as f32 + 0.5, ey as f32 + 0.5, px, py, level)
       {
         slot.timer = 0;
-        let name = named.map(|n| n.name).unwrap_or("Something");
+        let name = named.map(|n| n.name.as_ref()).unwrap_or("Something");
         log_message(&mut log, format!("{name} fires at you!"));
         let dmg = (damage - player_dr).max(0);
         spawn_gun_bullet(&mut commands, &effects, ex, ey, aim_x, aim_y, dmg, false, ez, level.width, level.height);
@@ -611,7 +611,7 @@ pub fn advance_gun_bullets(
         if let Ok((mut stats, named, is_player)) = stats_q.get_mut(e) {
           stats.hp = (stats.hp - bullet.damage).max(0);
           if bullet.is_player {
-            log_message(&mut log, format!("You shoot {} for {}!", named.map(|n| n.name).unwrap_or("it"), bullet.damage));
+            log_message(&mut log, format!("You shoot {} for {}!", named.map(|n| n.name.as_ref()).unwrap_or("it"), bullet.damage));
           } else if is_player {
             log_message(&mut log, format!("The bullet hits you for {}!", bullet.damage));
             if stats.hp == 0 {
@@ -713,7 +713,7 @@ pub fn damage_cloud_tick(
           if let Ok((mut stats, is_player)) = stats_q.get_mut(ent) {
             stats.hp = (stats.hp - cloud.damage_per_tick).max(0);
             if is_player {
-              let source = source_name.map(|n| n.name).unwrap_or("Something");
+              let source = source_name.map(|n| n.name.as_ref()).unwrap_or("Something");
               log_message(&mut log, format!("{source} damages you for {}.", cloud.damage_per_tick));
             }
           }
@@ -755,7 +755,7 @@ pub fn tick_invisible(
   for (entity, mut invis, named) in invis_q.iter_mut() {
     if invis.0 <= 1 {
       commands.entity(entity).remove::<Invisible>();
-      let name = named.map(|n| n.name).unwrap_or("You");
+      let name = named.map(|n| n.name.as_ref()).unwrap_or("You");
       log_message(&mut log, format!("{name} shimmer back into visibility."));
     } else {
       invis.0 -= 1;
@@ -803,7 +803,7 @@ pub fn enemy_stealth_ai(
         }
       }
       commands.entity(entity).insert(Invisible(20));
-      let name = named.map(|n| n.name).unwrap_or("Something");
+      let name = named.map(|n| n.name.as_ref()).unwrap_or("Something");
       log_message(&mut log, format!("{name} activates a stealth device!"));
     }
   }
