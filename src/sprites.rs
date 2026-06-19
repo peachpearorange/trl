@@ -360,16 +360,23 @@ pub fn build_tileset(images: &mut Assets<Image>) -> TilesetInfo {
       TileSelect::Single
     } else {
       match tile.render_mode() {
-        TileRenderMode::SolidColor => {
-          let [r, g, b] = tile.color();
-          let px = [
-            (r * 255.0).round() as u8,
-            (g * 255.0).round() as u8,
-            (b * 255.0).round() as u8,
-            255u8
+        TileRenderMode::CharWithBackgroundColor(fg, bg) => {
+          let ch = tile.glyph().chars().next().unwrap_or(' ');
+          let mask = render_char_image(ch);
+          let fg = [
+            (fg[0] * 255.0).round() as u8,
+            (fg[1] * 255.0).round() as u8,
+            (fg[2] * 255.0).round() as u8
           ];
-          for _ in 0..(s * s) {
-            data.extend_from_slice(&px);
+          let bg = [
+            (bg[0] * 255.0).round() as u8,
+            (bg[1] * 255.0).round() as u8,
+            (bg[2] * 255.0).round() as u8
+          ];
+          for px in mask.chunks_exact(4) {
+            let ink = px[3] >= 128;
+            let c = if ink { fg } else { bg };
+            data.extend_from_slice(&[c[0], c[1], c[2], 255u8]);
           }
           current_layer += 1;
           TileSelect::Single

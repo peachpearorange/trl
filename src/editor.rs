@@ -816,7 +816,7 @@ fn build_tile_cache(
     |tile| {
       let extract = |rm: TileRenderMode| -> Option<(&'static str, [f32; 3], [f32; 3])> {
         match rm {
-          TileRenderMode::SolidColor => None,
+          TileRenderMode::CharWithBackgroundColor(_, _) => None,
           TileRenderMode::Sprite(p, a, b) => Some((p, a, b)),
           TileRenderMode::SpritePackRandom(ps, a, b) => Some((ps[0], a, b)),
           TileRenderMode::ConnectedSprite(ps, a, b) => Some((ps[0], a, b)),

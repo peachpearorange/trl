@@ -1423,24 +1423,7 @@ pub fn generate() -> Location {
 mod tests {
   use {super::*, std::collections::VecDeque};
 
-  fn glyph_for(tile: Tile) -> char {
-    match tile {
-      Tile::DeepWater => '~',
-      Tile::IceFloor => '-',
-      Tile::BrightGround => ' ',
-      Tile::Ground => ':',
-      Tile::SmallRocks => 'o',
-      Tile::IceWall => '▒',
-      Tile::CaveWall => '▓',
-      Tile::CaveFloor => '·',
-      Tile::CrystalFormation => '*',
-      Tile::WoodWall => '#',
-      Tile::WoodFloor | Tile::WoodTile => '.',
-      Tile::Fence => '+',
-      Tile::ShipDock => 'D',
-      _ => '?'
-    }
-  }
+  fn glyph_for(tile: Tile) -> char { tile.glyph().chars().next().unwrap_or(' ') }
 
   #[test]
   fn builds_glacial_terrain_village_and_cellar() {

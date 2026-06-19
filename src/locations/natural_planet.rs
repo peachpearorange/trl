@@ -731,21 +731,7 @@ pub fn place_ship_dock(level: &mut Level, fill: Tile) -> (i32, i32) {
 mod tests {
   use super::*;
 
-  fn glyph_for(tile: Tile) -> char {
-    match tile {
-      Tile::DeepWater => '~',
-      Tile::ShallowWater => '≈',
-      Tile::Sand => '.',
-      Tile::Grass => ',',
-      Tile::TallGrass => '"',
-      Tile::Ground => ':',
-      Tile::SmallRocks => 'o',
-      Tile::CaveWall => '▓',
-      Tile::CaveFloor => '·',
-      Tile::ShipDock => 'D',
-      _ => '?'
-    }
-  }
+  fn glyph_for(tile: Tile) -> char { tile.glyph().chars().next().unwrap_or(' ') }
 
   #[test]
   fn renders_ascii() {
