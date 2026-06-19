@@ -989,35 +989,33 @@ fn main() {
     .add_systems(
       Update,
       (
-        ApplyDeferred,
-        enemy_death_check,
-        compute_flow_field,
-        enemy_ai,
-        mushroom_spore_attack,
-        grenade_thrower_ai,
-        gun_attacker_ai,
-        enemy_stealth_ai,
-        tick_grabbed,
-        tick_invisible,
-        tick_phasing,
-        tick_grenade_in_flight,
-        advance_gun_bullets,
-        damage_cloud_tick,
-        player_death_check
-      )
-        .chain()
-        .run_if(is_sim_frame)
-        .in_set(WorldStep)
-    )
-    .add_systems(
-      Update,
-      (
-        npc_wander,
-        follower_ai,
-        abilities::tick_cooldowns,
-        abilities::advance_pending_fire,
-        record_sim_ran,
-        maintain_tile_index
+        (
+          ApplyDeferred,
+          enemy_death_check,
+          compute_flow_field,
+          enemy_ai,
+          mushroom_spore_attack,
+          grenade_thrower_ai,
+          gun_attacker_ai,
+          enemy_stealth_ai,
+          tick_grabbed,
+          tick_invisible,
+          tick_phasing,
+          tick_grenade_in_flight,
+          advance_gun_bullets,
+          damage_cloud_tick,
+          player_death_check
+        )
+          .chain(),
+        (
+          npc_wander,
+          follower_ai,
+          abilities::tick_cooldowns,
+          abilities::advance_pending_fire,
+          record_sim_ran,
+          maintain_tile_index
+        )
+          .chain()
       )
         .chain()
         .run_if(is_sim_frame)
