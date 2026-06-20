@@ -404,10 +404,8 @@ pub struct CreatorOptionIndex(pub CreatorOption);
 /// Selectable rows in the character creator overlay.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CreatorOption {
-  /// Starting item choice by index into [`STARTING_ITEMS`].
-  Item(usize),
-  /// Special ability choice by index into [`SPECIAL_ABILITIES`].
-  Ability(usize),
+  /// Choice by index into [`STARTING_CHOICES`].
+  Choice(usize),
   /// Confirm and begin play.
   Confirm
 }
@@ -417,46 +415,22 @@ pub enum CreatorOption {
 #[derive(Resource, Default, Clone, PartialEq, Eq)]
 pub struct CreatorName(pub String);
 
-/// Mutable character-creator selection state. Drives the item/ability row highlight
-/// signals and is read by [`apply_character_creator`] on confirm.
+/// Mutable character-creator selection state. Drives the row highlight signals
+/// and is read by [`apply_character_creator`] on confirm.
 #[derive(Resource, Clone, Default, PartialEq, Eq)]
 pub struct CharacterCreatorData {
-  /// Cursor position in the item list (navigated with W/S).
-  pub cursor_item: usize,
-  /// Toggled item selections (up to [`MAX_STARTING_ITEMS`]).
-  pub selected_items: Vec<usize>,
-  /// Selected special ability (navigated with A/D).
-  pub selected_ability: usize
+  pub cursor: usize,
+  /// Toggled selections (up to [`MAX_STARTING_PICKS`]).
+  pub selected: Vec<usize>,
 }
 
-/// Maximum number of starting items the player may pick.
-pub const MAX_STARTING_ITEMS: usize = 3;
-
-/// Starting item choices offered in the character creator.
-pub const STARTING_ITEMS: &[Item] = &[
-  Item::HealthPotion,
-  Item::FragGrenade,
-  Item::StimPack,
-  Item::CannedGoods,
-  Item::Torch
-];
-
-/// Special ability archetypes offered in the character creator.
-/// Each grants a distinct starting loadout piece.
-pub const SPECIAL_ABILITIES: &[SpecialAbility] = &[
-  SpecialAbility { name: "Soldier",   flavor: "+ Pipe Revolver — ranged firearm",       item: Item::PipeRevolver,  equip: SpecialEquip::Weapon },
-  SpecialAbility { name: "Scout",     flavor: "+ Stealth Device — go invisible",        item: Item::StealthDevice, equip: SpecialEquip::Device },
-  SpecialAbility { name: "Grenadier", flavor: "+ Frag Grenades — explosive throws",     item: Item::FragGrenade,   equip: SpecialEquip::Grenade },
-  SpecialAbility { name: "Brawler",   flavor: "+ Copper Knife — melee strikes",         item: Item::CopperKnife,   equip: SpecialEquip::Weapon },
-  SpecialAbility { name: "Survivor",  flavor: "+ Phase Device — teleport out of danger", item: Item::PhaseDevice,   equip: SpecialEquip::Device }
-];
+/// Maximum number of starting choices the player may pick.
+pub const MAX_STARTING_PICKS: usize = 3;
 
 #[derive(Clone, Copy)]
-pub struct SpecialAbility {
-  pub name: &'static str,
-  pub flavor: &'static str,
+pub struct StartingChoice {
   pub item: Item,
-  pub equip: SpecialEquip
+  pub equip: Option<SpecialEquip>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -465,6 +439,28 @@ pub enum SpecialEquip {
   Device,
   Grenade
 }
+
+impl SpecialEquip {
+  fn equip(self, loadout: &mut Loadout, item: Item) {
+    match self {
+      Self::Weapon => loadout.equip_weapon(item),
+      Self::Device => loadout.equip_device(item),
+      Self::Grenade => loadout.equip_grenade(item),
+    }
+  }
+}
+
+pub const STARTING_CHOICES: &[StartingChoice] = &[
+  StartingChoice { item: Item::PipeRevolver,  equip: Some(SpecialEquip::Weapon) },
+  StartingChoice { item: Item::StealthDevice, equip: Some(SpecialEquip::Device) },
+  StartingChoice { item: Item::FragGrenade,   equip: Some(SpecialEquip::Grenade) },
+  StartingChoice { item: Item::CopperKnife,   equip: Some(SpecialEquip::Weapon) },
+  StartingChoice { item: Item::PhaseDevice,   equip: Some(SpecialEquip::Device) },
+  StartingChoice { item: Item::HealthPotion,  equip: None },
+  StartingChoice { item: Item::StimPack,      equip: None },
+  StartingChoice { item: Item::CannedGoods,   equip: None },
+  StartingChoice { item: Item::Torch,         equip: None },
+];
 
 #[derive(Resource)]
 pub struct CurrentZone(pub active_zone::ActiveZone);
@@ -2104,50 +2100,109 @@ fn detect_creator_clicks(
   for (interaction, idx) in &button_q {
     if *interaction == Interaction::Pressed {
       match idx.0 {
-        CreatorOption::Item(i) => {
-          data.cursor_item = i;
-          if let Some(pos) = data.selected_items.iter().position(|&x| x == i) {
-            data.selected_items.remove(pos);
-          } else if data.selected_items.len() < MAX_STARTING_ITEMS {
-            data.selected_items.push(i);
+        CreatorOption::Choice(i) => {
+          data.cursor = i;
+          if let Some(pos) = data.selected.iter().position(|&x| x == i) {
+            data.selected.remove(pos);
+          } else if data.selected.len() < MAX_STARTING_PICKS {
+            data.selected.push(i);
           }
         }
-        CreatorOption::Ability(i) => data.selected_ability = i,
         CreatorOption::Confirm => pending.0 = Some(CreatorOption::Confirm)
       }
     }
   }
 }
 
-/// Keyboard navigation for the creator: W/S moves item cursor, Space/Enter toggles
-/// item selection (up to [`MAX_STARTING_ITEMS`]), A/D cycles the special ability,
-/// Tab confirms. Mirrors the in-game menu navigation feel.
 fn handle_creator_keys(
   keys: Res<ButtonInput<KeyCode>>,
+  mut kb_events: MessageReader<bevy::input::keyboard::KeyboardInput>,
   mut data: ResMut<CharacterCreatorData>,
+  mut name: ResMut<CreatorName>,
   mut pending: ResMut<CreatorClickPending>,
-  ui: Res<UiState>
+  mut ui: ResMut<UiState>
 ) {
   if !ui.creator_open {
     return;
   }
-  if keys.just_pressed(KeyCode::KeyW) || keys.just_pressed(KeyCode::ArrowUp) {
-    data.cursor_item = data.cursor_item.checked_sub(1).unwrap_or(STARTING_ITEMS.len() - 1);
-  } else if keys.just_pressed(KeyCode::KeyS) || keys.just_pressed(KeyCode::ArrowDown) {
-    data.cursor_item = (data.cursor_item + 1) % STARTING_ITEMS.len();
-  } else if keys.just_pressed(KeyCode::KeyA) || keys.just_pressed(KeyCode::ArrowLeft) {
-    data.selected_ability = data.selected_ability.checked_sub(1).unwrap_or(SPECIAL_ABILITIES.len() - 1);
-  } else if keys.just_pressed(KeyCode::KeyD) || keys.just_pressed(KeyCode::ArrowRight) {
-    data.selected_ability = (data.selected_ability + 1) % SPECIAL_ABILITIES.len();
-  } else if keys.just_pressed(KeyCode::Space) {
-    let i = data.cursor_item;
-    if let Some(pos) = data.selected_items.iter().position(|&x| x == i) {
-      data.selected_items.remove(pos);
-    } else if data.selected_items.len() < MAX_STARTING_ITEMS {
-      data.selected_items.push(i);
+  let n = STARTING_CHOICES.len();
+
+  let up_just = keys.just_pressed(KeyCode::ArrowUp);
+  let down_just = keys.just_pressed(KeyCode::ArrowDown);
+  let up_held = keys.pressed(KeyCode::ArrowUp);
+  let down_held = keys.pressed(KeyCode::ArrowDown);
+
+  const NAV_INITIAL_DELAY: u32 = 8;
+  const NAV_REPEAT_RATE: u32 = 1;
+
+  let do_up = if up_just {
+    ui.menu_nav_dir = -1;
+    ui.menu_nav_frames = NAV_INITIAL_DELAY;
+    true
+  } else if up_held && ui.menu_nav_dir == -1 {
+    if ui.menu_nav_frames == 0 {
+      ui.menu_nav_frames = NAV_REPEAT_RATE;
+      true
+    } else {
+      ui.menu_nav_frames -= 1;
+      false
     }
-  } else if keys.just_pressed(KeyCode::Tab) || keys.just_pressed(KeyCode::Enter) {
+  } else {
+    false
+  };
+
+  let do_down = if down_just {
+    ui.menu_nav_dir = 1;
+    ui.menu_nav_frames = NAV_INITIAL_DELAY;
+    true
+  } else if down_held && ui.menu_nav_dir == 1 {
+    if ui.menu_nav_frames == 0 {
+      ui.menu_nav_frames = NAV_REPEAT_RATE;
+      true
+    } else {
+      ui.menu_nav_frames -= 1;
+      false
+    }
+  } else {
+    false
+  };
+
+  if !up_held && !down_held {
+    ui.menu_nav_dir = 0;
+    ui.menu_nav_frames = 0;
+  }
+
+  if do_up {
+    data.cursor = data.cursor.checked_sub(1).unwrap_or(n - 1);
+  } else if do_down {
+    data.cursor = (data.cursor + 1) % n;
+  } else if keys.just_pressed(KeyCode::Space) || keys.just_pressed(KeyCode::Enter) {
+    let i = data.cursor;
+    if let Some(pos) = data.selected.iter().position(|&x| x == i) {
+      data.selected.remove(pos);
+    } else if data.selected.len() < MAX_STARTING_PICKS {
+      data.selected.push(i);
+    }
+  } else if keys.just_pressed(KeyCode::Tab) {
     pending.0 = Some(CreatorOption::Confirm);
+  }
+
+  for ev in kb_events.read() {
+    if ev.state != bevy::input::ButtonState::Pressed {
+      continue;
+    }
+    if ev.key_code == KeyCode::Backspace {
+      name.0.pop();
+    } else if let Some(ref text) = ev.text
+      && !text.is_empty()
+      && ev.key_code != KeyCode::Space
+      && ev.key_code != KeyCode::Enter
+      && ev.key_code != KeyCode::Tab
+      && ev.key_code != KeyCode::Escape
+      && name.0.len() < 20
+    {
+      name.0.push_str(text);
+    }
   }
 }
 
@@ -2180,22 +2235,14 @@ fn apply_character_creator(
     flavor: Cow::Borrowed("You. A newcomer waking on the Origin World.")
   });
 
-  // Starting items.
-  for &i in &data.selected_items {
-    if let Some(&item) = STARTING_ITEMS.get(i) {
-      *inventory.0.entry(item).or_insert(0) += 1;
+  for &i in &data.selected {
+    if let Some(choice) = STARTING_CHOICES.get(i) {
+      *inventory.0.entry(choice.item).or_insert(0) += 1;
+      if let Some(equip) = choice.equip {
+        equip.equip(&mut loadout, choice.item);
+      }
     }
   }
-
-  // Special ability loadout piece.
-  let ability = SPECIAL_ABILITIES[data.selected_ability.min(SPECIAL_ABILITIES.len() - 1)];
-  match ability.equip {
-    SpecialEquip::Weapon => loadout.equip_weapon(ability.item),
-    SpecialEquip::Device => loadout.equip_device(ability.item),
-    SpecialEquip::Grenade => loadout.equip_grenade(ability.item)
-  }
-  // Ensure the granted item is also in inventory (so it shows in the inv panel).
-  *inventory.0.entry(ability.item).or_insert(0) += 1;
 
   commands.insert_resource(UiState { creator_open: false, ..Default::default() });
   log_spans(&mut *log, vec![
